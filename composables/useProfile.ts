@@ -13,6 +13,7 @@
 
 import type { AuthData } from '~/types/auth'
 import type { ProfileFormValues, UserProfile } from '~/types/profile'
+import type { MemberRecord } from '~/composables/useMemberApi'
 
 const STORAGE_KEY = 'userProfile'
 // ต้องตรงกับ key ที่ useAuth.ts ใช้เก็บ authData ชั่วคราว เพื่อล้างทิ้งหลังรวมข้อมูลสำเร็จ
@@ -59,24 +60,33 @@ export function useProfile() {
    * ส่วน age/ageRange/createdAt คำนวณ/สร้างที่นี่เสมอ ไม่รับจากภายนอก
    * เพื่อป้องกันข้อมูลไม่ตรงกัน (เช่น ผู้ใช้เปลี่ยนปีเกิดแต่ age ไม่อัปเดต)
    */
-  function saveProfile(values: Required<ProfileFormValues>, auth: AuthData): UserProfile {
+  function saveProfile(values: Required<ProfileFormValues>, auth: AuthData, member?: MemberRecord): UserProfile {
     const age = calculateAge(values.birthYear)
     const ageRange = calculateAgeRange(age)
 
     const fullProfile: UserProfile = {
       loginType: auth.loginType,
       uid: auth.uid,
-      displayName: auth.displayName,
-      pictureUrl: auth.pictureUrl,
+      // ถ้า sync กับ Google Sheet สำเร็จ ให้ใช้ค่าที่ backend ยืนยันแล้วเป็นหลัก
+      // (เผื่อกรณี login ซ้ำด้วยชื่อ-นามสกุล-เบอร์เดิม แต่เชื่อม LINE คนละรอบ)
+      displayName: member?.displayName || auth.displayName,
+      pictureUrl: member?.pictureUrl || auth.pictureUrl,
 
       firstName: values.firstName,
       lastName: values.lastName,
       gender: values.gender,
       birthYear: values.birthYear,
+      phone: values.phone,
       age,
       ageRange,
 
       createdAt: Date.now(),
+
+      memberId: member?.memberId,
+      registerDate: member?.registerDate,
+      lastLogin: member?.lastLogin,
+      point: member?.point ?? 0,
+      totalVisit: member?.totalVisit ?? 1,
     }
 
     if (import.meta.client) {
@@ -86,6 +96,27 @@ export function useProfile() {
     }
     profile.value = fullProfile
     return fullProfile
+  }
+
+  /**
+   * อัปเดตเฉพาะข้อมูลที่มาจาก Google Sheet (point, totalVisit, lastLogin, รูป/ชื่อ LINE)
+   * ทับลงในโปรไฟล์ปัจจุบัน — ใช้ตอนหน้า Home ดึงข้อมูลล่าสุดผ่าน getMember() โดยไม่ต้อง
+   * ให้ผู้ใช้กรอกฟอร์มใหม่ และไม่กระทบ field อื่น (firstName, lastName ฯลฯ)
+   */
+  function refreshFromMember(member: MemberRecord): void {
+    if (!profile.value) return
+    const merged: UserProfile = {
+      ...profile.value,
+      displayName: member.displayName || profile.value.displayName,
+      pictureUrl: member.pictureUrl || profile.value.pictureUrl,
+      lastLogin: member.lastLogin,
+      point: member.point,
+      totalVisit: member.totalVisit,
+    }
+    if (import.meta.client) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(merged))
+    }
+    profile.value = merged
   }
 
   /** ล้างโปรไฟล์ออกจาก LocalStorage (ไว้ใช้ตอนทดสอบ / reset) */
@@ -103,6 +134,7 @@ export function useProfile() {
     // actions
     initProfile,
     saveProfile,
+    refreshFromMember,
     resetProfile,
   }
 }

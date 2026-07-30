@@ -124,6 +124,12 @@ export const profileSchema = z.object({
     .int()
     .min(getCurrentYear() - 100, 'ช่วงอายุไม่ถูกต้อง')
     .max(getCurrentYear() - 10, 'ช่วงอายุไม่ถูกต้อง'),
+  /** เบอร์โทรศัพท์ไทย: รับเฉพาะตัวเลข 0XXXXXXXXX (10 หลัก ขึ้นต้นด้วย 0) */
+  phone: z
+    .string({ required_error: 'กรุณากรอกเบอร์โทรศัพท์' })
+    .trim()
+    .min(1, 'กรุณากรอกเบอร์โทรศัพท์')
+    .regex(/^0\d{9}$/, 'กรุณากรอกเบอร์โทรศัพท์ให้ถูกต้อง (10 หลัก ขึ้นต้นด้วย 0)'),
 })
 
 export type ProfileSchemaOutput = z.output<typeof profileSchema>

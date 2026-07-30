@@ -27,6 +27,7 @@ export interface ProfileFormValues {
   lastName: string
   gender?: Gender
   birthYear?: number
+  phone?: string
 }
 
 /**
@@ -45,8 +46,22 @@ export interface UserProfile {
   lastName: string
   gender: Gender
   birthYear: number
+  phone: string
   age: number
   ageRange: AgeRangeCode
 
   createdAt: number
+
+  /**
+   * ข้อมูลที่มาจาก Google Sheet ผ่าน Google Apps Script API (composables/useMemberApi.ts)
+   * มีค่าเฉพาะเมื่อ sync กับ backend สำเร็จแล้วเท่านั้น (ไม่บังคับ เพื่อไม่ให้พังของเดิม
+   * ถ้ายังไม่ได้ตั้งค่า API_BASE_URL)
+   */
+  memberId?: string
+  registerDate?: string
+  lastLogin?: string
+  /** คะแนนสะสม — ใช้แสดงในหน้า Home/Profile รีเฟรชได้ผ่าน useMemberApi().getMember() */
+  point?: number
+  /** จำนวนครั้งที่เข้าใช้บริการ (นับทุกครั้งที่ login/register สำเร็จ) */
+  totalVisit?: number
 }

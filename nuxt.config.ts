@@ -17,6 +17,9 @@ export default defineNuxtConfig({
       // client ล้วน ๆ (liff.login() + liff.getProfile()) ไม่ต้องแลก token ผ่าน
       // server เอง เหมือน OAuth redirect แบบเดิม
       liffId: process.env.LIFF_ID || '',
+      // Web App URL ของ Google Apps Script (ลงท้ายด้วย /exec)
+      // ดูวิธี deploy ได้ที่ server-gas/README.md
+      apiBaseUrl: process.env.API_BASE_URL || '',
     },
   },
   vite: {

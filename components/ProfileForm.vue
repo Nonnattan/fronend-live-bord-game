@@ -23,6 +23,7 @@ const props = defineProps<{ auth: AuthData }>()
 const emit = defineEmits<{ registered: [] }>()
 
 const { saveProfile } = useProfile()
+const { syncMember } = useMemberApi()
 
 // เปิดค้างไว้เสมอ (ฟอร์มบังคับ ยังไม่ยอมให้ปิดจนกว่าจะบันทึกสำเร็จ)
 const open = ref(true)
@@ -36,11 +37,13 @@ const state = reactive<{
   lastName: string
   gender: Gender | undefined
   birthYear: number | undefined
+  phone: string
 }>({
   firstName: props.auth.loginType === 'line' ? (props.auth.displayName ?? '') : '',
   lastName: '',
   gender: undefined,
   birthYear: undefined,
+  phone: '',
 })
 
 // คำนวณอายุ/ช่วงอายุแบบ real-time ตามปีเกิดที่เลือก เพื่อแสดงผลให้ผู้ใช้เห็นทันที
@@ -55,20 +58,43 @@ const previewAgeRange = computed(() => {
 })
 
 const isSubmitting = ref(false)
+const submitError = ref('')
 
 async function onSubmit(event: FormSubmitEvent<ProfileSchemaOutput>) {
   isSubmitting.value = true
+  submitError.value = ''
   try {
+    // ข้อ 3-5 ในสเปก: ส่งไปตรวจสอบ/บันทึกที่ Google Sheet ผ่าน Google Apps Script
+    // ก่อนเสมอ (checkMember -> login หรือ register) แล้วค่อยรวมผลลัพธ์ที่ backend
+    // ยืนยันแล้ว (memberId, registerDate, lastLogin) เข้ากับโปรไฟล์ในเครื่อง
+    const result = await syncMember(
+      {
+        firstName: event.data.firstName,
+        lastName: event.data.lastName,
+        phone: event.data.phone,
+      },
+      props.auth,
+    )
+
+    if (!result.success || !result.member) {
+      submitError.value = result.error || 'บันทึกข้อมูลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง'
+      return
+    }
+
     saveProfile(
       {
         firstName: event.data.firstName,
         lastName: event.data.lastName,
         gender: event.data.gender,
         birthYear: event.data.birthYear,
+        phone: event.data.phone,
       },
       props.auth,
+      result.member,
     )
     emit('registered')
+  } catch (err) {
+    submitError.value = err instanceof Error ? err.message : 'บันทึกข้อมูลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง'
   } finally {
     isSubmitting.value = false
   }
@@ -136,6 +162,18 @@ async function onSubmit(event: FormSubmitEvent<ProfileSchemaOutput>) {
               />
             </UFormField>
 
+            <UFormField label="เบอร์โทรศัพท์" name="phone" required>
+              <UInput
+                v-model="state.phone"
+                type="tel"
+                inputmode="numeric"
+                placeholder="กรอกเบอร์โทรศัพท์ เช่น 0812345678"
+                maxlength="10"
+                size="xl"
+                class="w-full"
+              />
+            </UFormField>
+
             <UFormField label="เพศ" name="gender" required>
               <URadioGroup
                 v-model="state.gender"
@@ -160,11 +198,14 @@ async function onSubmit(event: FormSubmitEvent<ProfileSchemaOutput>) {
             <Transition name="fade">
               <div v-if="previewAge !== null" class="age-preview">
                 <span class="age-preview__label">อายุของคุณ</span>
-                <span class="age-preview__value">{{ previewAge }} ปี</span>
-                <UBadge color="primary" variant="subtle" size="md">
-                  {{ previewAgeRange }}
-                </UBadge>
+                <span class="age-preview__value">{{ previewAgeRange }}</span>
               </div>
+            </Transition>
+
+            <Transition name="fade">
+              <p v-if="submitError" class="submit-error">
+                {{ submitError }}
+              </p>
             </Transition>
 
             <UButton
@@ -174,6 +215,7 @@ async function onSubmit(event: FormSubmitEvent<ProfileSchemaOutput>) {
               color="primary"
               class="submit-button"
               :loading="isSubmitting"
+              :disabled="isSubmitting"
             >
               เริ่มใช้งาน
             </UButton>
@@ -295,6 +337,13 @@ async function onSubmit(event: FormSubmitEvent<ProfileSchemaOutput>) {
   font-weight: 700;
   color: var(--farm-text-dark);
   margin-left: auto;
+}
+
+.submit-error {
+  font-size: 0.8rem;
+  color: #b3441f;
+  margin: -0.5rem 0 0;
+  text-align: center;
 }
 
 .submit-button {
