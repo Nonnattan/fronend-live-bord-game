@@ -57,6 +57,18 @@ const menuItems = [
   </div>
 
   <div v-else class="home-page">
+    <!-- ปุ่ม Scan QR Code (ตำแหน่งคงที่ด้านบนสุดของเนื้อหา) -->
+    <NuxtLink to="/scan" class="scan-cta">
+      <span class="scan-cta__icon-wrap">
+        <UIcon name="i-lucide-scan-line" class="scan-cta__icon" />
+      </span>
+      <span class="scan-cta__text">
+        <span class="scan-cta__title">Scan QR Code</span>
+        <span class="scan-cta__subtitle">สแกนเพื่อสะสมคะแนน หรือรับสิทธิพิเศษ</span>
+      </span>
+      <UIcon name="i-lucide-chevron-right" class="scan-cta__chevron" />
+    </NuxtLink>
+
     <!-- Header: ข้อมูลสมาชิกจาก Session -->
     <section class="member-card">
       <UAvatar
@@ -132,6 +144,35 @@ const menuItems = [
         </article>
       </div>
     </section>
+
+    <!-- Card Profile และ Card Map -->
+    <section class="section">
+      <div class="preview-grid">
+        <NuxtLink to="/profile" class="preview-card">
+          <span class="preview-card__icon-wrap" style="background: #8fc74e">
+            <UAvatar
+              v-if="profile?.pictureUrl"
+              :src="profile.pictureUrl"
+              size="md"
+              class="preview-card__avatar"
+            />
+            <UIcon v-else name="i-lucide-user-round" class="preview-card__icon" />
+          </span>
+          <span class="preview-card__title">โปรไฟล์</span>
+          <span class="preview-card__desc">{{ profile?.firstName }} {{ profile?.lastName }}</span>
+          <span class="preview-card__link">ดูโปรไฟล์ <UIcon name="i-lucide-arrow-right" /></span>
+        </NuxtLink>
+
+        <NuxtLink to="/map" class="preview-card">
+          <span class="preview-card__icon-wrap" style="background: #ff7a59">
+            <UIcon name="i-lucide-map-pin" class="preview-card__icon" />
+          </span>
+          <span class="preview-card__title">แผนที่ร้าน</span>
+          <span class="preview-card__desc">ดูตำแหน่งและเส้นทางไปสาขา</span>
+          <span class="preview-card__link">ดูแผนที่ <UIcon name="i-lucide-arrow-right" /></span>
+        </NuxtLink>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -161,6 +202,130 @@ const menuItems = [
   flex-direction: column;
   gap: 1.5rem;
   padding: 1.25rem 1.1rem 0.5rem;
+}
+
+.scan-cta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border-radius: 1.1rem;
+  background: linear-gradient(135deg, var(--farm-grass) 0%, var(--farm-accent-dark) 100%);
+  border: 3px solid var(--farm-wood);
+  box-shadow: 0 8px 0 -4px var(--farm-wood-dark);
+  text-decoration: none;
+}
+
+.scan-cta__icon-wrap {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.25);
+  flex-shrink: 0;
+}
+
+.scan-cta__icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: #fff;
+}
+
+.scan-cta__text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.scan-cta__title {
+  font-weight: 800;
+  color: #fff;
+  font-size: 0.95rem;
+}
+
+.scan-cta__subtitle {
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.scan-cta__chevron {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.preview-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 0.9rem;
+  border-radius: 1rem;
+  background: var(--farm-cream);
+  border: 2px solid var(--farm-wood);
+  text-decoration: none;
+}
+
+.preview-card__icon-wrap {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 10px -4px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.preview-card__icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: #fff;
+}
+
+.preview-card__avatar {
+  border: none;
+}
+
+.preview-card__title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--farm-text-dark);
+}
+
+.preview-card__desc {
+  font-size: 0.72rem;
+  color: var(--farm-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.preview-card__link {
+  margin-top: 0.15rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--farm-accent-dark);
+}
+
+.preview-card__link :deep(svg) {
+  width: 0.9rem;
+  height: 0.9rem;
 }
 
 .member-card {
@@ -390,5 +555,15 @@ const menuItems = [
   color: var(--farm-text-muted);
   opacity: 0.8;
   margin: 0.1rem 0 0;
+}
+
+@media (max-width: 360px) {
+  .preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .scan-cta__subtitle {
+    display: none;
+  }
 }
 </style>

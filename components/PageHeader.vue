@@ -3,22 +3,26 @@
  * components/PageHeader.vue
  * ---------------------------------------------------------------------------
  * Header กลางของหน้าย่อยทุกหน้าในแอป (Reservation, History, Profile, Scan QR, Info, Map)
- * ปุ่มย้อนกลับ (default -> /home) + ชื่อหน้า
+ * ปุ่มย้อนกลับ (default -> /map ซึ่งเป็นหน้าแรก/แลนดิ้งของแอปหลัง Login) + ชื่อหน้า
+ * ตั้ง :show-back="false" เพื่อซ่อนปุ่มย้อนกลับ (ใช้กับหน้า Map ที่เป็นหน้าแรก)
  */
 
 withDefaults(defineProps<{
   title: string
   backTo?: string
+  showBack?: boolean
 }>(), {
-  backTo: '/home',
+  backTo: '/map',
+  showBack: true,
 })
 </script>
 
 <template>
   <header class="page-header">
-    <NuxtLink :to="backTo" class="page-header__back" aria-label="ย้อนกลับ">
+    <NuxtLink v-if="showBack" :to="backTo" class="page-header__back" aria-label="ย้อนกลับ">
       <UIcon name="i-lucide-chevron-left" class="page-header__back-icon" />
     </NuxtLink>
+    <span v-else class="page-header__back-spacer" />
     <h1 class="page-header__title">{{ title }}</h1>
     <span class="page-header__spacer" />
   </header>
@@ -52,6 +56,12 @@ withDefaults(defineProps<{
 .page-header__back-icon {
   width: 1.25rem;
   height: 1.25rem;
+}
+
+.page-header__back-spacer {
+  width: 2.25rem;
+  height: 2.25rem;
+  flex-shrink: 0;
 }
 
 .page-header__title {

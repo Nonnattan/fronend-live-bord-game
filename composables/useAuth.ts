@@ -6,8 +6,10 @@
  *   2) เข้าใช้งานโดยไม่เชื่อม LINE (Guest) -> สร้าง Anonymous ID จาก Unix Timestamp
  *
  * ต่างจากเวอร์ชันเดิม: จะ "ไม่มี" uid ใด ๆ ถูกสร้างขึ้นเองอัตโนมัติตอนเปิดเว็บอีกต่อไป
- * ผู้ใช้ต้องกดปุ่มเลือกวิธีก่อนเสมอ (ยกเว้นกรณี localStorage มี authData/userProfile
- * เดิมอยู่แล้วจากการใช้งานครั้งก่อน หรือกำลังถูก LINE redirect กลับมาหลัง login)
+ * ผู้ใช้ต้องกดปุ่มเลือกวิธีก่อนเสมอ — ทุกครั้งที่เข้าแอป (ยังไม่มี userProfile ครบ)
+ * จะเห็นหน้า Welcome ก่อนเสมอ ไม่มีการ resume จาก authData เก่าที่ค้างใน localStorage
+ * อีกต่อไป (ยกเว้นกรณีกำลังถูก LINE redirect กลับมาหลัง login ซึ่งดึงจาก LIFF SDK
+ * โดยตรง ไม่ได้พึ่ง localStorage)
  *
  * LocalStorage เป็น single source of truth ฝั่ง client (ยังไม่มี Database)
  * - key "authData"    : ผลลัพธ์ Step 1 (ชั่วคราว จนกว่าจะกรอกฟอร์มโปรไฟล์เสร็จ)
@@ -46,18 +48,6 @@ export function useAuth() {
   const isLineLoading = useState<boolean>('auth-line-loading', () => false)
   const lineError = useState<string>('auth-line-error', () => '')
 
-  function getStoredAuth(): AuthData | null {
-    if (!import.meta.client) return null
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
-    try {
-      return JSON.parse(raw) as AuthData
-    } catch {
-      localStorage.removeItem(STORAGE_KEY)
-      return null
-    }
-  }
-
   function persistAuth(data: AuthData): void {
     if (import.meta.client) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
@@ -77,21 +67,18 @@ export function useAuth() {
   /**
    * เรียกครั้งเดียวตอน mounted ของหน้าแรก (ก่อนตัดสินใจว่าจะแสดงหน้าไหน)
    *
-   * 1) มี authData เดิมอยู่แล้ว (เคยเลือกวิธีเข้าใช้งานไปแล้ว แต่ยังกรอกฟอร์มไม่เสร็จ
-   *    หรือมี userProfile ครบแล้ว) -> ใช้ค่าเดิม ไม่ต้องยุ่งกับ LIFF เลย (เร็ว)
-   * 2) ไม่มี -> อาจเป็นเพราะเพิ่งกด "เข้าสู่ระบบด้วย LINE" แล้วถูก liff.login()
-   *    redirect ออกไปเข้า LINE และกำลังถูก redirect กลับมาที่หน้าเดิมพอดี
-   *    -> ต้อง init LIFF เพื่อเช็ค liff.isLoggedIn() แล้วดึงโปรไฟล์ให้อัตโนมัติ
-   *    ถ้าไม่ใช่กรณีนี้ (เปิดเว็บครั้งแรกจริง ๆ) จะไม่ login และปล่อยผ่านไปแสดง
-   *    หน้า Welcome ให้ผู้ใช้กดเลือกเองตามปกติ
+   * ตามสเปกล่าสุด: ทุกครั้งที่เข้าแอป (ที่ยังไม่มี userProfile ครบ) ต้องเห็นหน้า
+   * Welcome ก่อนเสมอ — จะ "ไม่" ดึง authData เก่าที่ค้างจาก localStorage (เช่น
+   * เคยเลือกวิธีเข้าใช้งานไปแล้วแต่ยังกรอกฟอร์มไม่เสร็จ แล้วปิด/รีเฟรชหน้าไปก่อน)
+   * มาข้ามหน้า Welcome อีกต่อไป
+   *
+   * ข้อยกเว้นเดียวคือกรณีเพิ่งกด "เข้าสู่ระบบด้วย LINE" แล้วถูก liff.login()
+   * redirect ออกไปเข้า LINE และกำลังถูก redirect กลับมาที่หน้าเดิมพอดี — กรณีนี้
+   * ต้อง init LIFF เพื่อเช็ค liff.isLoggedIn() แล้วดึงโปรไฟล์ให้อัตโนมัติ (ไม่งั้น
+   * ผู้ใช้จะต้องกดปุ่ม LINE ซ้ำอีกรอบหลังถูก redirect กลับมา) กรณีนี้ไม่ได้พึ่ง
+   * authData เดิมใน localStorage เลย จึงไม่ขัดกับกติกาด้านบน
    */
   async function initAuth(): Promise<void> {
-    const stored = getStoredAuth()
-    if (stored) {
-      authData.value = stored
-      return
-    }
-
     if (!import.meta.client) return
 
     const config = useRuntimeConfig()

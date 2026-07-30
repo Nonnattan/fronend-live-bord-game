@@ -2,22 +2,23 @@
 /**
  * components/BottomNav.vue
  * ---------------------------------------------------------------------------
- * Bottom Navigation ของแอป (Home, Reservation, Scan QR, History, Profile)
- * ตามสเปก — ปุ่ม "Scan QR" อยู่ตรงกลางแบบยกลอยขึ้น (Floating) ทับแถบเมนู
- * ทำหน้าที่เป็นทั้ง 1 ใน 5 เมนูของ Bottom Navigation และ "ปุ่ม Scan QR Code
+ * Bottom Navigation ของแอป (Map, Scan QR, Profile, Info) ตามสเปกใหม่
+ * ปุ่ม "Scan QR" อยู่ตรงกลางแบบยกลอยขึ้น (Floating) ทับแถบเมนูเสมอ ไม่ว่าจำนวน
+ * เมนูฝั่งซ้าย/ขวาจะเท่ากันหรือไม่ (จัดด้วย position: absolute ให้อยู่กึ่งกลาง
+ * แนวนอนของแถบจริง ๆ ไม่ใช่แค่กึ่งกลางของ flex ฝั่งที่เหลือ)
+ * ทำหน้าที่เป็นทั้ง 1 ใน 4 เมนูของ Bottom Navigation และ "ปุ่ม Scan QR Code
  * แบบ Floating Button" ในเวลาเดียวกัน
  */
 
 const route = useRoute()
 
 const sideItems = [
-  { label: 'หน้าแรก', icon: 'i-lucide-house', to: '/home' },
-  { label: 'จอง', icon: 'i-lucide-calendar-check', to: '/reservation' },
+  { label: 'แผนที่', icon: 'i-lucide-map-pin', to: '/map' },
 ] as const
 
 const sideItemsRight = [
-  { label: 'ประวัติ', icon: 'i-lucide-history', to: '/history' },
   { label: 'โปรไฟล์', icon: 'i-lucide-user-round', to: '/profile' },
+  { label: 'Info', icon: 'i-lucide-info', to: '/info' },
 ] as const
 
 function isActive(to: string): boolean {
@@ -27,16 +28,18 @@ function isActive(to: string): boolean {
 
 <template>
   <nav class="bottom-nav">
-    <NuxtLink
-      v-for="item in sideItems"
-      :key="item.to"
-      :to="item.to"
-      class="bottom-nav__item"
-      :class="{ 'bottom-nav__item--active': isActive(item.to) }"
-    >
-      <UIcon :name="item.icon" class="bottom-nav__icon" />
-      <span class="bottom-nav__label">{{ item.label }}</span>
-    </NuxtLink>
+    <div class="bottom-nav__side bottom-nav__side--left">
+      <NuxtLink
+        v-for="item in sideItems"
+        :key="item.to"
+        :to="item.to"
+        class="bottom-nav__item"
+        :class="{ 'bottom-nav__item--active': isActive(item.to) }"
+      >
+        <UIcon :name="item.icon" class="bottom-nav__icon" />
+        <span class="bottom-nav__label">{{ item.label }}</span>
+      </NuxtLink>
+    </div>
 
     <NuxtLink to="/scan" class="bottom-nav__scan-wrap">
       <span class="bottom-nav__scan" :class="{ 'bottom-nav__scan--active': isActive('/scan') }">
@@ -45,16 +48,18 @@ function isActive(to: string): boolean {
       <span class="bottom-nav__label bottom-nav__label--scan">Scan QR</span>
     </NuxtLink>
 
-    <NuxtLink
-      v-for="item in sideItemsRight"
-      :key="item.to"
-      :to="item.to"
-      class="bottom-nav__item"
-      :class="{ 'bottom-nav__item--active': isActive(item.to) }"
-    >
-      <UIcon :name="item.icon" class="bottom-nav__icon" />
-      <span class="bottom-nav__label">{{ item.label }}</span>
-    </NuxtLink>
+    <div class="bottom-nav__side bottom-nav__side--right">
+      <NuxtLink
+        v-for="item in sideItemsRight"
+        :key="item.to"
+        :to="item.to"
+        class="bottom-nav__item"
+        :class="{ 'bottom-nav__item--active': isActive(item.to) }"
+      >
+        <UIcon :name="item.icon" class="bottom-nav__icon" />
+        <span class="bottom-nav__label">{{ item.label }}</span>
+      </NuxtLink>
+    </div>
   </nav>
 </template>
 
@@ -66,7 +71,6 @@ function isActive(to: string): boolean {
   bottom: 0;
   display: flex;
   align-items: flex-end;
-  justify-content: space-around;
   padding: 0.5rem 0.5rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
   background: var(--farm-cream);
   border-top: 3px solid var(--farm-wood);
@@ -74,12 +78,26 @@ function isActive(to: string): boolean {
   z-index: 20;
 }
 
+.bottom-nav__side {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+}
+
+.bottom-nav__side--left {
+  justify-content: flex-start;
+}
+
+.bottom-nav__side--right {
+  justify-content: flex-end;
+}
+
 .bottom-nav__item {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.2rem;
-  padding: 0.3rem 0.5rem;
+  padding: 0.3rem 0.75rem;
   color: var(--farm-text-muted);
   text-decoration: none;
   border-radius: 0.75rem;
@@ -100,13 +118,17 @@ function isActive(to: string): boolean {
   font-weight: 600;
 }
 
+/* ปุ่ม Scan อยู่กึ่งกลางแนวนอนของแถบจริง ๆ เสมอ ไม่ขึ้นกับจำนวนเมนูฝั่งซ้าย/ขวา */
 .bottom-nav__scan-wrap {
+  position: absolute;
+  left: 50%;
+  bottom: calc(0.6rem + env(safe-area-inset-bottom, 0px));
+  transform: translate(-50%, -0.9rem);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.2rem;
   text-decoration: none;
-  transform: translateY(-0.9rem);
 }
 
 .bottom-nav__scan {

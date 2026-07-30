@@ -5,7 +5,7 @@ const { isReady } = useRequireProfile()
 
 <template>
   <div class="page">
-    <PageHeader title="Map" />
+    <PageHeader title="Map" :show-back="false" />
     <div v-if="!isReady" class="page__loading">
       <UIcon name="i-lucide-loader-2" class="page__spinner" />
     </div>

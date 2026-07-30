@@ -22,12 +22,9 @@ export default defineNuxtConfig({
       apiBaseUrl: process.env.API_BASE_URL || '',
     },
   },
-  vite: {
-    server: {
-      // Vite บล็อก host แปลกปลอมโดย default (dev server security)
-      // ".ngrok-free.app" คือ wildcard อนุญาตทุก subdomain แบบสุ่มของ ngrok
-      // (เปลี่ยนใหม่ทุกครั้งที่เปิด ngrok ใหม่ แต่ domain หลักเหมือนเดิม)
-      allowedHosts: ['.ngrok-free.app'],
-    },
+vite: {
+  server: {
+    allowedHosts: true,
   },
+},
 })

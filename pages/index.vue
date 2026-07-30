@@ -3,13 +3,14 @@
  * pages/index.vue
  * ---------------------------------------------------------------------------
  * Controller ของ Step 1-2 (Login + กรอกโปรไฟล์): ตัดสินใจว่าจะแสดงหน้าไหนใน
- * 2 หน้าแรก แล้ว "เข้าสู่หน้า Home ทันที" (ข้อ 3-5 ในสเปก) ด้วย navigateTo('/home')
- * ทันทีที่มีโปรไฟล์ครบ — ตัวหน้า Home เองอยู่ที่ pages/home.vue แยกต่างหาก
+ * 2 หน้าแรก แล้ว "เข้าสู่หน้า Map ทันที" (หน้าแรกของแอปหลัง Login ตามสเปกใหม่)
+ * ด้วย navigateTo('/map') ทันทีที่มีโปรไฟล์ครบ — ตัวหน้า Map เองอยู่ที่
+ * pages/map.vue แยกต่างหาก (ไม่มีหน้า Home อีกต่อไป)
  *
  * ลำดับการทำงานตอนเปิดเว็บ:
  * 1) initAuth()    -> เช็ค authData เดิม หรือเช็คว่าเพิ่งถูก LINE redirect กลับมา
  * 2) initProfile() -> โหลดโปรไฟล์เดิมจาก LocalStorage (ถ้ามี)
- * 3) มี userProfile ครบแล้ว          -> ข้ามทุกอย่าง เข้าหน้า Home ทันที
+ * 3) มี userProfile ครบแล้ว          -> ข้ามทุกอย่าง เข้าหน้า Map ทันที
  * 4) ยังไม่มีโปรไฟล์ แต่มี authData   -> แสดง <ProfileForm /> (Step 2, บังคับกรอก)
  * 5) ยังไม่มีทั้งคู่                  -> แสดง <WelcomePage /> (Step 1)
  */
@@ -25,17 +26,17 @@ onMounted(async () => {
   initProfile()
 
   // ข้อ 2-5 ในสเปก: Login สำเร็จ + กรอกโปรไฟล์ครบแล้ว (ไม่ว่าสมาชิกใหม่หรือเดิม)
-  // -> เข้าสู่หน้า Home ทันที
+  // -> เข้าสู่หน้า Map ทันที (หน้าแรกของแอป)
   if (hasProfile.value) {
-    await navigateTo('/home')
+    await navigateTo('/map')
     return
   }
   isReady.value = true
 })
 
 function handleRegistered() {
-  // ฟอร์มบันทึกโปรไฟล์ + sync กับ Google Sheet สำเร็จแล้ว -> เข้าหน้า Home ทันที
-  navigateTo('/home')
+  // ฟอร์มบันทึกโปรไฟล์ + sync กับ Google Sheet สำเร็จแล้ว -> เข้าหน้า Map ทันที
+  navigateTo('/map')
 }
 </script>
 
