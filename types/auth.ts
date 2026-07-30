@@ -30,10 +30,21 @@ export interface AuthState {
 
 /**
  * Interface กลางสำหรับ "ผู้ให้บริการ Login"
- * ปัจจุบันมีแค่ mockLineLogin() แต่ในอนาคตสามารถสลับเป็น LIFF Login
- * ได้โดยแค่เขียน implementation ใหม่ให้ตรงกับ interface นี้
+ * ปัจจุบันใช้ LINE Login (OAuth ปกติ ผ่าน redirect) แต่ในอนาคตสามารถสลับเป็น
+ * LIFF Login ได้โดยแค่เขียน implementation ใหม่ให้ตรงกับ interface นี้
  * โดยไม่ต้องแก้ logic ใน useAuth.ts เลย
  */
 export interface LoginProvider {
   login: () => Promise<LineUid> | LineUid
 }
+
+/**
+ * ผลลัพธ์ที่ server route (/api/auth/line-token) ส่งกลับมาให้ client
+ * หลังจากแลก authorization code เป็น access token และดึงโปรไฟล์เรียบร้อย
+ */
+export interface LineTokenExchangeResult {
+  uid: string
+  displayName?: string
+  pictureUrl?: string
+}
+

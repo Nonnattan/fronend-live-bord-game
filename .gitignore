@@ -1,0 +1,35 @@
+# Nuxt dev/build output
+.nuxt
+.output
+.data
+dist
+
+# Node
+node_modules
+.npm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment variables (มี Channel Secret ห้ามหลุดขึ้น repo เด็ดขาด)
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+
+# Testing / coverage
+coverage
+.nyc_output
+
+# Misc
+*.local
