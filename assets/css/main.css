@@ -1,2 +1,27 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
+
+/**
+ * Theme "ฟาร์มสดใส" (นำสีมาจากภาพอ้างอิง): ท้องฟ้าสีฟ้าอ่อน + ทุ่งหญ้าเขียว
+ * + ป้ายไม้สีน้ำตาล + การ์ดกระดาษครีม ใช้เป็น CSS variable กลาง
+ * ให้ทุก component เรียกใช้ร่วมกัน แทนที่จะ hardcode สีซ้ำในแต่ละไฟล์
+ */
+:root {
+  --farm-sky-top: #bfe7f6;
+  --farm-sky-bottom: #e7f6d8;
+  --farm-grass: #8fc74e;
+  --farm-grass-dark: #5a9e33;
+
+  --farm-wood: #b9793f;
+  --farm-wood-dark: #7a4a24;
+  --farm-wood-darker: #5c3819;
+
+  --farm-cream: #fff8e6;
+  --farm-cream-dark: #f6e7bf;
+
+  --farm-text-dark: #4a2f18;
+  --farm-text-muted: #8a7256;
+
+  --farm-accent: #5a9e33;
+  --farm-accent-dark: #457a26;
+}

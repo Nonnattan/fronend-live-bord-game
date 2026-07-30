@@ -1,50 +1,36 @@
 /**
  * types/auth.ts
  * ---------------------------------------------------------------------------
- * ชนิดข้อมูลสำหรับระบบ Auth / Register
- * แยกออกมาต่างหากเพื่อให้ composable และ component อื่น ๆ import ใช้ร่วมกันได้
- * และเพื่อให้รองรับการต่อยอดเป็น LINE LIFF ในอนาคตโดยไม่ต้องแก้ signature เดิม
+ * ชนิดข้อมูลสำหรับ Step 1 ของ Flow ใหม่: ผู้ใช้เลือก "เข้าสู่ระบบด้วย LINE" (LIFF)
+ * หรือ "เข้าใช้งานโดยไม่เชื่อม LINE" (Guest) อย่างใดอย่างหนึ่งเสมอ
+ *
+ * แยกออกจาก types/profile.ts เพราะคนละความรับผิดชอบ:
+ * - auth.ts    ดูแลเรื่อง "ผู้ใช้เลือกเข้าใช้งานวิธีไหน + ได้ uid อะไรมา"
+ * - profile.ts ดูแลเรื่อง "ผู้ใช้คนนี้กรอกข้อมูลอะไรไว้ในฟอร์ม"
  */
 
-/**
- * ผลลัพธ์จากขั้นตอน Login ด้วย LINE (หรือ mock)
- * - string  : ได้ LINE UID จริง เช่น "U123456789ABCDEFG"
- * - null    : ผู้ใช้ไม่มี LINE UID / ยกเลิก / login ไม่สำเร็จ
- */
-export type LineUid = string | null
+/** วิธีที่ผู้ใช้เลือกเข้าใช้งานในหน้า Welcome (Step 1) */
+export type LoginType = 'line' | 'guest'
 
 /**
- * แหล่งที่มาของ uid ที่ถูกสร้างขึ้น
- * - "line"      : มาจาก LINE Login (หรือ LIFF ในอนาคต)
- * - "temporary" : สร้างขึ้นเองจาก Unix Timestamp (กรณีไม่มี LINE UID)
+ * ข้อมูลที่ได้หลัง Step 1 เสร็จสิ้น (ไม่ว่าจะมาจาก LINE หรือ Guest)
+ * เก็บไว้ "ชั่วคราว" ใน LocalStorage (key: "authData") ระหว่างรอผู้ใช้กรอก
+ * หน้ากรอกข้อมูลผู้ใช้ (Step 2) ให้ครบ — จำเป็นต้องเก็บลง LocalStorage จริง ๆ
+ * (ไม่ใช่แค่ state ในหน่วยความจำ) เพราะ liff.login() จะ redirect ออกจากหน้าเว็บ
+ * ไปเข้า LINE แล้ว redirect กลับมาใหม่ ทำให้ state เดิมในหน่วยความจำหายไป
  */
-export type UidSource = 'line' | 'temporary'
-
-/**
- * โครงสร้างข้อมูล Auth State ที่เก็บ/ใช้งานภายในแอป
- */
-export interface AuthState {
-  uid: string | null
-  isRegistered: boolean
-}
-
-/**
- * Interface กลางสำหรับ "ผู้ให้บริการ Login"
- * ปัจจุบันใช้ LINE Login (OAuth ปกติ ผ่าน redirect) แต่ในอนาคตสามารถสลับเป็น
- * LIFF Login ได้โดยแค่เขียน implementation ใหม่ให้ตรงกับ interface นี้
- * โดยไม่ต้องแก้ logic ใน useAuth.ts เลย
- */
-export interface LoginProvider {
-  login: () => Promise<LineUid> | LineUid
-}
-
-/**
- * ผลลัพธ์ที่ server route (/api/auth/line-token) ส่งกลับมาให้ client
- * หลังจากแลก authorization code เป็น access token และดึงโปรไฟล์เรียบร้อย
- */
-export interface LineTokenExchangeResult {
+export interface AuthData {
+  loginType: LoginType
   uid: string
+  /** มีเฉพาะกรณี loginType === 'line' และ LINE ส่งมาให้ */
   displayName?: string
+  /** มีเฉพาะกรณี loginType === 'line' และ LINE ส่งมาให้ */
   pictureUrl?: string
 }
 
+/** รูปร่างข้อมูลที่ได้จาก liff.getProfile() หลัง login สำเร็จ */
+export interface LiffProfileResult {
+  userId: string
+  displayName?: string
+  pictureUrl?: string
+}

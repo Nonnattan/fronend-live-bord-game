@@ -2,97 +2,127 @@
 /**
  * pages/index.vue
  * ---------------------------------------------------------------------------
- * หน้า Register เดียวของแอป (Mobile First)
+ * Controller เดียวของแอป: ตัดสินใจว่าจะแสดงหน้าไหนใน 3 หน้า
  *
- * Flow:
- * 1) เมื่อ mounted -> initAuth() ตรวจสอบ LocalStorage key "uid"
- * 2) ถ้ามี uid อยู่แล้ว -> แสดงสถานะ "Registered" พร้อม uid
- * 3) ถ้ายังไม่มี -> แสดงปุ่ม "เข้าสู่ระบบด้วย LINE" -> redirect ไป LINE จริง
- *    -> กลับมาที่ /callback -> แลกเป็น uid -> กลับมาหน้านี้อีกครั้ง
- *
- * หน้านี้ทำหน้าที่แค่ "แสดงผล" เท่านั้น ส่วน logic ทั้งหมดอยู่ใน useAuth()
- * เพื่อให้ UI แยกออกจาก business logic อย่างชัดเจน
+ * ลำดับการทำงานตอนเปิดเว็บ:
+ * 1) initAuth()    -> เช็ค authData เดิม หรือเช็คว่าเพิ่งถูก LINE redirect กลับมา
+ * 2) initProfile() -> โหลดโปรไฟล์เดิมจาก LocalStorage (ถ้ามี)
+ * 3) มี userProfile ครบแล้ว          -> ข้ามทุกอย่าง เข้าหน้า Home ทันที
+ * 4) ยังไม่มีโปรไฟล์ แต่มี authData   -> แสดง <ProfileForm /> (Step 2, บังคับกรอก)
+ * 5) ยังไม่มีทั้งคู่                  -> แสดง <WelcomePage /> (Step 1)
  */
 
-const { uid, isRegistered, initAuth, loginWithLine, registerAsGuest, logout } = useAuth()
+const { authData, hasAuth, isAnonymous, isLineLoading, lineError, initAuth, loginWithLine, loginAsGuest, resetAuth } = useAuth()
+const { profile, hasProfile, initProfile, resetProfile } = useProfile()
 
-const isLoading = ref(false)
+// ใช้กันไม่ให้ flash เนื้อหาผิดจังหวะระหว่างที่ยังไม่ได้เช็ค LocalStorage/LIFF
+const isReady = ref(false)
 
-function handleLineLogin() {
-  isLoading.value = true
-  loginWithLine() // redirect ออกจากหน้านี้ทันที ไปที่ LINE
-}
-
-function handleGuestLogin() {
-  registerAsGuest()
-}
-
-onMounted(() => {
-  initAuth()
+onMounted(async () => {
+  await initAuth()
+  initProfile()
+  isReady.value = true
 })
+
+function handleRegistered() {
+  // ฟอร์มบันทึกโปรไฟล์สำเร็จแล้ว -> hasProfile จะกลาย true อัตโนมัติ (reactive)
+  // ไม่ต้องทำอะไรเพิ่ม แค่ให้ template อัปเดตตาม state
+}
+
+function handleResetForTesting() {
+  resetProfile()
+  resetAuth()
+}
 </script>
 
 <template>
-  <!-- phone-shell: พื้นหลังดำเต็มจอ ใช้จำลองกรอบมือถือเวลาดูบนจอกว้าง -->
   <div class="phone-shell">
-    <!-- phone-frame: คอลัมน์กว้างเท่ามือถือ อยู่กึ่งกลางเสมอ เนื้อหาจริงทั้งหมดอยู่ในนี้ -->
     <div class="phone-frame">
-      <UCard class="auth-card" :ui="{ body: 'p-6 sm:p-8' }">
-        <div class="auth-card__content">
-          <!-- โลโก้/สัญลักษณ์แอป -->
-          <div class="brand-mark">
+      <!-- ยังไม่พร้อม (กำลังเช็ค LocalStorage / LIFF) -->
+      <div v-if="!isReady" class="loading">
+        <UIcon name="i-lucide-loader-2" class="loading__spinner" />
+      </div>
+
+      <!-- Step 1: ยังไม่เคยเลือกวิธีเข้าใช้งานเลย -->
+      <WelcomePage
+        v-else-if="!hasProfile && !hasAuth"
+        :line-loading="isLineLoading"
+        :line-error="lineError"
+        @select-line="loginWithLine"
+        @select-guest="loginAsGuest"
+      />
+
+      <!-- Step 2: เลือกวิธีแล้ว (LINE หรือ Guest) แต่ยังกรอกโปรไฟล์ไม่ครบ -->
+      <ProfileForm
+        v-else-if="!hasProfile && hasAuth && authData"
+        :auth="authData"
+        @registered="handleRegistered"
+      />
+
+      <!-- มีโปรไฟล์ครบแล้ว -> หน้า Home -->
+      <UCard v-else class="home-card" :ui="{ body: 'p-6 sm:p-8' }">
+        <div class="home-card__content">
+          <UAvatar
+            v-if="profile?.pictureUrl"
+            :src="profile.pictureUrl"
+            size="3xl"
+            class="brand-avatar"
+          />
+          <div v-else class="brand-mark">
             <UIcon name="i-lucide-shield-check" class="brand-mark__icon" />
           </div>
 
-          <template v-if="!isRegistered">
-            <h1 class="title">Register</h1>
-            <p class="subtitle">
-              เข้าสู่ระบบด้วยบัญชี LINE ของคุณ<br />
-              เพื่อเริ่มใช้งานแอปพลิเคชัน
-            </p>
+          <h1 class="title">ยินดีต้อนรับ, {{ profile?.firstName }} 👋</h1>
 
-            <UButton
-              block
-              size="xl"
-              color="success"
-              class="line-button"
-              :loading="isLoading"
-              @click="handleLineLogin"
-            >
-              <template #leading>
-                <UIcon name="i-simple-icons-line" class="line-button__icon" />
-              </template>
-              เข้าสู่ระบบด้วย LINE
-            </UButton>
+          <UBadge color="success" variant="subtle" size="lg" class="status-badge">
+            <UIcon name="i-lucide-check-circle-2" class="status-badge__icon" />
+            Registered
+          </UBadge>
 
-            <button type="button" class="guest-link" @click="handleGuestLogin">
-              เข้าใช้งานแบบไม่ผูก LINE (ทดสอบ)
-            </button>
-          </template>
-
-          <template v-else>
-            <h1 class="title">ยินดีต้อนรับกลับ</h1>
-
-            <UBadge color="success" variant="subtle" size="lg" class="status-badge">
-              <UIcon name="i-lucide-check-circle-2" class="status-badge__icon" />
-              Registered
-            </UBadge>
-
-            <div class="uid-box">
-              <span class="uid-box__label">UID ของคุณ</span>
-              <code class="uid-box__value">{{ uid }}</code>
+          <div class="profile-box">
+            <div class="profile-box__row">
+              <span class="profile-box__label">ชื่อ-นามสกุล</span>
+              <span class="profile-box__value">{{ profile?.firstName }} {{ profile?.lastName }}</span>
             </div>
+            <div class="profile-box__row">
+              <span class="profile-box__label">เพศ</span>
+              <span class="profile-box__value">{{ GENDER_OPTIONS.find(g => g.value === profile?.gender)?.label }}</span>
+            </div>
+            <div class="profile-box__row">
+              <span class="profile-box__label">ปีเกิด / อายุ</span>
+              <span class="profile-box__value">{{ profile?.birthYear }} ({{ profile?.age }} ปี)</span>
+            </div>
+            <div class="profile-box__row">
+              <span class="profile-box__label">ช่วงอายุ</span>
+              <span class="profile-box__value">{{ profile ? ageRangeLabel(profile.ageRange) : '' }}</span>
+            </div>
+            <div class="profile-box__row">
+              <span class="profile-box__label">เข้าใช้งานด้วย</span>
+              <span class="profile-box__value">{{ profile?.loginType === 'line' ? 'LINE' : 'Guest' }}</span>
+            </div>
+            <div class="profile-box__row">
+              <span class="profile-box__label">UID</span>
+              <code class="profile-box__value profile-box__value--mono">{{ profile?.uid }}</code>
+            </div>
+          </div>
 
-            <UButton
-              block
-              size="lg"
-              color="neutral"
-              variant="outline"
-              @click="logout"
-            >
-              ออกจากระบบ
-            </UButton>
-          </template>
+          <UButton
+            v-if="isAnonymous"
+            block
+            size="lg"
+            color="success"
+            class="line-link-button"
+            @click="loginWithLine"
+          >
+            <template #leading>
+              <UIcon name="i-simple-icons-line" />
+            </template>
+            เชื่อมบัญชี LINE
+          </UButton>
+
+          <button type="button" class="reset-link" @click="handleResetForTesting">
+            รีเซ็ตข้อมูล (ทดสอบ)
+          </button>
         </div>
       </UCard>
     </div>
@@ -100,10 +130,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* ----------------------------------------------------------------------- */
-/* Layout — จำลองกรอบมือถือ: เนื้อหาจำกัดความกว้างแบบ mobile เสมอ           */
-/* ด้านข้าง (ตอนจอกว้าง) เป็นพื้นดำล้วน ไม่มี glow/ลวดลายรบกวนสายตา         */
-/* ----------------------------------------------------------------------- */
 .phone-shell {
   min-height: 100dvh;
   width: 100%;
@@ -114,7 +140,7 @@ onMounted(() => {
 
 .phone-frame {
   width: 100%;
-  max-width: 430px; /* ความกว้างอ้างอิงมือถือทั่วไป (เช่น iPhone Pro Max) */
+  max-width: 430px;
   min-height: 100dvh;
   display: flex;
   align-items: center;
@@ -125,7 +151,26 @@ onMounted(() => {
   background: radial-gradient(circle at 50% 0%, #0f2a1f 0%, #08110d 55%, #05080a 100%);
 }
 
-.auth-card {
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading__spinner {
+  width: 2rem;
+  height: 2rem;
+  color: #06c755;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.home-card {
   position: relative;
   width: 100%;
   border-radius: 1.25rem;
@@ -134,7 +179,7 @@ onMounted(() => {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.auth-card__content {
+.home-card__content {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -142,9 +187,6 @@ onMounted(() => {
   gap: 0.5rem;
 }
 
-/* ----------------------------------------------------------------------- */
-/* Brand mark                                                              */
-/* ----------------------------------------------------------------------- */
 .brand-mark {
   width: 3.25rem;
   height: 3.25rem;
@@ -163,53 +205,19 @@ onMounted(() => {
   color: #05130b;
 }
 
-/* ----------------------------------------------------------------------- */
-/* Typography                                                              */
-/* ----------------------------------------------------------------------- */
+.brand-avatar {
+  margin-bottom: 0.75rem;
+  border: 2px solid rgba(6, 199, 85, 0.6);
+}
+
 .title {
-  font-size: 1.5rem;
+  font-size: 1.4rem;
   font-weight: 700;
   letter-spacing: -0.01em;
   color: #f4faf7;
   margin: 0;
 }
 
-.subtitle {
-  font-size: 0.9rem;
-  line-height: 1.5;
-  color: #9fb3aa;
-  margin: 0.25rem 0 1.25rem;
-}
-
-/* ----------------------------------------------------------------------- */
-/* LINE Login button + guest fallback                                      */
-/* ----------------------------------------------------------------------- */
-.line-button {
-  font-weight: 600;
-}
-
-.line-button__icon {
-  width: 1.15rem;
-  height: 1.15rem;
-}
-
-.guest-link {
-  margin-top: 0.9rem;
-  background: none;
-  border: none;
-  font-size: 0.78rem;
-  color: #6e8279;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.guest-link:hover {
-  color: #9fb3aa;
-}
-
-/* ----------------------------------------------------------------------- */
-/* Registered state                                                        */
-/* ----------------------------------------------------------------------- */
 .status-badge {
   display: inline-flex;
   align-items: center;
@@ -223,29 +231,60 @@ onMounted(() => {
   height: 1rem;
 }
 
-.uid-box {
+.profile-box {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.6rem;
   padding: 0.9rem 1rem;
   border-radius: 0.75rem;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
   margin-bottom: 1.5rem;
+  text-align: left;
 }
 
-.uid-box__label {
-  font-size: 0.7rem;
+.profile-box__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.profile-box__label {
+  font-size: 0.72rem;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   color: #6e8279;
+  white-space: nowrap;
 }
 
-.uid-box__value {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 1rem;
+.profile-box__value {
+  font-size: 0.88rem;
   color: #e8f5ee;
+  text-align: right;
+}
+
+.profile-box__value--mono {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.78rem;
   word-break: break-all;
+}
+
+.line-link-button {
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.reset-link {
+  background: none;
+  border: none;
+  font-size: 0.78rem;
+  color: #6e8279;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.reset-link:hover {
+  color: #9fb3aa;
 }
 </style>

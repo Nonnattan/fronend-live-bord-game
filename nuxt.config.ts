@@ -10,14 +10,13 @@ export default defineNuxtConfig({
     },
   },
   runtimeConfig: {
-    // ---- Server-only: ห้ามหลุดไปถึง client เด็ดขาด ----
-    lineChannelSecret: process.env.LINE_CHANNEL_SECRET || '',
     // ---- Public: ใช้ได้ทั้ง client และ server ----
     public: {
-      lineChannelId: process.env.LINE_CHANNEL_ID || '',
-      // ไม่มี fallback เป็น localhost เพราะ LINE ไม่ยอมรับ http://
-      // ต้องตั้งค่า LINE_REDIRECT_URI ใน .env เป็น https (ดู .env.example)
-      lineRedirectUri: process.env.LINE_REDIRECT_URI || '',
+      // LIFF ID จาก LINE Developers Console > ช่องแชนแนล LINE Login > แท็บ LIFF
+      // ไม่มี Channel Secret อยู่ในโปรเจกต์นี้อีกต่อไป เพราะ LIFF SDK ทำงานฝั่ง
+      // client ล้วน ๆ (liff.login() + liff.getProfile()) ไม่ต้องแลก token ผ่าน
+      // server เอง เหมือน OAuth redirect แบบเดิม
+      liffId: process.env.LIFF_ID || '',
     },
   },
   vite: {

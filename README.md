@@ -1,97 +1,107 @@
-# Register App (Nuxt 4 + Nuxt UI) — พร้อม LINE Login จริง
+# Register App (Nuxt 4 + Nuxt UI) — LINE LIFF + Guest
 
-## ⚠️ ข้อควรรู้ก่อนเริ่ม: LINE Login บังคับ HTTPS
+## Flow
 
-LINE Login **ไม่ยอมรับ Callback URL ที่เป็น `http://`** แม้แต่ `http://localhost`
-(ต่างจาก Google/บาง provider ที่มีข้อยกเว้นให้ localhost) ดังนั้นตอน dev บนเครื่อง
-ตัวเอง ต้องมีการเจาะ tunnel ให้ localhost มี URL แบบ `https://` ชั่วคราวก่อน
+**Step 1 — Welcome page**: ผู้ใช้เลือกอย่างใดอย่างหนึ่งเสมอ
 
-## 1) เปิด HTTPS tunnel ด้วย ngrok (สำหรับ dev)
+- 🟢 **เข้าสู่ระบบด้วย LINE** → เปิด LIFF SDK จริง (`liff.login()` + `liff.getProfile()`)
+- ⚪ **เข้าใช้งานโดยไม่เชื่อม LINE** → สร้าง Anonymous ID จาก Unix Timestamp 10 หลักทันที (ไม่มี network call)
 
-```bash
-# ติดตั้งครั้งแรก: https://ngrok.com/download
-ngrok http 3000
-```
+ไม่ว่าจะเลือกทางไหน ผลลัพธ์จะถูกเก็บชั่วคราวใน LocalStorage (key `authData`)
+แล้วพาไป **Step 2** เสมอ
 
-จะได้ URL ประมาณ `https://abcd1234.ngrok-free.app` — คัดลอกเก็บไว้
-(ต้องเปิด ngrok ทิ้งไว้ตลอดตอน dev/ทดสอบ LINE Login)
+**Step 2 — Profile Form**: ฟอร์มเต็มจอ บังคับกรอก ปิด/ข้ามไม่ได้
+(ชื่อ, นามสกุล, เพศ, ปีเกิด → คำนวณอายุ/ช่วงอายุอัตโนมัติ) ถ้ามาจาก LINE และมี
+`displayName` จะเติมช่อง "ชื่อ" ให้ล่วงหน้า (แก้ไขได้) เมื่อกด "เริ่มใช้งาน" จะรวม
+`authData` + ค่าฟอร์ม เป็น `UserProfile` ก้อนเดียว บันทึกลง LocalStorage
+(key `userProfile`) แล้วลบ `authData` ชั่วคราวทิ้ง จากนั้นเข้าหน้า **Home**
 
-## 2) ตั้งค่า Environment
+**ครั้งถัดไป**: ถ้าพบ `userProfile` ใน LocalStorage อยู่แล้ว จะข้ามทั้ง Welcome
+และ Profile Form เข้าหน้า Home ทันที
 
-```bash
-cp .env.example .env
-```
+## ตั้งค่า LIFF (สำหรับ LINE Login)
 
-แล้วใส่ค่าจาก **LINE Developers Console** (Channel type: LINE Login):
+1. เปิด HTTPS tunnel สำหรับ dev (LIFF บังคับ HTTPS):
+   ```bash
+   ngrok http 3000
+   ```
+2. ไป [LINE Developers Console](https://developers.line.biz) > ช่องแชนแนล
+   ประเภท "LINE Login" > แท็บ **LIFF** > สร้าง LIFF app ใหม่ > ตั้ง
+   **Endpoint URL** เป็น URL จาก ngrok (เช่น `https://abcd1234.ngrok-free.app`)
+   > คัดลอก **LIFF ID** ที่ได้
+3. ตั้งค่า Environment:
+   ```bash
+   cp .env.example .env
+   ```
+   แล้วใส่ `LIFF_ID=...` ที่ได้จากขั้นตอนที่ 2
+4. รันโปรเจกต์:
+   ```bash
+   npm install
+   npm run dev
+   ```
+   แล้วเปิดผ่าน **URL ของ ngrok** (ไม่ใช่ `localhost:3000` ตรง ๆ) เพื่อให้
+   LIFF login ทำงานได้ครบ
 
-```
-LINE_CHANNEL_ID=...
-LINE_CHANNEL_SECRET=...
-LINE_REDIRECT_URI=https://abcd1234.ngrok-free.app/callback   # ใช้ URL จาก ngrok
-```
-
-จากนั้นเข้า **LINE Developers Console > ช่องแชนแนลของคุณ > แท็บ LINE Login >
-Callback URL** แล้วใส่ URL เดียวกันเป๊ะ ๆ กับที่ตั้งใน `.env`
-(ต้องตรงกันทุกตัวอักษร ไม่งั้นจะเจอ error `Invalid redirect_uri`)
-
-ตอน production ให้เปลี่ยน `LINE_REDIRECT_URI` เป็นโดเมนจริงของคุณ
-(`https://yourdomain.com/callback`) และเพิ่ม URL นั้นใน LINE Console ด้วย
-(ตั้งได้มากกว่า 1 Callback URL ต่อ 1 แชนแนล เก็บทั้ง ngrok และ production ไว้พร้อมกันได้)
-
-## 3) รันโปรเจกต์
-
-```bash
-npm install
-npm run dev
-```
-
-แล้วเปิดผ่าน **URL ของ ngrok** (ไม่ใช่ `localhost:3000` ตรงๆ) เพื่อให้ flow
-LINE Login ทำงานได้ครบ เช่น `https://abcd1234.ngrok-free.app`
+หากยังไม่ได้ตั้งค่า `LIFF_ID` ปุ่ม "เข้าสู่ระบบด้วย LINE" จะแสดง error แต่ปุ่ม
+"เข้าใช้งานโดยไม่เชื่อม LINE" (Guest) ยังใช้งานได้ตามปกติ ไม่ต้องพึ่ง LIFF เลย
 
 ## โครงสร้างไฟล์
 
 ```
-composables/useAuth.ts           → logic ทั้งหมด (login, getUid, saveUid, logout)
-pages/index.vue                  → หน้า Register
-pages/callback.vue               → รับ redirect กลับจาก LINE แล้วแลกเป็น uid
-server/api/auth/line-token.post.ts → Server route แลก code → token → profile
-types/auth.ts                    → type ที่ใช้ร่วมกัน
+components/WelcomePage.vue    → Step 1: หน้าแรก โลโก้ + ข้อความต้อนรับ + LoginButtons
+components/LoginButtons.vue   → ปุ่ม "เข้าสู่ระบบด้วย LINE" / "เข้าใช้งานโดยไม่เชื่อม LINE"
+components/ProfileForm.vue    → Step 2: ฟอร์มกรอกโปรไฟล์แบบ fullscreen บังคับ (ห้ามข้าม)
+composables/useAuth.ts        → logic Step 1 ทั้งหมด (LIFF login จริง + Guest ID)
+composables/useProfile.ts     → logic Step 2: รวม authData + ฟอร์ม → UserProfile, บันทึก/อ่าน LocalStorage
+utils/profileSchema.ts        → Zod schema + คำนวณอายุ/ช่วงอายุ/ตัวเลือกปีเกิด
+pages/index.vue               → Controller: Welcome -> ProfileForm -> Home
+types/auth.ts                 → type ที่ใช้ร่วมกัน (Step 1 / authData)
+types/profile.ts              → type ที่ใช้ร่วมกัน (Step 2 / UserProfile)
 ```
 
-## Flow การ Login จริง
+## โครงสร้างข้อมูลใน LocalStorage
 
-1. ผู้ใช้กด **"เข้าสู่ระบบด้วย LINE"** → `loginWithLine()` สร้างค่า `state`
-   แบบสุ่ม (ป้องกัน CSRF) แล้ว redirect ทั้งหน้าไปที่ LINE authorize endpoint
-2. ผู้ใช้ login/ยินยอมบน LINE → LINE redirect กลับมาที่ `/callback?code=...&state=...`
-3. `pages/callback.vue` ตรวจสอบ `state` แล้วเรียก `completeLineLogin(code, state)`
-4. `completeLineLogin` ยิงไปที่ `POST /api/auth/line-token` (server route)
-   ซึ่งใช้ **Channel Secret** (เก็บฝั่ง server เท่านั้น ไม่หลุดไปถึง browser)
-   แลก `code` เป็น `access_token` แล้วเรียก LINE profile API ต่อเพื่อดึง
-   `userId` (คือ LINE UID จริง เช่น `U123456789ABCDEFG`)
-5. ได้ uid กลับมา → เก็บลง `LocalStorage` (key: `uid`) → กลับไปหน้า Register
-   ซึ่งจะแสดง Badge "Registered" ทันที
+**`authData`** (ชั่วคราว — ถูกลบทิ้งทันทีที่บันทึก `userProfile` สำเร็จ)
 
-## ปุ่ม "เข้าใช้งานแบบไม่ผูก LINE (ทดสอบ)"
+```json
+{ "loginType": "line", "uid": "Uxxxxxxxx", "displayName": "...", "pictureUrl": "..." }
+```
 
-เผื่อกรณีทดสอบ UI เร็ว ๆ โดยไม่ต้องผ่าน LINE จริง จะสร้าง uid ชั่วคราวจาก
-Unix Timestamp (10 หลัก) ด้วย `registerAsGuest()` — ลบออกได้ถ้าไม่ต้องการ
+หรือ
 
-## ต่อยอดเป็น LINE LIFF ในอนาคต
+```json
+{ "loginType": "guest", "uid": "1722305521" }
+```
 
-แก้เฉพาะ `loginWithLine()` ใน `useAuth.ts` ให้เรียก LIFF SDK แทนการ redirect
-ไป authorize endpoint ตรง ๆ เช่น:
+**`userProfile`** (ถาวร — ผลลัพธ์สุดท้ายหลังกรอกฟอร์ม)
 
-```ts
-async function loginWithLine() {
-  await liff.init({ liffId: 'YOUR_LIFF_ID' })
-  if (!liff.isLoggedIn()) {
-    liff.login()
-    return
-  }
-  const profile = await liff.getProfile()
-  saveUid(profile.userId)
+```json
+{
+  "loginType": "line",
+  "uid": "Uxxxxxxxx",
+  "displayName": "...",
+  "pictureUrl": "...",
+  "firstName": "...",
+  "lastName": "...",
+  "gender": "male",
+  "birthYear": 1999,
+  "age": 27,
+  "ageRange": "20-30",
+  "createdAt": 1722305521000
 }
 ```
 
-ไม่ต้องแก้ `pages/index.vue`, `pages/callback.vue` หรือ type ใด ๆ เพราะทุกจุด
-เรียกผ่าน `useAuth()` composable เพียงจุดเดียวอยู่แล้ว
+## หมายเหตุการออกแบบ
+
+- **ไม่มี uid ใด ๆ ถูกสร้างอัตโนมัติตอนเปิดเว็บอีกต่อไป** — ผู้ใช้ต้องกดเลือก
+  Step 1 ก่อนเสมอ (ยกเว้นกรณีมี `authData`/`userProfile` เดิมอยู่แล้ว หรือ
+  กำลังถูก LINE redirect กลับมาหลัง login สำเร็จ)
+- LIFF login ใช้ `liff.login()` ซึ่ง redirect ทั้งหน้าไปเข้า LINE แล้ว
+  redirect กลับมาที่ URL เดิมของ LIFF app เอง **ไม่มี callback route แยก**
+  — `useAuth().initAuth()` จะดักจับตอนโหลดหน้าใหม่ด้วย `liff.isLoggedIn()`
+  แล้วดึงโปรไฟล์ให้อัตโนมัติ
+- ไม่มี server route / Channel Secret หลงเหลืออยู่ในโปรเจกต์นี้อีกต่อไป เพราะ
+  LIFF SDK ทำงานฝั่ง client ล้วน ๆ (ต่างจาก OAuth redirect แบบเดิมที่ต้องแลก
+  code เป็น token ผ่าน server) หากในอนาคตต้องการเชื่อม Backend จริง
+  (เช่น verify ID token ฝั่ง server) ให้เพิ่ม server route ใหม่โดยเรียกผ่าน
+  `useAuth()` composable จุดเดียวเหมือนเดิม ไม่ต้องแก้ pages/component อื่น
