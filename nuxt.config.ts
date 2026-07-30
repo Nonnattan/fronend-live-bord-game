@@ -1,0 +1,30 @@
+export default defineNuxtConfig({
+  compatibilityDate: '2025-01-01',
+  devtools: { enabled: true },
+  modules: ['@nuxt/ui'],
+  css: ['~/assets/css/main.css'],
+  app: {
+    head: {
+      title: 'Register',
+      viewport: 'width=device-width, initial-scale=1, viewport-fit=cover',
+    },
+  },
+  runtimeConfig: {
+    // ---- Public: ใช้ได้ทั้ง client และ server ----
+    public: {
+      // LIFF ID จาก LINE Developers Console > ช่องแชนแนล LINE Login > แท็บ LIFF
+      // ไม่มี Channel Secret อยู่ในโปรเจกต์นี้อีกต่อไป เพราะ LIFF SDK ทำงานฝั่ง
+      // client ล้วน ๆ (liff.login() + liff.getProfile()) ไม่ต้องแลก token ผ่าน
+      // server เอง เหมือน OAuth redirect แบบเดิม
+      liffId: process.env.LIFF_ID || '',
+    },
+  },
+  vite: {
+    server: {
+      // Vite บล็อก host แปลกปลอมโดย default (dev server security)
+      // ".ngrok-free.app" คือ wildcard อนุญาตทุก subdomain แบบสุ่มของ ngrok
+      // (เปลี่ยนใหม่ทุกครั้งที่เปิด ngrok ใหม่ แต่ domain หลักเหมือนเดิม)
+      allowedHosts: ['.ngrok-free.app'],
+    },
+  },
+})
