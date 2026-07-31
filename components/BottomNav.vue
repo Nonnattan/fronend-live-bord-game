@@ -2,17 +2,17 @@
 /**
  * components/BottomNav.vue
  * ---------------------------------------------------------------------------
- * Bottom Navigation ของแอป (Map, Scan QR, Profile, Info) ตามสเปกใหม่
- * ปุ่ม "Scan QR" อยู่ตรงกลางแบบยกลอยขึ้น (Floating) ทับแถบเมนูเสมอ ไม่ว่าจำนวน
- * เมนูฝั่งซ้าย/ขวาจะเท่ากันหรือไม่ (จัดด้วย position: absolute ให้อยู่กึ่งกลาง
- * แนวนอนของแถบจริง ๆ ไม่ใช่แค่กึ่งกลางของ flex ฝั่งที่เหลือ)
- * ทำหน้าที่เป็นทั้ง 1 ใน 4 เมนูของ Bottom Navigation และ "ปุ่ม Scan QR Code
- * แบบ Floating Button" ในเวลาเดียวกัน
+ * Bottom Navigation ของแอป: Home | Map | Scan QR | Profile | Info
+ * ปุ่ม "Scan QR" อยู่ตรงกลางแบบยกลอยขึ้น (Floating) ทับแถบเมนูเสมอ จัดด้วย
+ * position: absolute ให้อยู่กึ่งกลางแนวนอนของแถบจริง ๆ (ไม่ใช่แค่กึ่งกลางของ
+ * flex ฝั่งที่เหลือ) ทำหน้าที่เป็นทั้ง 1 ใน 5 เมนูของ Bottom Navigation และ
+ * "ปุ่ม Scan QR Code แบบ Floating Button" ในเวลาเดียวกัน
  */
 
 const route = useRoute()
 
 const sideItems = [
+  { label: 'หน้าแรก', icon: 'i-lucide-house', to: '/home' },
   { label: 'แผนที่', icon: 'i-lucide-map-pin', to: '/map' },
 ] as const
 

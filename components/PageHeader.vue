@@ -3,8 +3,8 @@
  * components/PageHeader.vue
  * ---------------------------------------------------------------------------
  * Header กลางของหน้าย่อยทุกหน้าในแอป (Reservation, History, Profile, Scan QR, Info, Map)
- * ปุ่มย้อนกลับ (default -> /map ซึ่งเป็นหน้าแรก/แลนดิ้งของแอปหลัง Login) + ชื่อหน้า
- * ตั้ง :show-back="false" เพื่อซ่อนปุ่มย้อนกลับ (ใช้กับหน้า Map ที่เป็นหน้าแรก)
+ * ปุ่มย้อนกลับ (default -> /home ซึ่งเป็นหน้าแรก/แลนดิ้งของแอปหลัง Login) + ชื่อหน้า
+ * ตั้ง :show-back="false" เพื่อซ่อนปุ่มย้อนกลับ (ใช้กับหน้าที่เป็นหน้าแรก/landing เอง)
  */
 
 withDefaults(defineProps<{
@@ -12,7 +12,7 @@ withDefaults(defineProps<{
   backTo?: string
   showBack?: boolean
 }>(), {
-  backTo: '/map',
+  backTo: '/home',
   showBack: true,
 })
 </script>

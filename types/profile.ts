@@ -44,11 +44,18 @@ export interface UserProfile {
 
   firstName: string
   lastName: string
-  gender: Gender
-  birthYear: number
+  /**
+   * เพศ/ปีเกิด/อายุ — เป็น optional เพราะ Google Sheet (ฐานข้อมูลสมาชิกจริง)
+   * ไม่ได้เก็บฟิลด์เหล่านี้เลย (เก็บแค่ชื่อ-นามสกุล-เบอร์-LINE) กรอกครั้งแรกตอน
+   * สมัครสมาชิกใหม่เท่านั้น ถ้า Login ซ้ำด้วย LINE ที่เจอ lineUserId เดิมใน Sheet
+   * (คนละเครื่อง ไม่มี LocalStorage เดิม) จะไม่มีค่าเหล่านี้ — ปล่อยว่างไว้ได้
+   * ไม่บังคับกรอกซ้ำ
+   */
+  gender?: Gender
+  birthYear?: number
   phone: string
-  age: number
-  ageRange: AgeRangeCode
+  age?: number
+  ageRange?: AgeRangeCode
 
   createdAt: number
 

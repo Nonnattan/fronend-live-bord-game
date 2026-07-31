@@ -20,12 +20,24 @@
  * Display Name | Profile Picture | Register Date | Last Login | Point | Total Visit
  *
  * Actions ที่รองรับ (ส่งมาใน body เป็น JSON, key "action"):
- *   - checkMember  : ค้นหาสมาชิกจาก firstName/lastName/phone (ไม่มีการเขียนข้อมูล)
- *   - register     : สร้างสมาชิกใหม่ (ถ้ามีอยู่แล้วจะไม่สร้างซ้ำ จะอัปเดต Last Login + Total Visit แทน)
- *   - login        : ถ้าพบสมาชิก -> อัปเดต Last Login + Total Visit (+1) (+ ข้อมูล LINE ถ้ามี)
+ *   - checkMember  : ค้นหาสมาชิกจาก lineUserId หรือ phone (ไม่มีการเขียนข้อมูล)
+ *   - register     : สร้างสมาชิกใหม่ (ถ้ามีอยู่แล้ว — เบอร์โทรหรือ lineUserId ตรงกับ
+ *                    แถวเดิม — จะไม่สร้างซ้ำ จะอัปเดต Last Login + Total Visit แทน)
+ *   - login        : ถ้าพบสมาชิก (เบอร์โทรหรือ lineUserId ตรงกัน) -> อัปเดต Last
+ *                    Login + Total Visit (+1) (+ ข้อมูล LINE ถ้ามี)
  *                    ถ้าไม่พบ -> สร้างสมาชิกใหม่ให้อัตโนมัติ (login-or-register)
+ *   - loginByLine  : Login ด้วย LINE ตามสเปกใหม่ — ตรวจสอบ lineUserId ก่อนเสมอ
+ *                    พบ -> Login ทันที (อัปเดต Last Login/Total Visit) ไม่พบ ->
+ *                    found:false เท่านั้น (ไม่เขียนข้อมูล) ให้ frontend พาไปหน้า
+ *                    สมัครสมาชิกต่อ แล้วค่อยเรียก 'register'
  *   - updateMember : แก้ไขข้อมูลสมาชิกด้วย memberId โดยตรง (แก้ point ได้ด้วย)
  *   - getMember    : ดึงข้อมูลสมาชิกล่าสุดด้วย memberId (ไม่มีการเขียนข้อมูล) — ใช้รีเฟรชหน้า Home
+ *
+ * การจับคู่สมาชิกเดิม (findExistingRowIndex_): ใช้ lineUserId ก่อนเสมอถ้ามีส่งมา
+ * (ID เฉพาะตัวจริง แม่นยำสุด) แล้วค่อย fallback ไปเทียบเบอร์โทรศัพท์ — "ไม่ใช้"
+ * firstName+lastName ในการจับคู่อีกต่อไป (ของเดิมเทียบชื่อ-นามสกุล-เบอร์ตรงกัน
+ * ทั้ง 3 ค่าเป๊ะ ทำให้พิมพ์ชื่อสะกดต่างจากเดิมนิดเดียวก็หาไม่เจอ แล้วสร้างแถวใหม่
+ * ซ้ำทั้งที่เบอร์โทร/LINE ตรงกับสมาชิกเดิมอยู่แล้ว — เป็นสาเหตุหลักของบั๊กข้อมูลซ้ำ)
  *
  * หมายเหตุ CORS: Google Apps Script Web App ไม่รองรับ CORS preflight (OPTIONS)
  * ฝั่ง Frontend จึงต้องเรียกด้วย Content-Type: "text/plain;charset=utf-8"
@@ -125,24 +137,45 @@ function rowToMember_(row) {
   }
 }
 
-/** คืนค่า row number จริงบนชีต (1-indexed, รวมแถวหัวตาราง) หรือ -1 ถ้าไม่พบ */
-function findRowIndexByIdentity_(sheet, firstName, lastName, phone) {
+/** คืนค่า row number จริงบนชีต (1-indexed) ที่ LINE User ID (คอลัมน์ E) ตรงกัน หรือ -1 ถ้าไม่พบ */
+function findRowIndexByLineUserId_(sheet, lineUserId) {
+  const id = normalize_(lineUserId)
+  if (!id) return -1
   const rows = getAllDataRows_(sheet)
-  const fn = normalize_(firstName).toLowerCase()
-  const ln = normalize_(lastName).toLowerCase()
-  const ph = normalize_(phone)
-
   for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]
-    if (
-      normalize_(row[1]).toLowerCase() === fn &&
-      normalize_(row[2]).toLowerCase() === ln &&
-      normalize_(row[3]) === ph
-    ) {
-      return i + 2
-    }
+    if (normalize_(rows[i][4]) === id) return i + 2
   }
   return -1
+}
+
+/** คืนค่า row number จริงบนชีต (1-indexed) ที่เบอร์โทรศัพท์ (คอลัมน์ D) ตรงกัน หรือ -1 ถ้าไม่พบ */
+function findRowIndexByPhone_(sheet, phone) {
+  const ph = normalize_(phone)
+  if (!ph) return -1
+  const rows = getAllDataRows_(sheet)
+  for (let i = 0; i < rows.length; i++) {
+    if (normalize_(rows[i][3]) === ph) return i + 2
+  }
+  return -1
+}
+
+/**
+ * หาแถวสมาชิกเดิมที่ "เป็นตัวตนเดียวกันจริง ๆ" ก่อน Insert/Login ทุกครั้ง
+ * ---------------------------------------------------------------------------
+ * เดิม (findRowIndexByIdentity_) เช็คด้วย firstName+lastName+phone ต้องตรงกัน
+ * ทั้ง 3 ค่าเป๊ะเท่านั้น ทำให้ถ้าผู้ใช้คนเดิมพิมพ์ชื่อ/นามสกุลสะกดต่างจากรอบก่อน
+ * เล็กน้อย (เผลอเว้นวรรค, ใส่คำนำหน้า, พิมพ์ตัวเล็ก/ใหญ่ผิด) ระบบจะหาไม่เจอ และ
+ * "สร้างแถวใหม่ซ้ำ" ทั้งที่เบอร์โทรหรือ LINE User ID ตรงกับสมาชิกเดิมอยู่แล้ว
+ * -> เป็นสาเหตุหลักของข้อมูลซ้ำใน Sheet
+ *
+ * แก้ไขใหม่: ใช้ "LINE User ID" หรือ "เบอร์โทรศัพท์" เป็น key หลักแทน (ตรงอย่างใด
+ * อย่างหนึ่งก็ถือว่าเป็นสมาชิกเดิม) โดยเช็ค LINE User ID ก่อนเสมอถ้ามีส่งมา
+ * (เป็น ID เฉพาะตัวจริง แม่นยำกว่า) แล้วค่อย fallback ไปเช็คเบอร์โทรศัพท์
+ */
+function findExistingRowIndex_(sheet, payload) {
+  const byLine = findRowIndexByLineUserId_(sheet, payload && payload.lineUserId)
+  if (byLine !== -1) return byLine
+  return findRowIndexByPhone_(sheet, payload && payload.phone)
 }
 
 function findRowIndexByMemberId_(sheet, memberId) {
@@ -219,7 +252,7 @@ function actionCheckMember_(payload) {
   if (fieldError) return { success: false, error: fieldError }
 
   const sheet = getSheet_()
-  const rowIndex = findRowIndexByIdentity_(sheet, payload.firstName, payload.lastName, payload.phone)
+  const rowIndex = findExistingRowIndex_(sheet, payload)
 
   if (rowIndex === -1) {
     return { success: true, found: false }
@@ -234,10 +267,11 @@ function actionRegister_(payload) {
 
   const sheet = getSheet_()
   const now = nowIso_()
-  const rowIndex = findRowIndexByIdentity_(sheet, payload.firstName, payload.lastName, payload.phone)
+  const rowIndex = findExistingRowIndex_(sheet, payload)
 
   if (rowIndex !== -1) {
-    // มีอยู่แล้ว -> ไม่สร้างซ้ำ ทำเหมือน login (อัปเดต Last Login + Total Visit แทน)
+    // มีอยู่แล้ว (เบอร์โทรหรือ LINE User ID ตรงกับแถวเดิม) -> ห้ามสร้างซ้ำ
+    // ทำเหมือน login (อัปเดต Last Login + Total Visit แทน)
     const member = updateMemberRow_(sheet, rowIndex, payload, now, true)
     return { success: true, isNewMember: false, member: member }
   }
@@ -252,7 +286,7 @@ function actionLogin_(payload) {
 
   const sheet = getSheet_()
   const now = nowIso_()
-  const rowIndex = findRowIndexByIdentity_(sheet, payload.firstName, payload.lastName, payload.phone)
+  const rowIndex = findExistingRowIndex_(sheet, payload)
 
   if (rowIndex === -1) {
     // ไม่พบสมาชิก -> สร้างใหม่ให้อัตโนมัติ (login-or-register ตาม flow ข้อ 3-5)
@@ -262,6 +296,31 @@ function actionLogin_(payload) {
 
   const member = updateMemberRow_(sheet, rowIndex, payload, now, true)
   return { success: true, isNewMember: false, member: member }
+}
+
+/**
+ * Login ผ่าน LINE — ตรวจสอบ lineUserId ก่อนเสมอ (สเปกใหม่)
+ *   - พบ lineUserId เดิม -> ถือว่า Login สำเร็จทันที อัปเดต Last Login +
+ *     Total Visit ในแถวเดิม แล้วส่งข้อมูลสมาชิกกลับ (ไม่ต้องพากลับไปกรอกฟอร์ม)
+ *   - ไม่พบ -> found: false เท่านั้น ไม่มีการเขียนข้อมูลใด ๆ ทั้งสิ้น (ไม่สร้างแถว
+ *     ใหม่ที่นี่) ปล่อยให้ frontend พาไปหน้าสมัครสมาชิกเพื่อกรอกชื่อ-นามสกุล-เบอร์
+ *     ก่อน แล้วค่อยเรียก action 'register' ตามปกติ
+ */
+function actionLoginByLine_(payload) {
+  const lineUserId = normalize_(payload && payload.lineUserId)
+  if (!lineUserId) {
+    return { success: false, error: 'lineUserId จำเป็นต้องส่งมา' }
+  }
+
+  const sheet = getSheet_()
+  const rowIndex = findRowIndexByLineUserId_(sheet, lineUserId)
+  if (rowIndex === -1) {
+    return { success: true, found: false }
+  }
+
+  const now = nowIso_()
+  const member = updateMemberRow_(sheet, rowIndex, { lineUserId: lineUserId }, now, true)
+  return { success: true, found: true, member: member }
 }
 
 function actionGetMember_(payload) {
@@ -319,12 +378,14 @@ function handleRequest_(payload) {
         return jsonOutput_(actionRegister_(payload))
       case 'login':
         return jsonOutput_(actionLogin_(payload))
+      case 'loginByLine':
+        return jsonOutput_(actionLoginByLine_(payload))
       case 'updateMember':
         return jsonOutput_(actionUpdateMember_(payload))
       case 'getMember':
         return jsonOutput_(actionGetMember_(payload))
       default:
-        return errorResponse_('action ไม่ถูกต้องหรือไม่ได้ระบุ ต้องเป็นหนึ่งใน: checkMember, register, login, updateMember, getMember')
+        return errorResponse_('action ไม่ถูกต้องหรือไม่ได้ระบุ ต้องเป็นหนึ่งใน: checkMember, register, login, loginByLine, updateMember, getMember')
     }
   } catch (err) {
     return errorResponse_(err && err.message ? err.message : String(err))

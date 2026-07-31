@@ -29,10 +29,20 @@
 > อะไรเพิ่ม — โค้ดใหม่จะเติมหัวตารางและค่าเริ่มต้น (Point=0, Total Visit=1)
 > ให้ทุกแถวเดิมอัตโนมัติในการเรียก action ครั้งแรกหลัง deploy
 
+## การจับคู่สมาชิกเดิม (แก้บั๊กข้อมูลซ้ำ)
+
+เดิมระบบเทียบ `firstName + lastName + phone` ต้องตรงกันทั้ง 3 ค่าเป๊ะถึงจะถือว่า
+เป็นสมาชิกเดิม ทำให้ถ้าพิมพ์ชื่อ-นามสกุลสะกดต่างจากรอบก่อนเล็กน้อยก็หาไม่เจอ
+แล้ว **สร้างแถวใหม่ซ้ำ** ทั้งที่เบอร์โทรหรือ LINE User ID ตรงกับสมาชิกเดิมอยู่แล้ว
+
+ตอนนี้แก้เป็น: เช็ค **LINE User ID ก่อนเสมอ** (ถ้ามีส่งมา) แล้ว fallback ไปเช็ค
+**เบอร์โทรศัพท์** — ตรงอย่างใดอย่างหนึ่งก็ถือว่าเป็นสมาชิกเดิม ไม่สร้างแถวใหม่
+(ไม่ใช้ firstName/lastName ในการจับคู่อีกต่อไป)
+
 ## Actions (ส่งเป็น JSON body ผ่าน POST, key `action`)
 
 ### `checkMember`
-ตรวจสอบว่ามีสมาชิกอยู่แล้วหรือไม่ (ไม่เขียนข้อมูล)
+ตรวจสอบว่ามีสมาชิกอยู่แล้วหรือไม่ (ไม่เขียนข้อมูล) — จับคู่ด้วย `lineUserId` (ถ้ามี) หรือ `phone`
 ```json
 { "action": "checkMember", "firstName": "สมชาย", "lastName": "ใจดี", "phone": "0812345678" }
 ```
@@ -42,7 +52,8 @@ Response:
 ```
 
 ### `register`
-สร้างสมาชิกใหม่ ถ้ามีอยู่แล้วจะไม่สร้างซ้ำ (จะอัปเดต Last Login/LINE fields แทน)
+สร้างสมาชิกใหม่ ถ้ามีอยู่แล้ว (เบอร์โทรหรือ lineUserId ตรงกับแถวเดิม) จะไม่สร้างซ้ำ
+(จะอัปเดต Last Login/LINE fields แทน)
 ```json
 {
   "action": "register",
@@ -52,9 +63,25 @@ Response:
 ```
 
 ### `login`
-ถ้าพบสมาชิก -> อัปเดต Last Login + Total Visit (+1) (+ ข้อมูล LINE ถ้ามี)
+ถ้าพบสมาชิก (เบอร์โทรหรือ lineUserId ตรงกัน) -> อัปเดต Last Login + Total Visit (+1) (+ ข้อมูล LINE ถ้ามี)
 ถ้าไม่พบ -> สร้างใหม่ให้อัตโนมัติ (login-or-register ตาม flow ของสเปก, Total Visit เริ่มที่ 1)
 Payload เหมือน `register`
+
+### `loginByLine` (ใหม่ — ตามสเปก Login ด้วย LINE ต้องเช็ค lineUserId ก่อนเสมอ)
+ตรวจสอบ **เฉพาะ lineUserId** เท่านั้น พบแล้ว Login ทันที (อัปเดต Last Login/Total
+Visit) ไม่พบจะคืน `found: false` เท่านั้น **ไม่มีการเขียนข้อมูลใด ๆ** — ให้
+frontend พาไปหน้าสมัครสมาชิกต่อ แล้วค่อยเรียก `register`
+```json
+{ "action": "loginByLine", "lineUserId": "U1234..." }
+```
+Response (พบ):
+```json
+{ "success": true, "found": true, "member": { "memberId": "M-...", "...": "..." } }
+```
+Response (ไม่พบ):
+```json
+{ "success": true, "found": false }
+```
 
 ### `updateMember`
 แก้ไขข้อมูลด้วย `memberId` โดยตรง (แก้ `point`/`totalVisit` ได้ด้วย เช่น ใช้ตอนหน้าร้านให้แต้ม)

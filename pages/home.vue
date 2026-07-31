@@ -2,189 +2,131 @@
 /**
  * pages/home.vue
  * ---------------------------------------------------------------------------
- * หน้า Home หลักของระบบ (เข้าถึงได้หลัง Login + กรอกโปรไฟล์ครบเท่านั้น)
- * แสดงข้อมูลสมาชิกจาก Session (LocalStorage ผ่าน useProfile) แล้วรีเฟรช
- * point/totalVisit ล่าสุดจาก Google Sheet แบบเงียบ ๆ ผ่าน useRequireProfile()
+ * หน้า Home หลักของระบบ — หน้าแรกของแอปหลัง Login + กรอกโปรไฟล์ครบ (guard ผ่าน
+ * useRequireProfile() เหมือนทุกหน้าในแอป ไม่ได้แก้ logic เดิมของ guard นี้เลย)
  *
- * ประกอบด้วยตามสเปก: Banner โปรโมชั่น, ข่าวสาร/กิจกรรม, เมนู (Info, Map,
- * Reservation, Profile, History), ปุ่ม Scan QR แบบ Floating (รวมอยู่ใน
- * BottomNav กลางจอ), และ Bottom Navigation
+ * ประกอบด้วยตามสเปกใหม่:
+ * 1) Summary Card ด้านบน — แสดงความคืบหน้า "เข้าฐานแล้ว X/4" พร้อมแสดงฐานทั้ง
+ *    4 ฐานเป็นรายการ อัปเดตตามข้อมูลจริงผ่าน useStations() (ดู composables/
+ *    useStations.ts สำหรับหมายเหตุเรื่องแหล่งข้อมูล)
+ * 2) Map Preview ด้านล่าง — ภาพตัวอย่างแผนที่ขนาดเล็ก กดแล้วไปหน้า Map เต็มที่
+ *    /map (หน้า Map เดิมยังอยู่ ไม่ได้แก้ logic ของมัน)
  */
 
 definePageMeta({ layout: 'app' })
 
 const { profile, isReady } = useRequireProfile()
+const { stations, totalStations, visitedCount, isVisited, initStations } = useStations()
 
-const banners = [
-  {
-    title: 'โปรโมชั่นสมาชิกใหม่',
-    subtitle: 'รับคะแนนสะสมพิเศษ 2 เท่า สัปดาห์นี้เท่านั้น',
-    color: 'linear-gradient(135deg, #ffb84c 0%, #ff7a59 100%)',
-    icon: 'i-lucide-sparkles',
-  },
-  {
-    title: 'สะสมแต้ม แลกของรางวัล',
-    subtitle: 'ครบ 100 คะแนน แลกส่วนลดได้ทันที',
-    color: 'linear-gradient(135deg, #5ec6ba 0%, #3a8fae 100%)',
-    icon: 'i-lucide-gift',
-  },
-  {
-    title: 'จองล่วงหน้า ลดคิวรอ',
-    subtitle: 'จองผ่านแอปวันนี้ รับสิทธิ์คิวด่วน',
-    color: 'linear-gradient(135deg, #8fc74e 0%, #457a26 100%)',
-    icon: 'i-lucide-calendar-check',
-  },
-]
+onMounted(() => {
+  initStations()
+})
 
-const news = [
-  { title: 'เปิดให้บริการสาขาใหม่', date: '28 ก.ค. 2569', desc: 'พบกับสาขาใหม่ พร้อมกิจกรรมเปิดตัวสุดพิเศษ' },
-  { title: 'กิจกรรมสะสมแต้มพิเศษ', date: '20 ก.ค. 2569', desc: 'เข้าใช้บริการครบ 5 ครั้ง รับคะแนนโบนัสทันที' },
-  { title: 'ปรับปรุงระบบสมาชิก', date: '10 ก.ค. 2569', desc: 'ระบบสมาชิกใหม่ใช้งานง่ายขึ้น เชื่อม LINE ได้แล้ว' },
-]
-
-const menuItems = [
-  { label: 'Info', icon: 'i-lucide-info', to: '/info', color: '#5ec6ba' },
-  { label: 'Map', icon: 'i-lucide-map-pin', to: '/map', color: '#ff7a59' },
-  { label: 'Reservation', icon: 'i-lucide-calendar-check', to: '/reservation', color: '#ffb84c' },
-  { label: 'Profile', icon: 'i-lucide-user-round', to: '/profile', color: '#8fc74e' },
-  { label: 'History', icon: 'i-lucide-history', to: '/history', color: '#b083d9' },
-] as const
+const progressPercent = computed(() => Math.round((visitedCount.value / totalStations) * 100))
 </script>
 
 <template>
-  <div v-if="!isReady" class="home-loading">
-    <UIcon name="i-lucide-loader-2" class="home-loading__spinner" />
-  </div>
+  <div class="page">
+    <div v-if="!isReady" class="page__loading">
+      <UIcon name="i-lucide-loader-2" class="page__spinner" />
+    </div>
 
-  <div v-else class="home-page">
-    <!-- ปุ่ม Scan QR Code (ตำแหน่งคงที่ด้านบนสุดของเนื้อหา) -->
-    <NuxtLink to="/scan" class="scan-cta">
-      <span class="scan-cta__icon-wrap">
-        <UIcon name="i-lucide-scan-line" class="scan-cta__icon" />
-      </span>
-      <span class="scan-cta__text">
-        <span class="scan-cta__title">Scan QR Code</span>
-        <span class="scan-cta__subtitle">สแกนเพื่อสะสมคะแนน หรือรับสิทธิพิเศษ</span>
-      </span>
-      <UIcon name="i-lucide-chevron-right" class="scan-cta__chevron" />
-    </NuxtLink>
-
-    <!-- Header: ข้อมูลสมาชิกจาก Session -->
-    <section class="member-card">
-      <UAvatar
-        v-if="profile?.pictureUrl"
-        :src="profile.pictureUrl"
-        size="xl"
-        class="member-card__avatar"
-      />
-      <div v-else class="member-card__avatar-fallback">
-        <UIcon name="i-lucide-user-round" class="member-card__avatar-icon" />
-      </div>
-
-      <div class="member-card__info">
-        <p class="member-card__greeting">สวัสดี, {{ profile?.firstName }} 👋</p>
-        <code v-if="profile?.memberId" class="member-card__id">{{ profile.memberId }}</code>
-      </div>
-
-      <div class="member-card__stats">
-        <div class="member-card__stat">
-          <span class="member-card__stat-value">{{ profile?.point ?? 0 }}</span>
-          <span class="member-card__stat-label">คะแนนสะสม</span>
+    <div v-else class="home">
+      <!-- Greeting แบบกระชับ -->
+      <div class="greeting">
+        <UAvatar
+          v-if="profile?.pictureUrl"
+          :src="profile.pictureUrl"
+          size="md"
+          class="greeting__avatar"
+        />
+        <div v-else class="greeting__avatar-fallback">
+          <UIcon name="i-lucide-user-round" class="greeting__avatar-icon" />
         </div>
-        <div class="member-card__stat-divider" />
-        <div class="member-card__stat">
-          <span class="member-card__stat-value">{{ profile?.totalVisit ?? 0 }}</span>
-          <span class="member-card__stat-label">ครั้งที่ใช้บริการ</span>
+        <div class="greeting__text">
+          <p class="greeting__hello">สวัสดี</p>
+          <p class="greeting__name">{{ profile?.firstName }} {{ profile?.lastName }}</p>
         </div>
       </div>
-    </section>
 
-    <!-- Banner โปรโมชั่น -->
-    <section class="section">
-      <div class="banner-scroll">
-        <div
-          v-for="banner in banners"
-          :key="banner.title"
-          class="banner-card"
-          :style="{ background: banner.color }"
-        >
-          <UIcon :name="banner.icon" class="banner-card__icon" />
-          <p class="banner-card__title">{{ banner.title }}</p>
-          <p class="banner-card__subtitle">{{ banner.subtitle }}</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- เมนู -->
-    <section class="section">
-      <h2 class="section__title">เมนู</h2>
-      <div class="menu-grid">
-        <NuxtLink v-for="item in menuItems" :key="item.to" :to="item.to" class="menu-item">
-          <span class="menu-item__icon-wrap" :style="{ background: item.color }">
-            <UIcon :name="item.icon" class="menu-item__icon" />
-          </span>
-          <span class="menu-item__label">{{ item.label }}</span>
-        </NuxtLink>
-      </div>
-    </section>
-
-    <!-- ข่าวสาร / กิจกรรม -->
-    <section class="section">
-      <h2 class="section__title">ข่าวสาร / กิจกรรม</h2>
-      <div class="news-list">
-        <article v-for="item in news" :key="item.title" class="news-item">
-          <div class="news-item__icon">
-            <UIcon name="i-lucide-megaphone" />
+      <!-- Summary Card: ความคืบหน้าการเข้าฐาน -->
+      <section class="summary-card">
+        <div class="summary-card__top">
+          <div>
+            <p class="summary-card__label">ความคืบหน้า</p>
+            <p class="summary-card__value">
+              เข้าฐานแล้ว <span class="summary-card__value-num">{{ visitedCount }}/{{ totalStations }}</span>
+            </p>
           </div>
-          <div class="news-item__body">
-            <p class="news-item__title">{{ item.title }}</p>
-            <p class="news-item__desc">{{ item.desc }}</p>
-            <p class="news-item__date">{{ item.date }}</p>
+          <div class="summary-card__ring" :style="{ '--pct': progressPercent + '%' }">
+            <span class="summary-card__ring-text">{{ progressPercent }}%</span>
           </div>
-        </article>
-      </div>
-    </section>
+        </div>
 
-    <!-- Card Profile และ Card Map -->
-    <section class="section">
-      <div class="preview-grid">
-        <NuxtLink to="/profile" class="preview-card">
-          <span class="preview-card__icon-wrap" style="background: #8fc74e">
-            <UAvatar
-              v-if="profile?.pictureUrl"
-              :src="profile.pictureUrl"
-              size="md"
-              class="preview-card__avatar"
-            />
-            <UIcon v-else name="i-lucide-user-round" class="preview-card__icon" />
-          </span>
-          <span class="preview-card__title">โปรไฟล์</span>
-          <span class="preview-card__desc">{{ profile?.firstName }} {{ profile?.lastName }}</span>
-          <span class="preview-card__link">ดูโปรไฟล์ <UIcon name="i-lucide-arrow-right" /></span>
-        </NuxtLink>
+        <div class="summary-card__bar">
+          <div class="summary-card__bar-fill" :style="{ width: progressPercent + '%' }" />
+        </div>
 
-        <NuxtLink to="/map" class="preview-card">
-          <span class="preview-card__icon-wrap" style="background: #ff7a59">
-            <UIcon name="i-lucide-map-pin" class="preview-card__icon" />
+        <div class="station-grid">
+          <div
+            v-for="station in stations"
+            :key="station.id"
+            class="station-chip"
+            :class="{ 'station-chip--visited': isVisited(station.id) }"
+          >
+            <span class="station-chip__icon-wrap">
+              <UIcon
+                :name="isVisited(station.id) ? 'i-lucide-check' : station.icon"
+                class="station-chip__icon"
+              />
+            </span>
+            <span class="station-chip__name">{{ station.name }}</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Map Preview: กดเพื่อไปหน้า Map แบบเต็ม -->
+      <NuxtLink to="/map" class="map-preview">
+        <div class="map-preview__canvas">
+          <div class="map-preview__grid" />
+          <span
+            v-for="station in stations"
+            :key="station.id"
+            class="map-preview__pin"
+            :class="{ 'map-preview__pin--visited': isVisited(station.id) }"
+            :style="{ left: station.x + '%', top: station.y + '%' }"
+          >
+            <UIcon name="i-lucide-map-pin" class="map-preview__pin-icon" />
           </span>
-          <span class="preview-card__title">แผนที่ร้าน</span>
-          <span class="preview-card__desc">ดูตำแหน่งและเส้นทางไปสาขา</span>
-          <span class="preview-card__link">ดูแผนที่ <UIcon name="i-lucide-arrow-right" /></span>
-        </NuxtLink>
-      </div>
-    </section>
+        </div>
+        <div class="map-preview__footer">
+          <div class="map-preview__footer-text">
+            <p class="map-preview__title">แผนที่ฐานทั้งหมด</p>
+            <p class="map-preview__desc">แตะเพื่อดูแผนที่แบบเต็ม</p>
+          </div>
+          <UIcon name="i-lucide-chevron-right" class="map-preview__chevron" />
+        </div>
+      </NuxtLink>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.home-loading {
-  min-height: 100dvh;
+.page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.page__loading {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 3rem 0;
 }
 
-.home-loading__spinner {
+.page__spinner {
   width: 2rem;
   height: 2rem;
   color: var(--farm-accent-dark);
@@ -197,373 +139,290 @@ const menuItems = [
   }
 }
 
-.home-page {
+.home {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-  padding: 1.25rem 1.1rem 0.5rem;
+  gap: 1rem;
+  padding: 1rem 1.1rem 1.25rem;
 }
 
-.scan-cta {
+.greeting {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.9rem 1rem;
-  border-radius: 1.1rem;
-  background: linear-gradient(135deg, var(--farm-grass) 0%, var(--farm-accent-dark) 100%);
-  border: 3px solid var(--farm-wood);
-  box-shadow: 0 8px 0 -4px var(--farm-wood-dark);
-  text-decoration: none;
+  gap: 0.65rem;
 }
 
-.scan-cta__icon-wrap {
+.greeting__avatar {
+  border: 2px solid var(--farm-accent);
+}
+
+.greeting__avatar-fallback {
   width: 2.75rem;
   height: 2.75rem;
   border-radius: 999px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.25);
-  flex-shrink: 0;
-}
-
-.scan-cta__icon {
-  width: 1.5rem;
-  height: 1.5rem;
-  color: #fff;
-}
-
-.scan-cta__text {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  flex: 1;
-  min-width: 0;
-}
-
-.scan-cta__title {
-  font-weight: 800;
-  color: #fff;
-  font-size: 0.95rem;
-}
-
-.scan-cta__subtitle {
-  font-size: 0.72rem;
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.scan-cta__chevron {
-  width: 1.25rem;
-  height: 1.25rem;
-  color: #fff;
-  flex-shrink: 0;
-}
-
-.preview-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.75rem;
-}
-
-.preview-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.35rem;
-  padding: 0.9rem;
-  border-radius: 1rem;
-  background: var(--farm-cream);
-  border: 2px solid var(--farm-wood);
-  text-decoration: none;
-}
-
-.preview-card__icon-wrap {
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 10px -4px rgba(0, 0, 0, 0.3);
-  overflow: hidden;
-}
-
-.preview-card__icon {
-  width: 1.25rem;
-  height: 1.25rem;
-  color: #fff;
-}
-
-.preview-card__avatar {
-  border: none;
-}
-
-.preview-card__title {
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--farm-text-dark);
-}
-
-.preview-card__desc {
-  font-size: 0.72rem;
-  color: var(--farm-text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
-}
-
-.preview-card__link {
-  margin-top: 0.15rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: var(--farm-accent-dark);
-}
-
-.preview-card__link :deep(svg) {
-  width: 0.9rem;
-  height: 0.9rem;
-}
-
-.member-card {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  padding: 1rem;
-  border-radius: 1.1rem;
-  background: var(--farm-cream);
-  border: 3px solid var(--farm-wood);
-  box-shadow: 0 8px 0 -4px var(--farm-wood-dark);
-}
-
-.member-card__avatar,
-.member-card__avatar-fallback {
-  border: 2px solid var(--farm-accent);
-  flex-shrink: 0;
-}
-
-.member-card__avatar-fallback {
-  width: 3rem;
-  height: 3rem;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   background: linear-gradient(135deg, var(--farm-grass) 0%, var(--farm-accent-dark) 100%);
+  border: 2px solid var(--farm-cream);
+  flex-shrink: 0;
 }
 
-.member-card__avatar-icon {
-  width: 1.5rem;
-  height: 1.5rem;
+.greeting__avatar-icon {
+  width: 1.35rem;
+  height: 1.35rem;
   color: var(--farm-cream);
 }
 
-.member-card__info {
+.greeting__text {
+  min-width: 0;
+}
+
+.greeting__hello {
+  font-size: 0.72rem;
+  color: var(--farm-text-muted);
+  margin: 0;
+}
+
+.greeting__name {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--farm-text-dark);
+  margin: 0.05rem 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------------------- Summary Card ---------------------------- */
+
+.summary-card {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.9rem;
+  padding: 1.1rem;
+  border-radius: 1.25rem;
+  background: linear-gradient(160deg, var(--farm-cream) 0%, var(--farm-cream-dark) 100%);
+  border: 2px solid var(--farm-wood);
+  box-shadow: 0 10px 24px -16px rgba(74, 47, 24, 0.45);
+}
+
+.summary-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.summary-card__label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--farm-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+
+.summary-card__value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--farm-text-dark);
+  margin: 0.2rem 0 0;
+}
+
+.summary-card__value-num {
+  color: var(--farm-accent-dark);
+  font-size: 1.3rem;
+  font-weight: 800;
+}
+
+.summary-card__ring {
+  --pct: 0%;
+  width: 3.4rem;
+  height: 3.4rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: conic-gradient(var(--farm-accent-dark) var(--pct), rgba(90, 158, 51, 0.18) 0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.summary-card__ring::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 999px;
+  background: var(--farm-cream);
+}
+
+.summary-card__ring-text {
+  position: relative;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--farm-accent-dark);
+}
+
+.summary-card__bar {
+  width: 100%;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: rgba(90, 158, 51, 0.18);
+  overflow: hidden;
+}
+
+.summary-card__bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--farm-grass) 0%, var(--farm-accent-dark) 100%);
+  transition: width 0.3s ease;
+}
+
+.station-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+}
+
+.station-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.55rem 0.25rem;
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1.5px dashed var(--farm-wood);
+}
+
+.station-chip--visited {
+  border-style: solid;
+  border-color: var(--farm-accent-dark);
+  background: rgba(143, 199, 78, 0.22);
+}
+
+.station-chip__icon-wrap {
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--farm-cream-dark);
+  color: var(--farm-text-muted);
+}
+
+.station-chip--visited .station-chip__icon-wrap {
+  background: var(--farm-accent-dark);
+  color: #fff;
+}
+
+.station-chip__icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.station-chip__name {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--farm-text-dark);
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* ----------------------------- Map Preview ----------------------------- */
+
+.map-preview {
+  display: flex;
+  flex-direction: column;
+  border-radius: 1.25rem;
+  overflow: hidden;
+  border: 2px solid var(--farm-wood);
+  text-decoration: none;
+  box-shadow: 0 10px 24px -16px rgba(74, 47, 24, 0.45);
+}
+
+.map-preview__canvas {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: linear-gradient(160deg, var(--farm-sky-top) 0%, var(--farm-sky-bottom) 55%, var(--farm-grass) 100%);
+  overflow: hidden;
+}
+
+.map-preview__grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.35) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.35) 1px, transparent 1px);
+  background-size: 12.5% 25%;
+  opacity: 0.6;
+}
+
+.map-preview__pin {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 999px 999px 999px 0;
+  background: var(--farm-wood-dark);
+  border: 2px solid var(--farm-cream);
+  box-shadow: 0 4px 8px -3px rgba(0, 0, 0, 0.4);
+  rotate: 45deg;
+}
+
+.map-preview__pin--visited {
+  background: var(--farm-accent-dark);
+}
+
+.map-preview__pin-icon {
+  width: 0.95rem;
+  height: 0.95rem;
+  color: #fff;
+  rotate: -45deg;
+}
+
+.map-preview__footer {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem;
+  background: var(--farm-cream);
+}
+
+.map-preview__footer-text {
   flex: 1;
   min-width: 0;
 }
 
-.member-card__greeting {
+.map-preview__title {
   font-weight: 700;
-  color: var(--farm-text-dark);
-  margin: 0;
-  font-size: 0.95rem;
-}
-
-.member-card__id {
-  font-size: 0.7rem;
-  color: var(--farm-text-muted);
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-}
-
-.member-card__stats {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-left: auto;
-}
-
-.member-card__stat {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 3.6rem;
-}
-
-.member-card__stat-value {
-  font-size: 1.05rem;
-  font-weight: 800;
-  color: var(--farm-accent-dark);
-}
-
-.member-card__stat-label {
-  font-size: 0.6rem;
-  color: var(--farm-text-muted);
-  white-space: nowrap;
-}
-
-.member-card__stat-divider {
-  width: 1px;
-  height: 1.75rem;
-  background: var(--farm-wood);
-  opacity: 0.4;
-}
-
-.section__title {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--farm-text-dark);
-  margin: 0 0 0.65rem;
-}
-
-.banner-scroll {
-  display: flex;
-  gap: 0.75rem;
-  overflow-x: auto;
-  padding-bottom: 0.25rem;
-  scroll-snap-type: x mandatory;
-}
-
-.banner-card {
-  flex: 0 0 82%;
-  scroll-snap-align: start;
-  border-radius: 1rem;
-  padding: 1.1rem;
-  color: #fff;
-  position: relative;
-  min-height: 6.5rem;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.25);
-}
-
-.banner-card__icon {
-  position: absolute;
-  top: 0.85rem;
-  right: 0.85rem;
-  width: 1.5rem;
-  height: 1.5rem;
-  opacity: 0.85;
-}
-
-.banner-card__title {
-  font-weight: 800;
-  margin: 0 0 0.2rem;
-  font-size: 0.95rem;
-}
-
-.banner-card__subtitle {
-  font-size: 0.75rem;
-  margin: 0;
-  opacity: 0.92;
-}
-
-.menu-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 0.5rem;
-}
-
-.menu-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.35rem;
-  text-decoration: none;
-}
-
-.menu-item__icon-wrap {
-  width: 2.75rem;
-  height: 2.75rem;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 10px -4px rgba(0, 0, 0, 0.3);
-}
-
-.menu-item__icon {
-  width: 1.3rem;
-  height: 1.3rem;
-  color: #fff;
-}
-
-.menu-item__label {
-  font-size: 0.65rem;
-  font-weight: 600;
-  color: var(--farm-text-dark);
-  text-align: center;
-}
-
-.news-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.news-item {
-  display: flex;
-  gap: 0.65rem;
-  padding: 0.75rem;
-  border-radius: 0.85rem;
-  background: var(--farm-cream);
-  border: 2px solid var(--farm-wood);
-}
-
-.news-item__icon {
-  width: 2.25rem;
-  height: 2.25rem;
-  border-radius: 999px;
-  background: var(--farm-cream-dark);
-  color: var(--farm-accent-dark);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.news-item__body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  min-width: 0;
-}
-
-.news-item__title {
-  font-size: 0.85rem;
-  font-weight: 700;
+  font-size: 0.88rem;
   color: var(--farm-text-dark);
   margin: 0;
 }
 
-.news-item__desc {
-  font-size: 0.75rem;
+.map-preview__desc {
+  font-size: 0.72rem;
   color: var(--farm-text-muted);
-  margin: 0;
-}
-
-.news-item__date {
-  font-size: 0.68rem;
-  color: var(--farm-text-muted);
-  opacity: 0.8;
   margin: 0.1rem 0 0;
 }
 
-@media (max-width: 360px) {
-  .preview-grid {
-    grid-template-columns: 1fr;
-  }
+.map-preview__chevron {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: var(--farm-accent-dark);
+  flex-shrink: 0;
+}
 
-  .scan-cta__subtitle {
-    display: none;
+@media (max-width: 360px) {
+  .station-chip__name {
+    font-size: 0.58rem;
   }
 }
 </style>

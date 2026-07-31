@@ -67,11 +67,11 @@ async function handleResetForTesting() {
         </div>
         <div class="info-box__row">
           <span class="info-box__label">เพศ</span>
-          <span class="info-box__value">{{ GENDER_OPTIONS.find(g => g.value === profile?.gender)?.label }}</span>
+          <span class="info-box__value">{{ GENDER_OPTIONS.find(g => g.value === profile?.gender)?.label ?? '-' }}</span>
         </div>
         <div class="info-box__row">
           <span class="info-box__label">ช่วงอายุ</span>
-          <span class="info-box__value">{{ profile ? ageRangeLabel(profile.ageRange) : '' }} ({{ profile?.age }} ปี)</span>
+          <span class="info-box__value">{{ profile ? ageRangeLabel(profile.ageRange) : '-' }}{{ profile?.age ? ` (${profile.age} ปี)` : '' }}</span>
         </div>
         <div class="info-box__row">
           <span class="info-box__label">เข้าใช้งานด้วย</span>

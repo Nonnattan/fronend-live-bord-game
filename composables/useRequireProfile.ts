@@ -2,8 +2,8 @@
  * composables/useRequireProfile.ts
  * ---------------------------------------------------------------------------
  * Guard ฝั่ง client สำหรับทุกหน้าในแอปที่ต้อง Login + กรอกโปรไฟล์ครบก่อนเท่านั้น
- * (Map, Reservation, Scan QR, History, Profile, Info) — ถ้ายังไม่มีโปรไฟล์ ให้เด้ง
- * กลับไปหน้า "/" (Welcome/Login) ทันที
+ * (Home, Map, Reservation, Scan QR, History, Profile, Info) — ถ้ายังไม่มีโปรไฟล์
+ * ให้เด้งกลับไปหน้า "/" (Welcome/Login) ทันที
  *
  * ใช้ client-side check ล้วน ๆ (ไม่ใช่ Nuxt route middleware ทั่วไป) เพราะ
  * สถานะ Login ทั้งหมดอยู่ใน LocalStorage เท่านั้น (ไม่มี server session/cookie)

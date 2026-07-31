@@ -2,11 +2,17 @@
  * composables/useMemberApi.ts
  * ---------------------------------------------------------------------------
  * เรียก Google Apps Script Web App (REST API) ที่ผูกกับ Google Sheet เป็น
- * ฐานข้อมูลสมาชิก — รวม action: checkMember / register / login / updateMember
- * ตามสเปก และมีฟังก์ชัน syncMember() ที่ทำ flow หลักให้ครบข้อ 3-5:
+ * ฐานข้อมูลสมาชิก — รวม action: checkMember / register / login / updateMember /
+ * loginByLine ตามสเปก และมีฟังก์ชัน syncMember() ที่ทำ flow หลักให้ครบข้อ 3-5:
  *   1) checkMember ด้วย firstName/lastName/phone
  *   2) พบ    -> login  (อัปเดต Last Login + ข้อมูล LINE ถ้ามี)
  *   3) ไม่พบ -> register (สร้าง Member ID ใหม่)
+ *
+ * loginByLine() เป็นฟังก์ชันแยกสำหรับ flow ใหม่: Login ด้วย LINE ต้องตรวจสอบ
+ * lineUserId ก่อนเสมอ พบแล้ว Login ทันที ไม่ต้องผ่านฟอร์มสมัครสมาชิกซ้ำ
+ * (ดู pages/index.vue -> resolveLineMember()) ฝั่ง backend (server-gas/Code.gs)
+ * แก้ให้จับคู่สมาชิกเดิมด้วย lineUserId หรือเบอร์โทรศัพท์แทนการเทียบ
+ * firstName+lastName+phone แบบตรงเป๊ะทั้ง 3 ค่า เพื่อแก้ปัญหาสร้างข้อมูลซ้ำ
  *
  * หมายเหตุ CORS: Google Apps Script Web App ไม่รองรับ CORS preflight (OPTIONS)
  * จึงต้องส่งแบบ "simple request" เท่านั้น -> ใช้ Content-Type:
@@ -53,6 +59,14 @@ interface MemberActionResponse {
 
 interface GetMemberResponse {
   success: boolean
+  member?: MemberRecord
+  error?: string
+}
+
+/** ผลลัพธ์ของ action 'loginByLine' — ตรวจสอบ lineUserId ก่อนเสมอตามสเปกใหม่ */
+interface LoginByLineResponse {
+  success: boolean
+  found?: boolean
   member?: MemberRecord
   error?: string
 }
@@ -113,6 +127,17 @@ export function useMemberApi() {
   }
 
   /**
+   * ตรวจสอบ lineUserId ใน Google Sheet ก่อนเสมอเวลา Login ด้วย LINE (สเปกใหม่):
+   *   - พบ lineUserId เดิม -> Login ทันที (อัปเดต Last Login/Total Visit ในแถวเดิม
+   *     ให้เรียบร้อยแล้วในฝั่ง backend) ไม่ต้องพาไปหน้ากรอกฟอร์มสมัครสมาชิกอีก
+   *   - ไม่พบ -> found: false เท่านั้น (ไม่มีการเขียนข้อมูลใด ๆ) ให้ frontend
+   *     พาไปหน้าสมัครสมาชิก (ProfileForm) ต่อตามปกติ
+   */
+  function loginByLine(lineUserId: string): Promise<LoginByLineResponse> {
+    return callApi<LoginByLineResponse>('loginByLine', { lineUserId })
+  }
+
+  /**
    * Flow หลักตามสเปก — เรียกตอนกดปุ่ม "ยืนยัน" ในฟอร์ม
    * คืนค่า MemberRecord ที่ Google Sheet ยืนยันแล้ว (มี memberId/registerDate/lastLogin จริง)
    */
@@ -124,5 +149,5 @@ export function useMemberApi() {
     return checkResult.found ? loginMember(values, auth) : registerMember(values, auth)
   }
 
-  return { checkMember, registerMember, loginMember, updateMember, getMember, syncMember }
+  return { checkMember, registerMember, loginMember, updateMember, getMember, loginByLine, syncMember }
 }

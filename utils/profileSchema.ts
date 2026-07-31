@@ -76,8 +76,9 @@ export function calculateAgeRange(age: number): AgeRangeCode {
   return '51+'
 }
 
-/** แปลงรหัสช่วงอายุเป็น label ภาษาไทยไว้แสดงผลในฟอร์ม/หน้า Home */
-export function ageRangeLabel(range: AgeRangeCode): string {
+/** แปลงรหัสช่วงอายุเป็น label ภาษาไทยไว้แสดงผลในฟอร์ม/หน้า Home — คืนค่าว่างถ้าไม่มีข้อมูล (เช่น Login LINE ซ้ำคนละเครื่อง ไม่มีเพศ/อายุ cache ไว้) */
+export function ageRangeLabel(range: AgeRangeCode | undefined): string {
+  if (!range) return '-'
   const labels: Record<AgeRangeCode, string> = {
     '10-19': '10-19 ปี',
     '20-30': '20-30 ปี',

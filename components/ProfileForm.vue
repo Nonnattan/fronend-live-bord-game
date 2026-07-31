@@ -232,7 +232,7 @@ async function onSubmit(event: FormSubmitEvent<ProfileSchemaOutput>) {
   width: 100%;
   display: flex;
   justify-content: center;
-  background: linear-gradient(180deg, var(--farm-sky-top) 0%, var(--farm-sky-bottom) 55%, var(--farm-grass) 100%);
+  background: black;
 }
 
 .profile-form__scroll {

@@ -99,6 +99,48 @@ export function useProfile() {
   }
 
   /**
+   * Login ทันทีด้วยข้อมูลสมาชิกที่พบจาก lineUserId เดิมใน Google Sheet
+   * (ไม่ต้องผ่านฟอร์ม ProfileForm เลย) — ใช้ตอน Login LINE แล้วระบบตรวจพบว่า
+   * lineUserId นี้เคยสมัครสมาชิกไว้แล้ว (composables/useMemberApi.ts -> loginByLine())
+   *
+   * หมายเหตุ: Google Sheet ไม่ได้เก็บเพศ/ปีเกิด/อายุไว้เลย (มีแค่ตอนกรอกฟอร์ม
+   * ครั้งแรกบนเครื่องนั้น ๆ) ถ้าเป็นเครื่องใหม่ที่ไม่มี LocalStorage เดิม ฟิลด์
+   * เหล่านี้จะไม่มีค่า — ปล่อยว่างไว้ ไม่บังคับกรอกซ้ำ (ตามสเปก "Login ทันที")
+   * ไม่กระทบ saveProfile() เดิมที่ใช้กับฟอร์ม Guest/สมัครสมาชิกใหม่แต่อย่างใด
+   */
+  function loginFromMember(member: MemberRecord, auth: AuthData): UserProfile {
+    const fullProfile: UserProfile = {
+      loginType: auth.loginType,
+      uid: auth.uid,
+      displayName: member.displayName || auth.displayName,
+      pictureUrl: member.pictureUrl || auth.pictureUrl,
+
+      firstName: member.firstName,
+      lastName: member.lastName,
+      phone: member.phone,
+      gender: undefined,
+      birthYear: undefined,
+      age: undefined,
+      ageRange: undefined,
+
+      createdAt: Date.now(),
+
+      memberId: member.memberId,
+      registerDate: member.registerDate,
+      lastLogin: member.lastLogin,
+      point: member.point,
+      totalVisit: member.totalVisit,
+    }
+
+    if (import.meta.client) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(fullProfile))
+      localStorage.removeItem(AUTH_STORAGE_KEY)
+    }
+    profile.value = fullProfile
+    return fullProfile
+  }
+
+  /**
    * อัปเดตเฉพาะข้อมูลที่มาจาก Google Sheet (point, totalVisit, lastLogin, รูป/ชื่อ LINE)
    * ทับลงในโปรไฟล์ปัจจุบัน — ใช้ตอนหน้า Home ดึงข้อมูลล่าสุดผ่าน getMember() โดยไม่ต้อง
    * ให้ผู้ใช้กรอกฟอร์มใหม่ และไม่กระทบ field อื่น (firstName, lastName ฯลฯ)
@@ -134,6 +176,7 @@ export function useProfile() {
     // actions
     initProfile,
     saveProfile,
+    loginFromMember,
     refreshFromMember,
     resetProfile,
   }
