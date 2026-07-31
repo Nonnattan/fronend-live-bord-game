@@ -19,7 +19,7 @@ export type Gender = 'male' | 'female' | 'lgbtq' | 'unspecified'
 export type AgeRangeCode = '10-19' | '20-30' | '31-40' | '41-50' | '51+'
 
 /**
- * ค่าที่ผู้ใช้กรอกในฟอร์มจริง ๆ (ก่อนคำนวณ age/ageRange และก่อนรวมกับ authData)
+ * ค่าที่ผู้ใช้กรอกในฟอร์มจริง ๆ (ก่อนแปลงเป็น birthYearRange และก่อนรวมกับ authData)
  * ตรงกับ field ที่ Validate ด้วย Zod ใน utils/profileSchema.ts
  */
 export interface ProfileFormValues {
@@ -34,7 +34,7 @@ export interface ProfileFormValues {
  * โครงสร้างข้อมูลโปรไฟล์แบบสมบูรณ์ที่บันทึกลง LocalStorage (key: "userProfile")
  * = authData (Step 1: loginType, uid, displayName, pictureUrl)
  * + ค่าที่กรอกในฟอร์ม (Step 2: firstName, lastName, gender, birthYear)
- * + ค่าที่คำนวณอัตโนมัติ (age, ageRange, createdAt)
+ * + ค่าที่คำนวณอัตโนมัติ (birthYearRange, createdAt)
  */
 export interface UserProfile {
   loginType: LoginType
@@ -54,8 +54,12 @@ export interface UserProfile {
   gender?: Gender
   birthYear?: number
   phone: string
-  age?: number
-  ageRange?: AgeRangeCode
+  /**
+   * ช่วงปีเกิด ค.ศ. แบบข้อความตรงตามที่บันทึกลง Google Sheet (คอลัมน์ Birth Year)
+   * เช่น "1996-2006" — ไม่เก็บอายุเป็นตัวเลขอีกต่อไป (ดู utils/profileSchema.ts ->
+   * birthYearRangeValueFor()) ค่านี้คือ source of truth สำหรับแสดงผลในหน้า Profile
+   */
+  birthYearRange?: string
 
   createdAt: number
 

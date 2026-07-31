@@ -8,7 +8,8 @@
  * - รับ authData ของ Step 1 มาเป็น prop (uid/loginType/displayName/pictureUrl)
  * - ถ้ามาจาก LINE และมี displayName -> เติมในช่อง "ชื่อ" ให้อัตโนมัติ (แก้ไขได้)
  * - ช่วงอายุ: เลือกจาก USelectMenu เป็นช่วง (เช่น "1996 - 2006 (20-30 ปี)")
- *   คำนวณช่วงปีเกิดสดจากปีปัจจุบันเสมอ (ไม่ hardcode) -> ได้ age + ageRange อัตโนมัติ
+ *   คำนวณช่วงปีเกิดสดจากปีปัจจุบันเสมอ (ไม่ hardcode) -> ได้ birthYearRange ที่จะบันทึก
+ *   ลง Google Sheet อัตโนมัติ (ดู birthYearRangeValueFor() ใน utils/profileSchema.ts)
  * - Validate ด้วย Zod (utils/profileSchema.ts) ผ่าน UForm
  * - ปิด modal ด้วยปุ่ม X / คลิกนอกกรอบ / กด Esc ไม่ได้ ต้องกรอกให้ครบก่อนเท่านั้น
  * - บันทึกสำเร็จ -> รวมเข้ากับ authData เป็น UserProfile เดียว แล้ว emit "registered"
@@ -67,15 +68,15 @@ async function onSubmit(event: FormSubmitEvent<ProfileSchemaOutput>) {
     // ข้อ 3-5 ในสเปก: ส่งไปตรวจสอบ/บันทึกที่ Google Sheet ผ่าน Google Apps Script
     // ก่อนเสมอ (checkMember -> login หรือ register) แล้วค่อยรวมผลลัพธ์ที่ backend
     // ยืนยันแล้ว (memberId, registerDate, lastLogin) เข้ากับโปรไฟล์ในเครื่อง
-    // ส่ง gender + age (คำนวณจาก birthYear ที่เลือก) ไปด้วยทุกครั้ง เพื่อให้ Google
-    // Sheet บันทึกครบ ไม่ใช่แค่ชื่อ-นามสกุล-เบอร์เหมือนเดิม
+    // ส่ง gender + birthYear (ช่วงปีเกิด ค.ศ. ตรงตามตัวเลือกที่เลือก เช่น "1996-2006")
+    // ไปด้วยทุกครั้ง เพื่อให้ Google Sheet บันทึกครบ ไม่ใช่แค่ชื่อ-นามสกุล-เบอร์เหมือนเดิม
     const result = await syncMember(
       {
         firstName: event.data.firstName,
         lastName: event.data.lastName,
         phone: event.data.phone,
         gender: event.data.gender,
-        age: calculateAge(event.data.birthYear),
+        birthYear: birthYearRangeValueFor(event.data.birthYear),
       },
       props.auth,
     )

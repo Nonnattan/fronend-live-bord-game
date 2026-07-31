@@ -23,7 +23,8 @@
 import type { AuthData } from '~/types/auth'
 
 /** โครงสร้างสมาชิกตามที่ Google Apps Script ส่งกลับมา (ตรงกับคอลัมน์ใน Sheet)
- * age: null = ยังไม่มีข้อมูลในชีต (ต่างจาก 0 ซึ่งไม่ใช่อายุที่เป็นไปได้จริง)
+ * birthYear: null = ยังไม่มีข้อมูลในชีต — เป็นข้อความช่วงปีเกิด ค.ศ. ตรงตามที่ผู้ใช้
+ * เลือกในหน้า Register เช่น "1996-2006" (ไม่ใช่อายุตัวเลขอีกต่อไป)
  * gender: '' = ยังไม่มีข้อมูลในชีต */
 export interface MemberRecord {
   memberId: string
@@ -37,7 +38,7 @@ export interface MemberRecord {
   lastLogin: string
   point: number
   totalVisit: number
-  age: number | null
+  birthYear: string | null
   gender: string
 }
 
@@ -47,11 +48,13 @@ export interface IdentityValues {
   phone: string
 }
 
-/** Age/Gender — ไม่บังคับส่งมาทุกครั้ง (เช่น checkMember ไม่ต้องใช้) แต่ register/login
- * ควรส่งมาด้วยเสมอเพื่อให้บันทึกลง Google Sheet ครบตามสเปก */
+/** Birth Year/Gender — ไม่บังคับส่งมาทุกครั้ง (เช่น checkMember ไม่ต้องใช้) แต่ register/login
+ * ควรส่งมาด้วยเสมอเพื่อให้บันทึกลง Google Sheet ครบตามสเปก
+ * birthYear คือข้อความช่วงปีเกิด ค.ศ. ตรงตามตัวเลือกที่ผู้ใช้เลือก เช่น "1996-2006"
+ * (ไม่ใช่อายุตัวเลข — ดู utils/profileSchema.ts -> birthYearRangeValueFor()) */
 export interface DemographicValues {
   gender?: string
-  age?: number
+  birthYear?: string
 }
 
 interface CheckMemberResponse {
@@ -128,7 +131,7 @@ export function useMemberApi() {
     return callApi<MemberActionResponse>('login', { ...values, ...buildLineFields(auth) })
   }
 
-  /** ใช้อัปเดตข้อมูลสมาชิกเดิมด้วย memberId โดยตรง — เช่น เติมเฉพาะ Age/Gender ที่ยังขาด
+  /** ใช้อัปเดตข้อมูลสมาชิกเดิมด้วย memberId โดยตรง — เช่น เติมเฉพาะ Birth Year/Gender ที่ยังขาด
    * (ส่งมาเฉพาะฟิลด์ที่ต้องการอัปเดต ฝั่ง backend จะไม่แตะฟิลด์อื่นที่ไม่ได้ส่งมา และไม่มีการสร้างแถวใหม่) */
   function updateMember(memberId: string, fields: Partial<IdentityValues & DemographicValues & { lineUserId: string; displayName: string; pictureUrl: string; point: number; totalVisit: number }>): Promise<MemberActionResponse> {
     return callApi<MemberActionResponse>('updateMember', { memberId, ...fields })

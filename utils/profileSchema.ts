@@ -37,8 +37,12 @@ const AGE_BRACKETS: { code: AgeRangeCode; minAge: number; maxAge: number; label:
  * label ที่ได้จะออกมาแบบ "1996 - 2006 (20-30 ปี)" คือช่วงปีเกิดคู่กับช่วงอายุ
  * ส่วน value คือปีเกิดตัวแทนกลาง ๆ ของช่วงนั้น ใช้คำนวณ age/ageRange ย้อนกลับ
  * แล้วได้ผลลัพธ์เป็นช่วงเดิมเสมอ (ไม่กระทบความถูกต้องของข้อมูล)
+ *
+ * rangeValue คือค่าช่วงปีเกิด ค.ศ. แบบข้อความล้วน ๆ ไม่มีช่องว่าง/ไม่มีข้อความ
+ * ภาษาไทยต่อท้าย เช่น "1996-2006" — ใช้ค่านี้ตรง ๆ เวลาบันทึกลง Google Sheet
+ * (คอลัมน์ Birth Year) แทนการคำนวณอายุเป็นตัวเลขแล้วส่งไป
  */
-export function getAgeRangeOptions(): { label: string; value: number; code: AgeRangeCode }[] {
+export function getAgeRangeOptions(): { label: string; value: number; code: AgeRangeCode; rangeValue: string }[] {
   const currentYear = getCurrentYear()
 
   return AGE_BRACKETS.map(({ code, minAge, maxAge, label }) => {
@@ -50,8 +54,19 @@ export function getAgeRangeOptions(): { label: string; value: number; code: AgeR
       code,
       label: `${minBirthYear} - ${maxBirthYear} (${label})`,
       value: representativeBirthYear,
+      rangeValue: `${minBirthYear}-${maxBirthYear}`,
     }
   })
+}
+
+/**
+ * แปลง "ปีเกิดตัวแทน" (ค่าที่เลือกใน USelectMenu ของ getAgeRangeOptions()) กลับเป็น
+ * ค่าช่วงปีเกิดแบบข้อความ (rangeValue) เพื่อส่งไปบันทึกลง Google Sheet ตรง ๆ
+ * คืนค่าว่าง '' ถ้าไม่พบตัวเลือกที่ตรงกัน (ไม่ควรเกิดขึ้นจริงเพราะ dropdown คุมค่าไว้แล้ว)
+ */
+export function birthYearRangeValueFor(representativeBirthYear: number): string {
+  const match = getAgeRangeOptions().find(option => option.value === representativeBirthYear)
+  return match ? match.rangeValue : ''
 }
 
 /** คำนวณอายุจากปีเกิด โดยอิงปีปัจจุบันเสมอ */

@@ -3,7 +3,7 @@
  * components/MissingFieldsForm.vue
  * ---------------------------------------------------------------------------
  * แสดงเมื่อ Login ด้วย LINE แล้วพบสมาชิกเดิมใน Google Sheet (lineUserId ตรงกัน)
- * แต่แถวเดิมยังขาด Age และ/หรือ Gender (เช่น สมัครไว้ตั้งแต่ก่อนมีฟีเจอร์นี้ หรือ
+ * แต่แถวเดิมยังขาด Birth Year และ/หรือ Gender (เช่น สมัครไว้ตั้งแต่ก่อนมีฟีเจอร์นี้ หรือ
  * เคย Login จากเครื่องอื่นที่ไม่มี LocalStorage เดิม) — ให้กรอก "เฉพาะฟิลด์ที่ขาด"
  * เท่านั้น (ไม่ถามชื่อ/นามสกุล/เบอร์ซ้ำ เพราะมีอยู่แล้ว) แล้วอัปเดตแถวเดิมด้วย
  * memberId ผ่าน action 'updateMember' — ห้ามสร้างแถวใหม่เด็ดขาด
@@ -24,7 +24,7 @@ const { updateMember } = useMemberApi()
 const open = ref(true)
 const ageRangeOptions = getAgeRangeOptions()
 
-const missingAge = computed(() => props.member.age === null || props.member.age === undefined)
+const missingAge = computed(() => !props.member.birthYear)
 const missingGender = computed(() => !props.member.gender)
 
 const gender = ref<Gender | undefined>(undefined)
@@ -59,9 +59,10 @@ async function onSubmit() {
   try {
     // ส่งเฉพาะฟิลด์ที่ขาดจริง ๆ ไปอัปเดต — ไม่แตะฟิลด์อื่นในแถวเดิม (backend
     // จะไม่เขียนทับด้วยค่าว่างถ้าฟิลด์นั้นไม่ได้ส่งมา ดู updateMemberRow_ ใน Code.gs)
-    const fields: { gender?: string; age?: number } = {}
+    // birthYear ที่ส่งไปคือช่วงปีเกิด ค.ศ. แบบข้อความตรงตามตัวเลือกที่เลือก เช่น "1996-2006"
+    const fields: { gender?: string; birthYear?: string } = {}
     if (missingGender.value && gender.value) fields.gender = gender.value
-    if (missingAge.value && birthYear.value) fields.age = calculateAge(birthYear.value)
+    if (missingAge.value && birthYear.value) fields.birthYear = birthYearRangeValueFor(birthYear.value)
 
     const result = await updateMember(props.member.memberId, fields)
 

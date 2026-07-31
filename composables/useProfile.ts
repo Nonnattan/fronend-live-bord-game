@@ -57,12 +57,14 @@ export function useProfile() {
    * บันทึกโปรไฟล์ใหม่ลง LocalStorage หลังจาก Validate ผ่านแล้ว
    * รวม auth (ผลลัพธ์ Step 1: loginType/uid/displayName/pictureUrl) เข้ากับ
    * values (ผลลัพธ์ Step 2: ที่ผู้ใช้กรอกในฟอร์มจริง) เป็น UserProfile เดียวจบ
-   * ส่วน age/ageRange/createdAt คำนวณ/สร้างที่นี่เสมอ ไม่รับจากภายนอก
-   * เพื่อป้องกันข้อมูลไม่ตรงกัน (เช่น ผู้ใช้เปลี่ยนปีเกิดแต่ age ไม่อัปเดต)
+   * ส่วน birthYearRange/createdAt คำนวณ/สร้างที่นี่เสมอ ไม่รับจากภายนอก
+   * เพื่อป้องกันข้อมูลไม่ตรงกัน (เช่น ผู้ใช้เปลี่ยนช่วงปีเกิดแต่ birthYearRange ไม่อัปเดต)
+   *
+   * birthYearRange มาจาก member?.birthYear (ค่าที่ Google Sheet ยืนยันแล้ว) ก่อนเสมอ
+   * ถ้าไม่มี (เช่น sync ไม่สำเร็จ) ค่อย fallback ไปคำนวณจาก values.birthYear ในเครื่อง
    */
   function saveProfile(values: Required<ProfileFormValues>, auth: AuthData, member?: MemberRecord): UserProfile {
-    const age = calculateAge(values.birthYear)
-    const ageRange = calculateAgeRange(age)
+    const birthYearRange = member?.birthYear || birthYearRangeValueFor(values.birthYear) || undefined
 
     const fullProfile: UserProfile = {
       loginType: auth.loginType,
@@ -77,8 +79,7 @@ export function useProfile() {
       gender: values.gender,
       birthYear: values.birthYear,
       phone: values.phone,
-      age,
-      ageRange,
+      birthYearRange,
 
       createdAt: Date.now(),
 
@@ -103,15 +104,14 @@ export function useProfile() {
    * (ไม่ต้องผ่านฟอร์ม ProfileForm เลย) — ใช้ตอน Login LINE แล้วระบบตรวจพบว่า
    * lineUserId นี้เคยสมัครสมาชิกไว้แล้ว (composables/useMemberApi.ts -> loginByLine())
    *
-   * ดึง Age/Gender กลับมาจาก Google Sheet ตรง ๆ (member.age / member.gender) แทนที่
-   * จะทิ้งไปเสมอเหมือนเดิม — ถ้าสมาชิกคนนี้เคยกรอก Age/Gender ไว้แล้ว (ไม่ว่าจะกรอก
-   * จากเครื่องไหนก็ตาม) จะได้ค่าคืนมาครบทันที ไม่ต้องกรอกซ้ำ ถ้ายังไม่มี (member.age
-   * เป็น null หรือ member.gender เป็นค่าว่าง) ปล่อยเป็น undefined ไว้ — หน้า index.vue
-   * จะเช็คแล้วพาไปกรอกเฉพาะฟิลด์ที่ขาดต่อ (ดู hasMissingFields() ใน pages/index.vue)
+   * ดึง Birth Year/Gender กลับมาจาก Google Sheet ตรง ๆ (member.birthYear / member.gender)
+   * แทนที่จะทิ้งไปเสมอเหมือนเดิม — ถ้าสมาชิกคนนี้เคยกรอก Birth Year/Gender ไว้แล้ว
+   * (ไม่ว่าจะกรอกจากเครื่องไหนก็ตาม) จะได้ค่าคืนมาครบทันที ไม่ต้องกรอกซ้ำ ถ้ายังไม่มี
+   * (member.birthYear เป็น null หรือ member.gender เป็นค่าว่าง) ปล่อยเป็น undefined ไว้ —
+   * หน้า index.vue จะเช็คแล้วพาไปกรอกเฉพาะฟิลด์ที่ขาดต่อ (ดู hasMissingFields() ใน pages/index.vue)
    */
   function loginFromMember(member: MemberRecord, auth: AuthData): UserProfile {
-    const age = member.age ?? undefined
-    const ageRange = age !== undefined ? calculateAgeRange(age) : undefined
+    const birthYearRange = member.birthYear ?? undefined
     const gender = (member.gender || undefined) as UserProfile['gender']
 
     const fullProfile: UserProfile = {
@@ -125,8 +125,7 @@ export function useProfile() {
       phone: member.phone,
       gender,
       birthYear: undefined,
-      age,
-      ageRange,
+      birthYearRange,
 
       createdAt: Date.now(),
 

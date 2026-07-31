@@ -18,12 +18,20 @@
  * โครงสร้างชีต "Members" (แถวหัวตารางถูกสร้างอัตโนมัติถ้ายังไม่มี):
  * Member ID | First Name | Last Name | Phone Number | LINE User ID |
  * Display Name | Profile Picture | Register Date | Last Login | Point | Total Visit |
- * Age | Gender
+ * Birth Year | Gender
  *
- * Age/Gender (คอลัมน์ L, M) — เพิ่มใหม่: บันทึกทุกครั้งที่ register/login ถ้า
+ * Birth Year/Gender (คอลัมน์ L, M) — เพิ่มใหม่: บันทึกทุกครั้งที่ register/login ถ้า
  * frontend ส่งมา (ไม่บังคับ ไม่เขียนทับด้วยค่าว่างถ้าไม่ได้ส่งมาในรอบนั้น) ใช้
- * action 'updateMember' (ระบุ memberId) เพื่ออัปเดตเฉพาะ Age/Gender ที่ยังขาด
+ * action 'updateMember' (ระบุ memberId) เพื่ออัปเดตเฉพาะ Birth Year/Gender ที่ยังขาด
  * ในแถวเดิมได้โดยไม่ต้องส่งฟิลด์อื่นมาด้วย และ "ห้ามสร้างแถวใหม่" เด็ดขาด
+ *
+ * Birth Year (คอลัมน์ L) เก็บเป็น "ช่วงปีเกิด ค.ศ." แบบข้อความตรงตามที่ผู้ใช้เลือก
+ * จากหน้า Register เช่น "1996-2006" (ไม่ใช่อายุเป็นตัวเลขอีกต่อไป) — frontend
+ * เป็นฝ่ายกำหนดค่าช่วงปีที่จะส่งมาให้ทั้งหมด ฝั่งนี้แค่เก็บค่าที่ได้รับตรง ๆ
+ *
+ * Register Date/Last Login: เก็บเป็นวันที่-เวลาโซน Asia/Bangkok (UTC+7) รูปแบบ
+ * "yyyy-MM-dd HH:mm:ss" เช่น "2026-07-31 14:24:27" (ไม่ใช่ ISO string แบบเดิม
+ * ที่เป็น UTC "2026-07-31T07:24:27.667Z") ดู bangkokNow_()
  *
  * Actions ที่รองรับ (ส่งมาใน body เป็น JSON, key "action"):
  *   - checkMember  : ค้นหาสมาชิกจาก lineUserId หรือ phone (ไม่มีการเขียนข้อมูล)
@@ -65,12 +73,12 @@ const HEADERS = [
   'Last Login',
   'Point',
   'Total Visit',
-  'Age',
+  'Birth Year',
   'Gender',
 ]
 
 /** ค่าเริ่มต้นตอน migrate สำหรับคอลัมน์ที่เพิ่งเพิ่มใหม่ (คีย์ = ชื่อ header ใน HEADERS)
- * ไม่ระบุในนี้ = เติมด้วยค่าว่าง '' (เช่น Age, Gender ที่ยังไม่เคยกรอกมาก่อน) */
+ * ไม่ระบุในนี้ = เติมด้วยค่าว่าง '' (เช่น Birth Year, Gender ที่ยังไม่เคยกรอกมาก่อน) */
 const MIGRATION_DEFAULTS_ = {
   'Point': 0,
   'Total Visit': 1,
@@ -95,9 +103,9 @@ function getSheet_() {
 
 /**
  * Migration: เผื่อชีตถูกสร้างจากเวอร์ชันเก่าที่ยังมีคอลัมน์ไม่ครบ HEADERS ปัจจุบัน
- * (เช่น ชีตเก่ามีแค่ 9 คอลัมน์ถึง Last Login, หรือ 11 คอลัมน์ที่ยังไม่มี Age/Gender)
+ * (เช่น ชีตเก่ามีแค่ 9 คอลัมน์ถึง Last Login, หรือ 11 คอลัมน์ที่ยังไม่มี Birth Year/Gender)
  * — เติมหัวตารางที่ขาดทั้งหมดในคราวเดียว พร้อมค่าเริ่มต้นที่ถูกต้องต่อคอลัมน์
- * (ดู MIGRATION_DEFAULTS_ — ไม่ระบุ = เติมค่าว่าง '' เช่น Age/Gender ที่ยังไม่เคย
+ * (ดู MIGRATION_DEFAULTS_ — ไม่ระบุ = เติมค่าว่าง '' เช่น Birth Year/Gender ที่ยังไม่เคย
  * กรอกมาก่อน) ให้ทุกแถวข้อมูลเดิมโดยอัตโนมัติ ไม่ต้องแก้มือ ไม่ว่าจะขาดกี่คอลัมน์
  */
 function migrateSheetIfNeeded_(sheet) {
@@ -119,20 +127,22 @@ function migrateSheetIfNeeded_(sheet) {
   sheet.getRange(2, currentCols + 1, numRows, missingHeaders.length).setValues(defaults)
 }
 
-function nowIso_() {
-  return new Date().toISOString()
+/** วันที่-เวลาปัจจุบัน โซน Asia/Bangkok (UTC+7) รูปแบบ "yyyy-MM-dd HH:mm:ss"
+ * เช่น "2026-07-31 14:24:27" — ใช้แทน ISO string (UTC) เดิมสำหรับ Register Date
+ * และ Last Login ทุกจุดที่เขียนลงชีต (ไม่กระทบ createdAt ฝั่ง client ใน LocalStorage) */
+function bangkokNow_() {
+  return Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm:ss')
 }
 
 function normalize_(value) {
   return (value === undefined || value === null) ? '' : value.toString().trim()
 }
 
-/** Normalize ค่า Age ที่รับมาจาก payload — คืนตัวเลขถ้าแปลงได้ ไม่งั้นคืนค่าว่าง ''
- * (แปลว่า "ยังไม่มีข้อมูล" เก็บเป็นค่าว่างในชีต ไม่ใช่ 0 เพราะ 0 ไม่ใช่อายุที่เป็นไปได้จริง) */
-function normalizeAge_(value) {
-  if (value === undefined || value === null || value === '') return ''
-  const n = Number(value)
-  return isNaN(n) ? '' : n
+/** Normalize ค่า Birth Year (ช่วงปีเกิด) ที่รับมาจาก payload — เก็บเป็นข้อความตรง ๆ
+ * ตามที่ frontend ส่งมา (เช่น "1996-2006") ไม่แปลงเป็นตัวเลข/คำนวณอายุใด ๆ ทั้งสิ้น
+ * คืนค่าว่าง '' ถ้าไม่ได้ส่งมาหรือส่งมาเป็นค่าว่าง (แปลว่า "ยังไม่มีข้อมูล") */
+function normalizeBirthYear_(value) {
+  return normalize_(value)
 }
 
 /** สร้าง Member ID อัตโนมัติ ไม่ซ้ำกัน เช่น M-LXQK3F-A1B */
@@ -149,7 +159,7 @@ function getAllDataRows_(sheet) {
 }
 
 function rowToMember_(row) {
-  const ageRaw = row[11]
+  const birthYearRaw = normalize_(row[11])
   return {
     memberId: row[0],
     firstName: row[1],
@@ -162,8 +172,8 @@ function rowToMember_(row) {
     lastLogin: row[8],
     point: Number(row[9]) || 0,
     totalVisit: Number(row[10]) || 0,
-    // age: null = ยังไม่มีข้อมูล (ต่างจาก 0 ซึ่งไม่ใช่อายุที่เป็นไปได้จริง)
-    age: (ageRaw === '' || ageRaw === undefined || ageRaw === null) ? null : Number(ageRaw),
+    // birthYear: null = ยังไม่มีข้อมูล — เป็นข้อความช่วงปีเกิด เช่น "1996-2006" ไม่ใช่ตัวเลขอายุ
+    birthYear: birthYearRaw === '' ? null : birthYearRaw,
     gender: normalize_(row[12]),
   }
 }
@@ -234,7 +244,8 @@ function requireIdentityFields_(payload) {
 }
 
 /** สร้างแถวใหม่และคืนค่า member object กลับไป (Point เริ่มที่ 0, Total Visit เริ่มที่ 1)
- * บันทึก Age/Gender ด้วยถ้า payload ส่งมา (ไม่บังคับ — ถ้าไม่ส่งมาจะเก็บเป็นค่าว่าง) */
+ * บันทึก Birth Year/Gender ด้วยถ้า payload ส่งมา (ไม่บังคับ — ถ้าไม่ส่งมาจะเก็บเป็นค่าว่าง)
+ * Birth Year เก็บเป็นข้อความช่วงปีเกิดตรงตามที่ frontend ส่งมา เช่น "1996-2006" */
 function createMemberRow_(sheet, payload, now) {
   const memberId = generateMemberId_()
   const newRow = [
@@ -249,7 +260,7 @@ function createMemberRow_(sheet, payload, now) {
     now,
     0,
     1,
-    normalizeAge_(payload.age),
+    normalizeBirthYear_(payload.birthYear),
     normalize_(payload.gender),
   ]
   sheet.appendRow(newRow)
@@ -260,10 +271,11 @@ function createMemberRow_(sheet, payload, now) {
  * อัปเดตแถวที่มีอยู่แล้ว: อัปเดต Last Login เสมอ + LINE fields ถ้ามีค่าส่งมา
  * + เพิ่ม Total Visit ทีละ 1 ทุกครั้งที่ login/register สำเร็จ (bumpVisit = false
  *   เพื่อใช้กับ updateMember ที่ไม่ควรนับเป็นการเข้าใช้บริการใหม่)
- * + Age/Gender: อัปเดตเฉพาะเมื่อ payload ส่งค่ามาจริง ๆ เท่านั้น (ไม่เขียนทับด้วย
+ * + Birth Year/Gender: อัปเดตเฉพาะเมื่อ payload ส่งค่ามาจริง ๆ เท่านั้น (ไม่เขียนทับด้วย
  *   ค่าว่างถ้ารอบนี้ไม่ได้ส่งมา เช่น ตอน loginByLine ที่ส่งแค่ lineUserId) —
- *   ทำให้เรียก updateMember ด้วย memberId + { age, gender } เพื่อเติมเฉพาะฟิลด์ที่
- *   ยังขาดในแถวเดิมได้โดยไม่กระทบฟิลด์อื่น และไม่มีการสร้างแถวใหม่
+ *   ทำให้เรียก updateMember ด้วย memberId + { birthYear, gender } เพื่อเติมเฉพาะฟิลด์ที่
+ *   ยังขาดในแถวเดิมได้โดยไม่กระทบฟิลด์อื่น และไม่มีการสร้างแถวใหม่ Birth Year เก็บเป็น
+ *   ข้อความช่วงปีเกิดตรงตามที่ frontend ส่งมา เช่น "1996-2006"
  */
 function updateMemberRow_(sheet, rowIndex, payload, now, bumpVisit) {
   const current = sheet.getRange(rowIndex, 1, 1, HEADERS.length).getValues()[0]
@@ -272,7 +284,7 @@ function updateMemberRow_(sheet, rowIndex, payload, now, bumpVisit) {
   const displayName = payload.displayName ? normalize_(payload.displayName) : current[5]
   const pictureUrl = payload.pictureUrl ? normalize_(payload.pictureUrl) : current[6]
   const totalVisit = bumpVisit ? (Number(current[10]) || 0) + 1 : (Number(current[10]) || 0)
-  const age = (payload.age !== undefined && payload.age !== null && payload.age !== '') ? normalizeAge_(payload.age) : current[11]
+  const birthYear = (payload.birthYear !== undefined && payload.birthYear !== null && payload.birthYear !== '') ? normalizeBirthYear_(payload.birthYear) : current[11]
   const gender = payload.gender ? normalize_(payload.gender) : current[12]
 
   // E:G = LINE User ID, Display Name, Profile Picture
@@ -280,8 +292,8 @@ function updateMemberRow_(sheet, rowIndex, payload, now, bumpVisit) {
   // I = Last Login, K = Total Visit
   sheet.getRange(rowIndex, 9).setValue(now)
   sheet.getRange(rowIndex, 11).setValue(totalVisit)
-  // L:M = Age, Gender
-  sheet.getRange(rowIndex, 12, 1, 2).setValues([[age, gender]])
+  // L:M = Birth Year, Gender
+  sheet.getRange(rowIndex, 12, 1, 2).setValues([[birthYear, gender]])
 
   const updated = sheet.getRange(rowIndex, 1, 1, HEADERS.length).getValues()[0]
   return rowToMember_(updated)
@@ -308,7 +320,7 @@ function actionRegister_(payload) {
   if (fieldError) return { success: false, error: fieldError }
 
   const sheet = getSheet_()
-  const now = nowIso_()
+  const now = bangkokNow_()
   const rowIndex = findExistingRowIndex_(sheet, payload)
 
   if (rowIndex !== -1) {
@@ -327,7 +339,7 @@ function actionLogin_(payload) {
   if (fieldError) return { success: false, error: fieldError }
 
   const sheet = getSheet_()
-  const now = nowIso_()
+  const now = bangkokNow_()
   const rowIndex = findExistingRowIndex_(sheet, payload)
 
   if (rowIndex === -1) {
@@ -360,7 +372,7 @@ function actionLoginByLine_(payload) {
     return { success: true, found: false }
   }
 
-  const now = nowIso_()
+  const now = bangkokNow_()
   const member = updateMemberRow_(sheet, rowIndex, { lineUserId: lineUserId }, now, true)
   return { success: true, found: true, member: member }
 }
@@ -399,10 +411,10 @@ function actionUpdateMember_(payload) {
     payload.displayName !== undefined ? normalize_(payload.displayName) : current[5],
     payload.pictureUrl !== undefined ? normalize_(payload.pictureUrl) : current[6],
     current[7],
-    nowIso_(),
+    bangkokNow_(),
     payload.point !== undefined ? Number(payload.point) || 0 : current[9],
     payload.totalVisit !== undefined ? Number(payload.totalVisit) || 0 : current[10],
-    payload.age !== undefined ? normalizeAge_(payload.age) : current[11],
+    payload.birthYear !== undefined ? normalizeBirthYear_(payload.birthYear) : current[11],
     payload.gender !== undefined ? normalize_(payload.gender) : current[12],
   ]
   sheet.getRange(rowIndex, 1, 1, HEADERS.length).setValues([merged])

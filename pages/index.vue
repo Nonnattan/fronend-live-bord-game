@@ -13,15 +13,15 @@
  * 3) มี userProfile ครบแล้ว          -> ข้ามทุกอย่าง เข้าหน้า Home ทันที
  * 4) เพิ่งได้ authData แบบ LINE ใหม่ (ยังไม่มีโปรไฟล์) -> resolveLineMember():
  *    เช็ค lineUserId กับ Google Sheet ก่อนเสมอ (สเปกใหม่)
- *      - พบ และมี Age/Gender ครบแล้ว -> Login ทันที (loginFromMember) ข้ามฟอร์มไปเลย เข้าหน้า Home
- *      - พบ แต่ Age/Gender ขาดอย่างใดอย่างหนึ่ง -> แสดง <MissingFieldsForm /> ให้กรอก
+ *      - พบ และมี Birth Year/Gender ครบแล้ว -> Login ทันที (loginFromMember) ข้ามฟอร์มไปเลย เข้าหน้า Home
+ *      - พบ แต่ Birth Year/Gender ขาดอย่างใดอย่างหนึ่ง -> แสดง <MissingFieldsForm /> ให้กรอก
  *        เฉพาะฟิลด์ที่ขาด แล้วอัปเดตแถวเดิม (ห้ามสร้างแถวใหม่) ก่อนเข้าหน้า Home
  *      - ไม่พบ -> ปล่อยผ่านไปแสดง <ProfileForm /> (Step 2, สมัครสมาชิกใหม่)
  * 5) ยังไม่มีโปรไฟล์ แต่มี authData (Guest หรือ LINE ที่เช็คแล้วไม่พบ) -> แสดง <ProfileForm />
  * 6) ยังไม่มีทั้งคู่ -> แสดง <WelcomePage /> (Step 1)
  *
  * หมายเหตุ: ข้อ 4 กรณี "พบ และครบแล้ว" คือ Logic Login อัตโนมัติเดิมที่ทำงานถูกต้องอยู่แล้ว
- * ไม่ได้ถูกแก้ — เพิ่มแค่การเช็ค Age/Gender ก่อนตัดสินใจนำทางไป /home เท่านั้น
+ * ไม่ได้ถูกแก้ — เพิ่มแค่การเช็ค Birth Year/Gender ก่อนตัดสินใจนำทางไป /home เท่านั้น
  */
 
 import type { MemberRecord } from '~/composables/useMemberApi'
@@ -33,19 +33,19 @@ const { loginByLine } = useMemberApi()
 // ใช้กันไม่ให้ flash เนื้อหาผิดจังหวะระหว่างที่ยังไม่ได้เช็ค LocalStorage/LIFF/Google Sheet
 const isReady = ref(false)
 
-// สมาชิกที่พบจาก lineUserId เดิม แต่ Age/Gender ยังขาดอย่างใดอย่างหนึ่ง -> ต้องกรอก
+// สมาชิกที่พบจาก lineUserId เดิม แต่ Birth Year/Gender ยังขาดอย่างใดอย่างหนึ่ง -> ต้องกรอก
 // เฉพาะฟิลด์ที่ขาดก่อน (ดู <MissingFieldsForm />) ค่านี้ไม่ว่างแปลว่ายังไม่ Login เสร็จ
 const pendingMember = ref<MemberRecord | null>(null)
 
-/** true ถ้าสมาชิกคนนี้ยังขาด Age หรือ Gender อย่างใดอย่างหนึ่งใน Google Sheet */
+/** true ถ้าสมาชิกคนนี้ยังขาด Birth Year หรือ Gender อย่างใดอย่างหนึ่งใน Google Sheet */
 function hasMissingFields(member: MemberRecord): boolean {
-  return member.age === null || member.age === undefined || !member.gender
+  return !member.birthYear || !member.gender
 }
 
 /**
  * ตรวจสอบ lineUserId กับ Google Sheet ก่อนเสมอเวลามี authData แบบ LINE ใหม่ ๆ
  * (สเปก: "Login ผ่าน LINE ให้ตรวจสอบ lineUserId ใน Google Sheet ก่อน พบ -> Login
- * ทันที ไม่พบ -> ไปหน้าสมัครสมาชิก") — ถ้าพบแต่ Age/Gender ยังขาด จะพักไว้ที่
+ * ทันที ไม่พบ -> ไปหน้าสมัครสมาชิก") — ถ้าพบแต่ Birth Year/Gender ยังขาด จะพักไว้ที่
  * pendingMember แทนการนำทางไป /home ทันที (ให้ <MissingFieldsForm /> จัดการต่อ)
  */
 async function resolveLineMember(): Promise<void> {
@@ -79,7 +79,7 @@ onMounted(async () => {
 
   // ข้อ 4: เพิ่งได้ authData แบบ LINE (จาก initAuth ที่เพิ่งถูก redirect กลับมา)
   // -> เช็ค lineUserId ก่อนเสมอ (นำทางไป /home เองถ้าครบแล้ว หรือตั้ง pendingMember
-  // ถ้ายังขาด Age/Gender)
+  // ถ้ายังขาด Birth Year/Gender)
   await resolveLineMember()
 
   isReady.value = true
@@ -104,7 +104,7 @@ function handleRegistered() {
   navigateTo('/home')
 }
 
-/** MissingFieldsForm อัปเดตแถวเดิมสำเร็จแล้ว (Age/Gender ครบแล้ว) -> Login เข้าหน้า Home ทันที */
+/** MissingFieldsForm อัปเดตแถวเดิมสำเร็จแล้ว (Birth Year/Gender ครบแล้ว) -> Login เข้าหน้า Home ทันที */
 async function handleMissingFieldsCompleted(member: MemberRecord) {
   if (!authData.value) return
   loginFromMember(member, authData.value)
@@ -130,7 +130,7 @@ async function handleMissingFieldsCompleted(member: MemberRecord) {
         @select-guest="loginAsGuest"
       />
 
-      <!-- พบสมาชิกเดิมจาก lineUserId แล้ว แต่ Age/Gender ในชีตยังขาด -> กรอกเฉพาะฟิลด์ที่ขาด -->
+      <!-- พบสมาชิกเดิมจาก lineUserId แล้ว แต่ Birth Year/Gender ในชีตยังขาด -> กรอกเฉพาะฟิลด์ที่ขาด -->
       <MissingFieldsForm
         v-else-if="pendingMember && authData"
         :member="pendingMember"
@@ -164,10 +164,8 @@ async function handleMissingFieldsCompleted(member: MemberRecord) {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1.25rem;
   position: relative;
   overflow: hidden;
-  background: radial-gradient(circle at 50% 0%, #0f2a1f 0%, #08110d 55%, #05080a 100%);
 }
 
 .loading {

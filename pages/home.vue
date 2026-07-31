@@ -6,23 +6,23 @@
  * useRequireProfile() เหมือนทุกหน้าในแอป ไม่ได้แก้ logic เดิมของ guard นี้เลย)
  *
  * ประกอบด้วยตามสเปกใหม่:
- * 1) Summary Card ด้านบน — แสดงความคืบหน้า "เข้าฐานแล้ว X/4" พร้อมแสดงฐานทั้ง
- *    4 ฐานเป็นรายการ อัปเดตตามข้อมูลจริงผ่าน useStations() (ดู composables/
- *    useStations.ts สำหรับหมายเหตุเรื่องแหล่งข้อมูล)
- * 2) Map Preview ด้านล่าง — ภาพตัวอย่างแผนที่ขนาดเล็ก กดแล้วไปหน้า Map เต็มที่
- *    /map (หน้า Map เดิมยังอยู่ ไม่ได้แก้ logic ของมัน)
+ * 1) Map Preview ด้านบน (จุดเด่นของหน้า) — กดแล้วไปหน้า Map เต็มที่ /map
+ *    (หน้า Map เดิมยังอยู่ ไม่ได้แก้ logic ของมัน)
+ * 2) Summary Card ด้านล่าง — แบ่ง 2 ส่วนในแถวเดียวกัน ซ้าย "เข้าฐานแล้ว X/4"
+ *    ขวา "Point" คะแนนสะสม (จาก profile.point เดิม ไม่ได้เพิ่ม field ใหม่)
+ *    พร้อมแสดงฐานทั้ง 4 ฐานเป็นรายการด้านล่าง อัปเดตตามข้อมูลจริงผ่าน
+ *    useStations() (ดู composables/useStations.ts สำหรับหมายเหตุเรื่องแหล่งข้อมูล)
  */
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: "app" });
 
-const { profile, isReady } = useRequireProfile()
-const { stations, totalStations, visitedCount, isVisited, initStations } = useStations()
+const { profile, isReady } = useRequireProfile();
+const { stations, totalStations, visitedCount, isVisited, initStations } =
+  useStations();
 
 onMounted(() => {
-  initStations()
-})
-
-const progressPercent = computed(() => Math.round((visitedCount.value / totalStations) * 100))
+  initStations();
+});
 </script>
 
 <template>
@@ -45,26 +45,33 @@ const progressPercent = computed(() => Math.round((visitedCount.value / totalSta
         </div>
         <div class="greeting__text">
           <p class="greeting__hello">สวัสดี</p>
-          <p class="greeting__name">{{ profile?.firstName }} {{ profile?.lastName }}</p>
+          <p class="greeting__name">
+            {{ profile?.firstName }} {{ profile?.lastName }}
+          </p>
         </div>
       </div>
 
-      <!-- Summary Card: ความคืบหน้าการเข้าฐาน -->
+      <!-- Summary Card: เข้าฐานแล้ว + Point สะสม -->
       <section class="summary-card">
         <div class="summary-card__top">
-          <div>
-            <p class="summary-card__label">ความคืบหน้า</p>
+          <div class="summary-card__stat">
+            <p class="summary-card__label">เข้าฐานแล้ว</p>
             <p class="summary-card__value">
-              เข้าฐานแล้ว <span class="summary-card__value-num">{{ visitedCount }}/{{ totalStations }}</span>
+              <span class="summary-card__value-num"
+                >{{ visitedCount }}/{{ totalStations }}</span
+              >
             </p>
           </div>
-          <div class="summary-card__ring" :style="{ '--pct': progressPercent + '%' }">
-            <span class="summary-card__ring-text">{{ progressPercent }}%</span>
+          <div class="summary-card__divider" />
+          <div class="summary-card__stat">
+            <p class="summary-card__label">Point</p>
+            <p class="summary-card__value">
+              <span class="summary-card__value-num">{{
+                profile?.point ?? 0
+              }}</span>
+              <span class="summary-card__value-unit">Point</span>
+            </p>
           </div>
-        </div>
-
-        <div class="summary-card__bar">
-          <div class="summary-card__bar-fill" :style="{ width: progressPercent + '%' }" />
         </div>
 
         <div class="station-grid">
@@ -85,7 +92,7 @@ const progressPercent = computed(() => Math.round((visitedCount.value / totalSta
         </div>
       </section>
 
-      <!-- Map Preview: กดเพื่อไปหน้า Map แบบเต็ม -->
+      <!-- Map Preview: จุดเด่นของหน้า Home — กดเพื่อไปหน้า Map แบบเต็ม -->
       <NuxtLink to="/map" class="map-preview">
         <div class="map-preview__canvas">
           <div class="map-preview__grid" />
@@ -142,7 +149,7 @@ const progressPercent = computed(() => Math.round((visitedCount.value / totalSta
 .home {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.85rem;
   padding: 1rem 1.1rem 1.25rem;
 }
 
@@ -163,7 +170,11 @@ const progressPercent = computed(() => Math.round((visitedCount.value / totalSta
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--farm-grass) 0%, var(--farm-accent-dark) 100%);
+  background: linear-gradient(
+    135deg,
+    var(--farm-grass) 0%,
+    var(--farm-accent-dark) 100%
+  );
   border: 2px solid var(--farm-cream);
   flex-shrink: 0;
 }
@@ -202,16 +213,37 @@ const progressPercent = computed(() => Math.round((visitedCount.value / totalSta
   gap: 0.9rem;
   padding: 1.1rem;
   border-radius: 1.25rem;
-  background: linear-gradient(160deg, var(--farm-cream) 0%, var(--farm-cream-dark) 100%);
+  background: linear-gradient(
+    160deg,
+    var(--farm-cream) 0%,
+    var(--farm-cream-dark) 100%
+  );
   border: 2px solid var(--farm-wood);
   box-shadow: 0 10px 24px -16px rgba(74, 47, 24, 0.45);
 }
 
 .summary-card__top {
   display: flex;
+  align-items: stretch;
+  gap: 0.75rem;
+}
+
+.summary-card__stat {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  text-align: center;
+  gap: 0.15rem;
+}
+
+.summary-card__divider {
+  width: 1.5px;
+  align-self: stretch;
+  background: var(--farm-wood);
+  opacity: 0.35;
+  flex-shrink: 0;
 }
 
 .summary-card__label {
@@ -224,74 +256,46 @@ const progressPercent = computed(() => Math.round((visitedCount.value / totalSta
 }
 
 .summary-card__value {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.25rem;
   font-size: 1rem;
   font-weight: 700;
   color: var(--farm-text-dark);
-  margin: 0.2rem 0 0;
+  margin: 0.15rem 0 0;
+  max-width: 100%;
 }
 
 .summary-card__value-num {
   color: var(--farm-accent-dark);
   font-size: 1.3rem;
   font-weight: 800;
-}
-
-.summary-card__ring {
-  --pct: 0%;
-  width: 3.4rem;
-  height: 3.4rem;
-  border-radius: 999px;
-  flex-shrink: 0;
-  background: conic-gradient(var(--farm-accent-dark) var(--pct), rgba(90, 158, 51, 0.18) 0);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
-
-.summary-card__ring::before {
-  content: '';
-  position: absolute;
-  inset: 5px;
-  border-radius: 999px;
-  background: var(--farm-cream);
-}
-
-.summary-card__ring-text {
-  position: relative;
-  font-size: 0.72rem;
-  font-weight: 800;
-  color: var(--farm-accent-dark);
-}
-
-.summary-card__bar {
-  width: 100%;
-  height: 0.5rem;
-  border-radius: 999px;
-  background: rgba(90, 158, 51, 0.18);
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.summary-card__bar-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--farm-grass) 0%, var(--farm-accent-dark) 100%);
-  transition: width 0.3s ease;
+.summary-card__value-unit {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--farm-text-muted);
+  flex-shrink: 0;
 }
 
 .station-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
 
 .station-chip {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.55rem 0.25rem;
-  border-radius: 0.85rem;
+  gap: 0.2rem;
+  padding: 0.4rem 0.15rem;
+  border-radius: 0.65rem;
   background: rgba(255, 255, 255, 0.55);
   border: 1.5px dashed var(--farm-wood);
 }
@@ -303,14 +307,15 @@ const progressPercent = computed(() => Math.round((visitedCount.value / totalSta
 }
 
 .station-chip__icon-wrap {
-  width: 1.9rem;
-  height: 1.9rem;
+  width: 1.5rem;
+  height: 1.5rem;
   border-radius: 999px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--farm-cream-dark);
   color: var(--farm-text-muted);
+  flex-shrink: 0;
 }
 
 .station-chip--visited .station-chip__icon-wrap {
@@ -319,15 +324,18 @@ const progressPercent = computed(() => Math.round((visitedCount.value / totalSta
 }
 
 .station-chip__icon {
-  width: 1rem;
-  height: 1rem;
+  width: 0.8rem;
+  height: 0.8rem;
 }
 
 .station-chip__name {
-  font-size: 0.62rem;
+  font-size: 0.56rem;
   font-weight: 600;
   color: var(--farm-text-dark);
   text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -336,18 +344,23 @@ const progressPercent = computed(() => Math.round((visitedCount.value / totalSta
 .map-preview {
   display: flex;
   flex-direction: column;
-  border-radius: 1.25rem;
+  border-radius: 1.4rem;
   overflow: hidden;
-  border: 2px solid var(--farm-wood);
+  border: 3px solid var(--farm-wood);
   text-decoration: none;
-  box-shadow: 0 10px 24px -16px rgba(74, 47, 24, 0.45);
+  box-shadow: 0 14px 30px -14px rgba(74, 47, 24, 0.5);
 }
 
 .map-preview__canvas {
   position: relative;
   width: 100%;
-  aspect-ratio: 16 / 9;
-  background: linear-gradient(160deg, var(--farm-sky-top) 0%, var(--farm-sky-bottom) 55%, var(--farm-grass) 100%);
+  aspect-ratio: 4 / 3;
+  background: linear-gradient(
+    160deg,
+    var(--farm-sky-top) 0%,
+    var(--farm-sky-bottom) 55%,
+    var(--farm-grass) 100%
+  );
   overflow: hidden;
 }
 
@@ -367,8 +380,8 @@ const progressPercent = computed(() => Math.round((visitedCount.value / totalSta
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 1.8rem;
-  height: 1.8rem;
+  width: 2.15rem;
+  height: 2.15rem;
   border-radius: 999px 999px 999px 0;
   background: var(--farm-wood-dark);
   border: 2px solid var(--farm-cream);
@@ -381,8 +394,8 @@ const progressPercent = computed(() => Math.round((visitedCount.value / totalSta
 }
 
 .map-preview__pin-icon {
-  width: 0.95rem;
-  height: 0.95rem;
+  width: 1.15rem;
+  height: 1.15rem;
   color: #fff;
   rotate: -45deg;
 }
@@ -391,7 +404,7 @@ const progressPercent = computed(() => Math.round((visitedCount.value / totalSta
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  padding: 0.85rem 1rem;
+  padding: 0.95rem 1.1rem;
   background: var(--farm-cream);
 }
 
@@ -401,28 +414,32 @@ const progressPercent = computed(() => Math.round((visitedCount.value / totalSta
 }
 
 .map-preview__title {
-  font-weight: 700;
-  font-size: 0.88rem;
+  font-weight: 800;
+  font-size: 1rem;
   color: var(--farm-text-dark);
   margin: 0;
 }
 
 .map-preview__desc {
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   color: var(--farm-text-muted);
-  margin: 0.1rem 0 0;
+  margin: 0.15rem 0 0;
 }
 
 .map-preview__chevron {
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 1.4rem;
+  height: 1.4rem;
   color: var(--farm-accent-dark);
   flex-shrink: 0;
 }
 
 @media (max-width: 360px) {
   .station-chip__name {
-    font-size: 0.58rem;
+    font-size: 0.52rem;
+  }
+
+  .summary-card__value-num {
+    font-size: 1.15rem;
   }
 }
 </style>
