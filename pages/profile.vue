@@ -9,12 +9,30 @@
 definePageMeta({ layout: 'app' })
 
 const { profile, isReady } = useRequireProfile()
-const { isAnonymous, loginWithLine, resetAuth } = useAuth()
+const { isAnonymous, loginWithLine, resetAuth, logoutLine } = useAuth()
 const { resetProfile } = useProfile()
 
+/**
+ * รีเซ็ตข้อมูลทดสอบแบบเต็มรูปแบบ:
+ * 1) Logout LINE (LIFF session) จริง ๆ ก่อนเสมอ — ต้องทำก่อนเคลียร์ storage เพราะ
+ *    ใช้ LIFF SDK เช็ค session ปัจจุบัน (ไม่งั้นรอบหน้า initAuth() จะ auto-login
+ *    ซ้ำจาก session เดิมทันที ไม่เห็นหน้า Welcome จริง ๆ)
+ * 2) resetProfile()/resetAuth() — ล้าง state ในหน่วยความจำ (useState) ให้ null ทันที
+ * 3) ล้าง LocalStorage + SessionStorage ทั้งหมด (กันเหนียวเผื่อมี key อื่นค้างอยู่
+ *    เช่น ข้อมูลฐาน/checkpoint ที่เก็บแยกไว้) — ไม่มีการเรียก API ไป Google Sheet
+ *    เลยในขั้นตอนนี้ จึงไม่มีทางสร้างข้อมูลใหม่ในชีตจากการกดปุ่มนี้
+ * 4) Redirect ไปหน้า index — initAuth()/initProfile() จะรันใหม่ทั้งหมดแล้วเจอว่า
+ *    ไม่มีทั้ง authData และ LIFF session ค้างอยู่เลย จึงแสดงหน้า Welcome เหมือน
+ *    เปิดระบบครั้งแรกจริง ๆ
+ */
 async function handleResetForTesting() {
+  await logoutLine()
   resetProfile()
   resetAuth()
+  if (import.meta.client) {
+    localStorage.clear()
+    sessionStorage.clear()
+  }
   await navigateTo('/')
 }
 </script>

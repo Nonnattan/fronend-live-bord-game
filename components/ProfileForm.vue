@@ -67,11 +67,15 @@ async function onSubmit(event: FormSubmitEvent<ProfileSchemaOutput>) {
     // ข้อ 3-5 ในสเปก: ส่งไปตรวจสอบ/บันทึกที่ Google Sheet ผ่าน Google Apps Script
     // ก่อนเสมอ (checkMember -> login หรือ register) แล้วค่อยรวมผลลัพธ์ที่ backend
     // ยืนยันแล้ว (memberId, registerDate, lastLogin) เข้ากับโปรไฟล์ในเครื่อง
+    // ส่ง gender + age (คำนวณจาก birthYear ที่เลือก) ไปด้วยทุกครั้ง เพื่อให้ Google
+    // Sheet บันทึกครบ ไม่ใช่แค่ชื่อ-นามสกุล-เบอร์เหมือนเดิม
     const result = await syncMember(
       {
         firstName: event.data.firstName,
         lastName: event.data.lastName,
         phone: event.data.phone,
+        gender: event.data.gender,
+        age: calculateAge(event.data.birthYear),
       },
       props.auth,
     )

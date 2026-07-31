@@ -153,6 +153,31 @@ export function useAuth() {
     authData.value = null
   }
 
+  /**
+   * Logout ออกจาก LINE (LIFF session) จริง ๆ ถ้ามี session ค้างอยู่ — ใช้ตอนกด
+   * "รีเซ็ตข้อมูล (ทดสอบ)" เพื่อให้รอบถัดไปที่เปิดแอป initAuth() จะไม่เจอ
+   * liff.isLoggedIn() === true แล้ว auto-login ซ้ำจาก session เดิมทันที (ต้องเห็น
+   * หน้า Welcome เหมือนเปิดระบบครั้งแรกจริง ๆ ไม่ใช่แค่ authData ในเครื่องถูกล้าง)
+   * ปลอดภัยแม้ไม่เคย login ด้วย LINE เลย หรือ init ไม่สำเร็จ (เช่น เน็ตหลุด/ยังไม่
+   * ตั้งค่า LIFF ID) — ปล่อยผ่านเงียบ ๆ ไม่ block การ reset ส่วนอื่น
+   */
+  async function logoutLine(): Promise<void> {
+    if (!import.meta.client) return
+
+    const config = useRuntimeConfig()
+    if (!config.public.liffId) return
+
+    try {
+      const liff = await loadLiff()
+      await liff.init({ liffId: config.public.liffId })
+      if (liff.isLoggedIn()) {
+        liff.logout()
+      }
+    } catch {
+      // init ไม่สำเร็จ -> ไม่มี session ให้ logout อยู่แล้ว ปล่อยผ่านได้เลย
+    }
+  }
+
   return {
     // state
     authData: readonly(authData),
@@ -165,5 +190,6 @@ export function useAuth() {
     loginWithLine,
     loginAsGuest,
     resetAuth,
+    logoutLine,
   }
 }

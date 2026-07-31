@@ -103,12 +103,17 @@ export function useProfile() {
    * (ไม่ต้องผ่านฟอร์ม ProfileForm เลย) — ใช้ตอน Login LINE แล้วระบบตรวจพบว่า
    * lineUserId นี้เคยสมัครสมาชิกไว้แล้ว (composables/useMemberApi.ts -> loginByLine())
    *
-   * หมายเหตุ: Google Sheet ไม่ได้เก็บเพศ/ปีเกิด/อายุไว้เลย (มีแค่ตอนกรอกฟอร์ม
-   * ครั้งแรกบนเครื่องนั้น ๆ) ถ้าเป็นเครื่องใหม่ที่ไม่มี LocalStorage เดิม ฟิลด์
-   * เหล่านี้จะไม่มีค่า — ปล่อยว่างไว้ ไม่บังคับกรอกซ้ำ (ตามสเปก "Login ทันที")
-   * ไม่กระทบ saveProfile() เดิมที่ใช้กับฟอร์ม Guest/สมัครสมาชิกใหม่แต่อย่างใด
+   * ดึง Age/Gender กลับมาจาก Google Sheet ตรง ๆ (member.age / member.gender) แทนที่
+   * จะทิ้งไปเสมอเหมือนเดิม — ถ้าสมาชิกคนนี้เคยกรอก Age/Gender ไว้แล้ว (ไม่ว่าจะกรอก
+   * จากเครื่องไหนก็ตาม) จะได้ค่าคืนมาครบทันที ไม่ต้องกรอกซ้ำ ถ้ายังไม่มี (member.age
+   * เป็น null หรือ member.gender เป็นค่าว่าง) ปล่อยเป็น undefined ไว้ — หน้า index.vue
+   * จะเช็คแล้วพาไปกรอกเฉพาะฟิลด์ที่ขาดต่อ (ดู hasMissingFields() ใน pages/index.vue)
    */
   function loginFromMember(member: MemberRecord, auth: AuthData): UserProfile {
+    const age = member.age ?? undefined
+    const ageRange = age !== undefined ? calculateAgeRange(age) : undefined
+    const gender = (member.gender || undefined) as UserProfile['gender']
+
     const fullProfile: UserProfile = {
       loginType: auth.loginType,
       uid: auth.uid,
@@ -118,10 +123,10 @@ export function useProfile() {
       firstName: member.firstName,
       lastName: member.lastName,
       phone: member.phone,
-      gender: undefined,
+      gender,
       birthYear: undefined,
-      age: undefined,
-      ageRange: undefined,
+      age,
+      ageRange,
 
       createdAt: Date.now(),
 

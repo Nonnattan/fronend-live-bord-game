@@ -22,7 +22,9 @@
 
 import type { AuthData } from '~/types/auth'
 
-/** โครงสร้างสมาชิกตามที่ Google Apps Script ส่งกลับมา (ตรงกับคอลัมน์ใน Sheet) */
+/** โครงสร้างสมาชิกตามที่ Google Apps Script ส่งกลับมา (ตรงกับคอลัมน์ใน Sheet)
+ * age: null = ยังไม่มีข้อมูลในชีต (ต่างจาก 0 ซึ่งไม่ใช่อายุที่เป็นไปได้จริง)
+ * gender: '' = ยังไม่มีข้อมูลในชีต */
 export interface MemberRecord {
   memberId: string
   firstName: string
@@ -35,12 +37,21 @@ export interface MemberRecord {
   lastLogin: string
   point: number
   totalVisit: number
+  age: number | null
+  gender: string
 }
 
 export interface IdentityValues {
   firstName: string
   lastName: string
   phone: string
+}
+
+/** Age/Gender — ไม่บังคับส่งมาทุกครั้ง (เช่น checkMember ไม่ต้องใช้) แต่ register/login
+ * ควรส่งมาด้วยเสมอเพื่อให้บันทึกลง Google Sheet ครบตามสเปก */
+export interface DemographicValues {
+  gender?: string
+  age?: number
 }
 
 interface CheckMemberResponse {
@@ -71,7 +82,7 @@ interface LoginByLineResponse {
   error?: string
 }
 
-interface MemberPayload extends IdentityValues {
+interface MemberPayload extends IdentityValues, DemographicValues {
   action: string
   lineUserId?: string
   displayName?: string
@@ -109,15 +120,17 @@ export function useMemberApi() {
     return callApi<CheckMemberResponse>('checkMember', { ...values })
   }
 
-  function registerMember(values: IdentityValues, auth: AuthData): Promise<MemberActionResponse> {
+  function registerMember(values: IdentityValues & DemographicValues, auth: AuthData): Promise<MemberActionResponse> {
     return callApi<MemberActionResponse>('register', { ...values, ...buildLineFields(auth) })
   }
 
-  function loginMember(values: IdentityValues, auth: AuthData): Promise<MemberActionResponse> {
+  function loginMember(values: IdentityValues & DemographicValues, auth: AuthData): Promise<MemberActionResponse> {
     return callApi<MemberActionResponse>('login', { ...values, ...buildLineFields(auth) })
   }
 
-  function updateMember(memberId: string, fields: Partial<IdentityValues & { lineUserId: string; displayName: string; pictureUrl: string; point: number; totalVisit: number }>): Promise<MemberActionResponse> {
+  /** ใช้อัปเดตข้อมูลสมาชิกเดิมด้วย memberId โดยตรง — เช่น เติมเฉพาะ Age/Gender ที่ยังขาด
+   * (ส่งมาเฉพาะฟิลด์ที่ต้องการอัปเดต ฝั่ง backend จะไม่แตะฟิลด์อื่นที่ไม่ได้ส่งมา และไม่มีการสร้างแถวใหม่) */
+  function updateMember(memberId: string, fields: Partial<IdentityValues & DemographicValues & { lineUserId: string; displayName: string; pictureUrl: string; point: number; totalVisit: number }>): Promise<MemberActionResponse> {
     return callApi<MemberActionResponse>('updateMember', { memberId, ...fields })
   }
 
@@ -141,7 +154,7 @@ export function useMemberApi() {
    * Flow หลักตามสเปก — เรียกตอนกดปุ่ม "ยืนยัน" ในฟอร์ม
    * คืนค่า MemberRecord ที่ Google Sheet ยืนยันแล้ว (มี memberId/registerDate/lastLogin จริง)
    */
-  async function syncMember(values: IdentityValues, auth: AuthData): Promise<MemberActionResponse> {
+  async function syncMember(values: IdentityValues & DemographicValues, auth: AuthData): Promise<MemberActionResponse> {
     const checkResult = await checkMember(values)
     if (!checkResult.success) {
       throw new Error(checkResult.error || 'ตรวจสอบข้อมูลสมาชิกไม่สำเร็จ')
