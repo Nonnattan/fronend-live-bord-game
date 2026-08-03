@@ -5,24 +5,37 @@
  * หน้า Home หลักของระบบ — หน้าแรกของแอปหลัง Login + กรอกโปรไฟล์ครบ (guard ผ่าน
  * useRequireProfile() เหมือนทุกหน้าในแอป ไม่ได้แก้ logic เดิมของ guard นี้เลย)
  *
- * ประกอบด้วยตามสเปกใหม่:
- * 1) Map Preview ด้านบน (จุดเด่นของหน้า) — กดแล้วไปหน้า Map เต็มที่ /map
- *    (หน้า Map เดิมยังอยู่ ไม่ได้แก้ logic ของมัน)
- * 2) Summary Card ด้านล่าง — แบ่ง 2 ส่วนในแถวเดียวกัน ซ้าย "เข้าฐานแล้ว X/4"
- *    ขวา "Point" คะแนนสะสม (จาก profile.point เดิม ไม่ได้เพิ่ม field ใหม่)
- *    พร้อมแสดงฐานทั้ง 4 ฐานเป็นรายการด้านล่าง อัปเดตตามข้อมูลจริงผ่าน
- *    useStations() (ดู composables/useStations.ts สำหรับหมายเหตุเรื่องแหล่งข้อมูล)
+ * ประกอบด้วย:
+ * 1) MiniMap ของ Adventure Game Map (OpenStreetMap จริงผ่าน Leaflet สูง ~250px,
+ *    ไม่ Zoom/Pan) กดแล้วไปหน้า Map เต็มที่ /map
+ * 2) Summary Card ด้านล่าง — เข้าฐานแล้ว X/Y + Point สะสม + รายการฐานทั้งหมด
+ *    ข้อมูล/สถานะทั้งหมดมาจาก useAdventure() (composables/useAdventure.ts)
+ *    เพียงจุดเดียว ทำให้ในอนาคตสลับไปใช้ข้อมูลจริงได้โดยไม่ต้องแก้หน้านี้
  */
+
+import MiniMap from "~/components/map/MiniMap.vue";
+import { STATION_TYPE_META } from "~/composables/useAdventure";
 
 definePageMeta({ layout: "app" });
 
 const { profile, isReady } = useRequireProfile();
-const { stations, totalStations, visitedCount, isVisited, initStations } =
-  useStations();
+const {
+  stations,
+  totalStations,
+  visitedIds,
+  visitedCount,
+  totalPoint,
+  isVisited,
+  initAdventure,
+} = useAdventure();
 
 onMounted(() => {
-  initStations();
+  initAdventure();
 });
+
+function goToMapPage() {
+  navigateTo("/map");
+}
 </script>
 
 <template>
@@ -66,9 +79,7 @@ onMounted(() => {
           <div class="summary-card__stat">
             <p class="summary-card__label">Point</p>
             <p class="summary-card__value">
-              <span class="summary-card__value-num">{{
-                profile?.point ?? 0
-              }}</span>
+              <span class="summary-card__value-num">{{ totalPoint }}</span>
               <span class="summary-card__value-unit">Point</span>
             </p>
           </div>
@@ -83,37 +94,28 @@ onMounted(() => {
           >
             <span class="station-chip__icon-wrap">
               <UIcon
-                :name="isVisited(station.id) ? 'i-lucide-check' : station.icon"
+                v-if="isVisited(station.id)"
+                name="i-lucide-check"
                 class="station-chip__icon"
               />
+              <span v-else class="station-chip__emoji">{{
+                STATION_TYPE_META[station.type].icon
+              }}</span>
             </span>
             <span class="station-chip__name">{{ station.name }}</span>
           </div>
         </div>
       </section>
 
-      <!-- Map Preview: จุดเด่นของหน้า Home — กดเพื่อไปหน้า Map แบบเต็ม -->
-      <NuxtLink to="/map" class="map-preview">
-        <div class="map-preview__canvas">
-          <div class="map-preview__grid" />
-          <span
-            v-for="station in stations"
-            :key="station.id"
-            class="map-preview__pin"
-            :class="{ 'map-preview__pin--visited': isVisited(station.id) }"
-            :style="{ left: station.x + '%', top: station.y + '%' }"
-          >
-            <UIcon name="i-lucide-map-pin" class="map-preview__pin-icon" />
-          </span>
-        </div>
-        <div class="map-preview__footer">
-          <div class="map-preview__footer-text">
-            <p class="map-preview__title">แผนที่ฐานทั้งหมด</p>
-            <p class="map-preview__desc">แตะเพื่อดูแผนที่แบบเต็ม</p>
-          </div>
-          <UIcon name="i-lucide-chevron-right" class="map-preview__chevron" />
-        </div>
-      </NuxtLink>
+      <!-- Mini Adventure Map: กดทั้ง Card เพื่อไปหน้า Map เต็ม -->
+      <MiniMap
+        :stations="stations"
+        :visited-ids="visitedIds"
+        :visited-count="visitedCount"
+        :total-stations="totalStations"
+        :total-point="totalPoint"
+        @open="goToMapPage"
+      />
     </div>
   </div>
 </template>
@@ -316,6 +318,7 @@ onMounted(() => {
   background: var(--farm-cream-dark);
   color: var(--farm-text-muted);
   flex-shrink: 0;
+  font-size: 0.85rem;
 }
 
 .station-chip--visited .station-chip__icon-wrap {
@@ -328,6 +331,10 @@ onMounted(() => {
   height: 0.8rem;
 }
 
+.station-chip__emoji {
+  line-height: 1;
+}
+
 .station-chip__name {
   font-size: 0.56rem;
   font-weight: 600;
@@ -337,100 +344,6 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* ----------------------------- Map Preview ----------------------------- */
-
-.map-preview {
-  display: flex;
-  flex-direction: column;
-  border-radius: 1.4rem;
-  overflow: hidden;
-  border: 3px solid var(--farm-wood);
-  text-decoration: none;
-  box-shadow: 0 14px 30px -14px rgba(74, 47, 24, 0.5);
-}
-
-.map-preview__canvas {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  background: linear-gradient(
-    160deg,
-    var(--farm-sky-top) 0%,
-    var(--farm-sky-bottom) 55%,
-    var(--farm-grass) 100%
-  );
-  overflow: hidden;
-}
-
-.map-preview__grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.35) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.35) 1px, transparent 1px);
-  background-size: 12.5% 25%;
-  opacity: 0.6;
-}
-
-.map-preview__pin {
-  position: absolute;
-  transform: translate(-50%, -100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.15rem;
-  height: 2.15rem;
-  border-radius: 999px 999px 999px 0;
-  background: var(--farm-wood-dark);
-  border: 2px solid var(--farm-cream);
-  box-shadow: 0 4px 8px -3px rgba(0, 0, 0, 0.4);
-  rotate: 45deg;
-}
-
-.map-preview__pin--visited {
-  background: var(--farm-accent-dark);
-}
-
-.map-preview__pin-icon {
-  width: 1.15rem;
-  height: 1.15rem;
-  color: #fff;
-  rotate: -45deg;
-}
-
-.map-preview__footer {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.95rem 1.1rem;
-  background: var(--farm-cream);
-}
-
-.map-preview__footer-text {
-  flex: 1;
-  min-width: 0;
-}
-
-.map-preview__title {
-  font-weight: 800;
-  font-size: 1rem;
-  color: var(--farm-text-dark);
-  margin: 0;
-}
-
-.map-preview__desc {
-  font-size: 0.8rem;
-  color: var(--farm-text-muted);
-  margin: 0.15rem 0 0;
-}
-
-.map-preview__chevron {
-  width: 1.4rem;
-  height: 1.4rem;
-  color: var(--farm-accent-dark);
-  flex-shrink: 0;
 }
 
 @media (max-width: 360px) {
