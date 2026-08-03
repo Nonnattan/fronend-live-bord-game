@@ -83,6 +83,9 @@ const emit = defineEmits<{
 .mini-map {
   display: flex;
   flex-direction: column;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   border-radius: 1.4rem;
   overflow: hidden;
   border: 3px solid var(--farm-wood);
@@ -98,6 +101,8 @@ const emit = defineEmits<{
 .mini-map__canvas {
   position: relative;
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   height: 250px;
   overflow: hidden;
 }

@@ -62,6 +62,9 @@ function recenter() {
 <style scoped>
 .adventure-map {
   position: relative;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   border-radius: 1.25rem;
   overflow: hidden;
   border: 3px solid var(--farm-wood);
@@ -69,6 +72,12 @@ function recenter() {
   background: var(--farm-cream-dark);
   height: 65dvh;
   min-height: 20rem;
+  max-height: 34rem;
+}
+
+.adventure-map :deep(.leaflet-container) {
+  width: 100%;
+  max-width: 100%;
 }
 
 .adventure-map__loading {

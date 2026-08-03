@@ -44,6 +44,18 @@ const mapEl = ref<HTMLDivElement | null>(null)
 let map: LeafletMapInstance | null = null
 let markers: Marker[] = []
 let polylines: Polyline[] = []
+let resizeObserver: ResizeObserver | null = null
+
+/**
+ * Leaflet วัดขนาดกล่องแค่ครั้งเดียวตอน L.map() ทำงาน ถ้าหลังจากนั้นกล่อง
+ * เปลี่ยนขนาด (เช่น safe-area/แถบที่อยู่บนมือถือทำให้ dvh เปลี่ยน, หมุนจอ,
+ * กรอบแอปปรับ padding, ฟอนต์/ไอคอนโหลดเสร็จช้า) ขนาดภายในของแผนที่จะไม่ตรง
+ * กับกล่องจริงอีกต่อไป ทำให้ Tile/Marker เลื่อนหลุดเพี้ยนหรือดูเหมือนล้นกรอบ
+ * จึงต้องเรียก invalidateSize() ทุกครั้งที่กล่องเปลี่ยนขนาดจริง ๆ
+ */
+function refreshMapSize() {
+  map?.invalidateSize()
+}
 
 const visitedSet = computed(() => new Set(props.visitedIds))
 function isVisited(id: string): boolean {
@@ -170,10 +182,27 @@ onMounted(async () => {
   await drawMarkers(L)
   fitToStations()
 
+  // กล่องแผนที่อาจยังไม่นิ่งตอนเฟรมแรก (transition/font/dvh) จึงวัดขนาดซ้ำ
+  // อีกครั้งในเฟรมถัดไป กัน Leaflet cache ขนาดผิดตั้งแต่ต้น
+  requestAnimationFrame(refreshMapSize)
+
+  // ติดตามการเปลี่ยนขนาดจริงของกล่อง (resize หน้าต่าง, หมุนจอ, กรอบแอป
+  // ปรับเลย์เอาต์) แล้วสั่ง invalidateSize() ให้ตรงเสมอ ป้องกันแผนที่ล้นกรอบ
+  if (typeof ResizeObserver !== 'undefined' && mapEl.value) {
+    resizeObserver = new ResizeObserver(() => refreshMapSize())
+    resizeObserver.observe(mapEl.value)
+  }
+  window.addEventListener('resize', refreshMapSize)
+  window.addEventListener('orientationchange', refreshMapSize)
+
   emit('ready')
 })
 
 onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
+  resizeObserver = null
+  window.removeEventListener('resize', refreshMapSize)
+  window.removeEventListener('orientationchange', refreshMapSize)
   markers.forEach((marker) => marker.remove())
   polylines.forEach((line) => line.remove())
   map?.remove()
@@ -200,6 +229,9 @@ watch(
 <style scoped>
 .leaflet-map {
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   background: var(--farm-cream-dark);
+  overflow: hidden;
 }
 </style>
