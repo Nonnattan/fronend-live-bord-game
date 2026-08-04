@@ -60,7 +60,7 @@ const emit = defineEmits<{
           เข้าฐานแล้ว {{ visitedCount }} / {{ totalStations }}
         </span>
         <span class="mini-map__stat">
-          <UIcon name="i-lucide-sparkles" class="mini-map__stat-icon" />
+          <UIcon name="i-lucide-coins" class="mini-map__stat-icon" />
           Point {{ totalPoint }}
         </span>
       </div>

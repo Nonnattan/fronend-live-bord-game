@@ -12,6 +12,7 @@
  */
 
 import type { Html5Qrcode as Html5QrcodeType, CameraDevice } from 'html5-qrcode'
+import { POINTS_PER_STATION, type StationType } from '~/composables/useAdventure'
 
 definePageMeta({ layout: 'app' })
 const { isReady } = useRequireProfile()
@@ -29,6 +30,100 @@ const activeCameraIndex = ref(0)
 
 let html5Qrcode: Html5QrcodeType | null = null
 let Html5QrcodeCtor: typeof import('html5-qrcode').Html5Qrcode | null = null
+
+/**
+ * ------------------------------------------------------------------------
+ * Offline First: บันทึกฐานลง LocalStorage ก่อนเสมอ Google Sheet ใช้ Sync
+ * เท่านั้น (ดู composables/useAdventure.ts + composables/useOfflineSync.ts)
+ * ------------------------------------------------------------------------
+ * รองรับทั้งสแกน QR และกรอกรหัสฐานเอง เช่น CORN001, COW001, SOIL001, MILK001
+ * (ตัวพิมพ์เล็ก/ใหญ่ไม่สำคัญ, เว้นวรรคหัวท้ายตัดให้อัตโนมัติ) หรือจะเข้ารหัส QR
+ * เป็นชื่อฐานตรง ๆ (corn/cow/soil/milk) ก็ได้เช่นกัน
+ */
+const STATION_CODE_MAP: Record<string, StationType> = {
+  CORN001: 'corn',
+  COW001: 'cow',
+  SOIL001: 'soil',
+  MILK001: 'milk',
+}
+
+/** ฐานสุดท้ายของเส้นทาง — ผ่านฐานนี้แล้วให้ลอง Sync ขึ้น Google Sheet ทันที (ถ้ามีเน็ต) */
+const FINAL_STATION_ID: StationType = 'milk'
+
+const { stations, isVisited, toggleStation, initAdventure } = useAdventure()
+const { isOnline, hasPending, pendingCount, isSyncing, queueCheckin, syncNow, initOfflineSync } = useOfflineSync()
+
+type CheckinFeedbackKind = 'success' | 'duplicate' | 'invalid'
+const checkinFeedback = ref<{ kind: CheckinFeedbackKind; text: string } | null>(null)
+const syncMessage = ref('')
+const manualCode = ref('')
+
+/** แปลงรหัส/ข้อความที่สแกน/กรอกมาให้เป็น stationId ที่ระบบรู้จัก หรือ null ถ้าไม่รู้จัก */
+function resolveStationId(raw: string): StationType | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const upper = trimmed.toUpperCase()
+  if (STATION_CODE_MAP[upper]) return STATION_CODE_MAP[upper]
+  const lower = trimmed.toLowerCase() as StationType
+  if (stations.some((s) => s.id === lower)) return lower
+  return null
+}
+
+/**
+ * จุดเดียวที่จัดการ "ผ่านฐานสำเร็จ" ทั้งจากกล้อง (QR) และจากช่องกรอกรหัสเอง
+ * 1) หาไม่เจอ -> แจ้งรหัสไม่ถูกต้อง ไม่แตะ LocalStorage/Sync เลย
+ * 2) เคยผ่านฐานนี้แล้ว -> "ห้ามบันทึกซ้ำ ห้ามส่งไป Google Sheet" ทันที
+ * 3) ยังไม่เคยผ่าน -> บันทึกลง LocalStorage (useAdventure จะอัปเดต Point/
+ *    Journey/Polyline ให้อัตโนมัติเพราะทุก Component อ่านจาก state เดียวกัน)
+ *    แล้วเข้าคิวรอ Sync — ถ้าเป็นฐาน "นม" (ฐานสุดท้าย) หรือมีเน็ตอยู่แล้วให้
+ *    ลอง Sync ทันทีตามสเปก (Sync จริงเกิดแค่ตอนผ่านฐานนมหรือกดปุ่ม Sync เท่านั้น)
+ */
+async function processStationCode(raw: string): Promise<void> {
+  syncMessage.value = ''
+  const stationId = resolveStationId(raw)
+
+  if (!stationId) {
+    checkinFeedback.value = { kind: 'invalid', text: `ไม่พบรหัสฐาน "${raw}" กรุณาตรวจสอบรหัส/QR อีกครั้ง` }
+    return
+  }
+
+  const station = stations.find((s) => s.id === stationId)!
+
+  if (isVisited(stationId)) {
+    checkinFeedback.value = { kind: 'duplicate', text: `เคยผ่าน${station.name}แล้ว ไม่ต้องสแกนซ้ำ` }
+    return
+  }
+
+  // บันทึกลง LocalStorage ก่อนเสมอ (Offline First) — ไม่ยิง Google Sheet ตรงนี้
+  toggleStation(stationId)
+  queueCheckin(station, POINTS_PER_STATION)
+  checkinFeedback.value = {
+    kind: 'success',
+    text: `ผ่าน${station.name}สำเร็จ +${POINTS_PER_STATION} Point (บันทึกในเครื่องแล้ว)`,
+  }
+
+  // Sync ขึ้น Google Sheet เฉพาะตอนผ่านฐานสุดท้าย ("นม") และต้องมีเน็ตเท่านั้น
+  if (stationId === FINAL_STATION_ID) {
+    await runSync()
+  }
+}
+
+/** ปุ่ม "Sync ข้อมูลตอนนี้" — ผู้ใช้กดเองเมื่อไหร่ก็ได้ถ้ามีเน็ต */
+async function runSync(): Promise<void> {
+  if (!isOnline.value) {
+    syncMessage.value = 'ไม่มีอินเทอร์เน็ต ข้อมูลจะ Sync อัตโนมัติเมื่อมีอินเทอร์เน็ต'
+    return
+  }
+  const result = await syncNow()
+  syncMessage.value = result.message
+}
+
+/** ปุ่ม/ฟอร์ม "กรอกรหัสฐาน" — รองรับกรณีสแกน QR ไม่ได้ (กล้องเสีย/QR ชำรุด) */
+async function submitManualCode(): Promise<void> {
+  if (!manualCode.value.trim()) return
+  await processStationCode(manualCode.value)
+  manualCode.value = ''
+}
 
 function pickDefaultCameraIndex(list: CameraDevice[]): number {
   // มือถือส่วนใหญ่กล้องหลัง (back/environment) จะช่วยสแกน QR ได้ง่ายกว่า
@@ -56,7 +151,12 @@ async function startCamera(cameraId?: string) {
         aspectRatio: 1,
       },
       (decodedText) => {
+        // html5-qrcode จะเรียก callback นี้ซ้ำทุกเฟรมตราบใดที่ QR ยังอยู่ในกล้อง
+        // เช็ค lastResult ก่อนกันไม่ให้ประมวลผลรหัสเดิมซ้ำ ๆ ระหว่างยังไม่ได้กด
+        // "สแกนอีกครั้ง" — ผู้ใช้ต้องกดล้างผลลัพธ์เดิมก่อนสแกนฐานถัดไปเสมอ
+        if (lastResult.value) return
         lastResult.value = decodedText
+        void processStationCode(decodedText)
       },
       () => {
         // ยังไม่เจอ QR ในเฟรมนี้ — เป็นเรื่องปกติระหว่างสแกน ไม่ต้องแจ้งเตือน
@@ -102,6 +202,9 @@ async function retryCamera() {
 }
 
 onMounted(async () => {
+  initAdventure()
+  initOfflineSync()
+
   const mod = await import('html5-qrcode')
   Html5QrcodeCtor = mod.Html5Qrcode
 
@@ -165,12 +268,15 @@ onBeforeUnmount(async () => {
       </template>
 
       <div v-if="lastResult" class="scan__result">
-        <UIcon name="i-lucide-badge-check" class="scan__result-icon" />
+        <UIcon
+          :name="checkinFeedback?.kind === 'success' ? 'i-lucide-badge-check' : checkinFeedback?.kind === 'duplicate' ? 'i-lucide-info' : 'i-lucide-triangle-alert'"
+          class="scan__result-icon"
+        />
         <div class="scan__result-body">
-          <p class="scan__result-label">สแกนสำเร็จ</p>
-          <p class="scan__result-value">{{ lastResult }}</p>
+          <p class="scan__result-label">{{ checkinFeedback?.kind === 'invalid' ? 'สแกนไม่สำเร็จ' : 'สแกนสำเร็จ' }}</p>
+          <p class="scan__result-value">{{ checkinFeedback?.text || lastResult }}</p>
         </div>
-        <UButton size="xs" variant="soft" @click="lastResult = ''">สแกนอีกครั้ง</UButton>
+        <UButton size="xs" variant="soft" @click="lastResult = ''; checkinFeedback = null">สแกนอีกครั้ง</UButton>
       </div>
 
       <div v-if="scanState === 'running' || scanState === 'starting'" class="scan__controls">
@@ -183,6 +289,47 @@ onBeforeUnmount(async () => {
           <span>ปิดกล้อง</span>
         </button>
       </div>
+
+      <!-- กรอกรหัสฐานเอง — เผื่อกล้องใช้ไม่ได้ หรือ QR ชำรุด (รองรับ CORN001/COW001/SOIL001/MILK001) -->
+      <form class="manual-code" @submit.prevent="submitManualCode">
+        <UInput
+          v-model="manualCode"
+          placeholder="หรือกรอกรหัสฐาน เช่น CORN001"
+          size="lg"
+          class="manual-code__input"
+        />
+        <UButton type="submit" color="primary" size="lg" :disabled="!manualCode.trim()">ยืนยัน</UButton>
+      </form>
+
+      <!-- สถานะ Offline Sync: ข้อมูลค้าง Sync กี่ฐาน + ปุ่ม Sync มือ -->
+      <section class="sync-card">
+        <div class="sync-card__row">
+          <UIcon
+            :name="isOnline ? 'i-lucide-wifi' : 'i-lucide-wifi-off'"
+            class="sync-card__icon"
+            :class="{ 'sync-card__icon--offline': !isOnline }"
+          />
+          <div class="sync-card__text">
+            <p class="sync-card__title">{{ isOnline ? 'ออนไลน์' : 'ออฟไลน์' }}</p>
+            <p class="sync-card__desc">
+              {{ hasPending ? `มี ${pendingCount} ฐานรอ Sync ขึ้น Google Sheet` : 'Sync ข้อมูลล่าสุดแล้ว' }}
+            </p>
+          </div>
+          <UButton
+            size="sm"
+            variant="soft"
+            :loading="isSyncing"
+            :disabled="!hasPending || !isOnline || isSyncing"
+            @click="runSync"
+          >
+            Sync ตอนนี้
+          </UButton>
+        </div>
+        <p v-if="syncMessage" class="sync-card__message">{{ syncMessage }}</p>
+        <p v-else-if="hasPending && !isOnline" class="sync-card__message">
+          ข้อมูลจะ Sync อัตโนมัติเมื่อมีอินเทอร์เน็ต
+        </p>
+      </section>
     </div>
   </div>
 </template>
@@ -350,5 +497,71 @@ onBeforeUnmount(async () => {
 .scan__control-icon {
   width: 1.15rem;
   height: 1.15rem;
+}
+
+.manual-code {
+  display: flex;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 20rem;
+}
+
+.manual-code__input {
+  flex: 1;
+  min-width: 0;
+}
+
+.sync-card {
+  width: 100%;
+  max-width: 20rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 0.9rem;
+  background: var(--farm-cream);
+  border: 1.5px solid var(--farm-wood);
+  text-align: left;
+}
+
+.sync-card__row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.sync-card__icon {
+  width: 1.35rem;
+  height: 1.35rem;
+  color: var(--farm-accent-dark);
+  flex-shrink: 0;
+}
+
+.sync-card__icon--offline {
+  color: #a8442b;
+}
+
+.sync-card__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.sync-card__title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--farm-text-dark);
+  margin: 0;
+}
+
+.sync-card__desc {
+  font-size: 0.7rem;
+  color: var(--farm-text-muted);
+  margin: 0.1rem 0 0;
+}
+
+.sync-card__message {
+  font-size: 0.7rem;
+  color: var(--farm-text-muted);
+  margin: 0;
 }
 </style>

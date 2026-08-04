@@ -58,6 +58,19 @@
  * (ไม่ใช่ "application/json") เพื่อให้ browser ส่งเป็น simple request ไม่ trigger
  * preflight — ฝั่งนี้ยังคง JSON.parse(e.postData.contents) ได้ตามปกติ ไม่สนใจ
  * ว่า header ประกาศเป็น content-type อะไร
+ *
+ * ---------------------------------------------------------------------------
+ * ส่วนต่อขยาย: ระบบ Journey (ประวัติการเข้าฐาน) + Score (คะแนนสะสม)
+ * ---------------------------------------------------------------------------
+ * ทุกอย่างข้างบนนี้ (ชีต "Members", action checkMember/register/login/
+ * loginByLine/updateMember/getMember) "ไม่ถูกแก้ไข" เลยแม้แต่บรรทัดเดียว —
+ * ของใหม่ (ชีต "Journey", "Score") อยู่แยกไฟล์ทั้งหมด และต่อเชื่อมเข้ามาที่นี่
+ * แค่จุดเดียวคือเพิ่ม case ใหม่ใน switch ของ handleRequest_() ด้านล่าง:
+ *   - JourneyService.gs  : CRUD ของชีต "Journey" ล้วน ๆ (ไม่รู้จักชีต Score)
+ *   - ScoreService.gs    : CRUD ของชีต "Score" ล้วน ๆ (ไม่รู้จักชีต Journey)
+ *   - CheckinService.gs  : ประสานงาน Journey+Score เข้าด้วยกัน (action handlers)
+ * ดูรายละเอียด action ใหม่ (checkin/getJourney/getScore/getLeaderboard) และ
+ * โครงสร้างชีตทั้งสองได้ใน server-gas/README.md
  */
 
 const SHEET_NAME = 'Members'
@@ -440,8 +453,17 @@ function handleRequest_(payload) {
         return jsonOutput_(actionUpdateMember_(payload))
       case 'getMember':
         return jsonOutput_(actionGetMember_(payload))
+      // --- ส่วนต่อขยาย: Journey/Score (ดู JourneyService.gs / ScoreService.gs / CheckinService.gs) ---
+      case 'checkin':
+        return jsonOutput_(actionCheckin_(payload))
+      case 'getJourney':
+        return jsonOutput_(actionGetJourney_(payload))
+      case 'getScore':
+        return jsonOutput_(actionGetScore_(payload))
+      case 'getLeaderboard':
+        return jsonOutput_(actionGetLeaderboard_(payload))
       default:
-        return errorResponse_('action ไม่ถูกต้องหรือไม่ได้ระบุ ต้องเป็นหนึ่งใน: checkMember, register, login, loginByLine, updateMember, getMember')
+        return errorResponse_('action ไม่ถูกต้องหรือไม่ได้ระบุ ต้องเป็นหนึ่งใน: checkMember, register, login, loginByLine, updateMember, getMember, checkin, getJourney, getScore, getLeaderboard')
     }
   } catch (err) {
     return errorResponse_(err && err.message ? err.message : String(err))

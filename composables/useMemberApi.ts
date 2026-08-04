@@ -85,6 +85,62 @@ interface LoginByLineResponse {
   error?: string
 }
 
+/** 1 แถวประวัติการเข้าฐาน (ชีต "Journey" ฝั่ง server-gas) */
+export interface JourneyEntry {
+  timestamp: string
+  userId: string
+  displayName: string
+  stationId: string
+  stationName: string
+  point: number
+  status: string
+}
+
+/** คะแนนสะสมของผู้เล่น 1 คน (ชีต "Score" ฝั่ง server-gas) */
+export interface ScoreEntry {
+  userId: string
+  displayName: string
+  totalPoint: number
+  totalStation: number
+  updatedAt: string
+}
+
+/** ผลลัพธ์ของ action 'checkin' — สแกน QR ผ่านฐานสำเร็จ (ดู server-gas/CheckinService.gs)
+ * alreadyVisited: true = เคยผ่านฐานนี้มาก่อนแล้ว (คนละเครื่อง/คนละรอบ Sync) ไม่มีการเขียนซ้ำ */
+interface CheckinResponse {
+  success: boolean
+  alreadyVisited?: boolean
+  journeyEntry?: JourneyEntry
+  score?: ScoreEntry
+  error?: string
+}
+
+interface GetJourneyResponse {
+  success: boolean
+  journey?: JourneyEntry[]
+  error?: string
+}
+
+interface GetScoreResponse {
+  success: boolean
+  score?: ScoreEntry | null
+  error?: string
+}
+
+/** Payload ที่ส่งไปกับ action 'checkin' — 1 ฐานที่ผ่านสำเร็จ 1 ครั้ง
+ * clientId: UUID ที่สร้างฝั่ง client ตอนบันทึกลง Offline Queue (ดู
+ * composables/useOfflineSync.ts -> genUuid()) ไม่บังคับ ฝั่ง server-gas ปัจจุบัน
+ * ยังไม่ได้ใช้ค่านี้ (dedup ด้วย userId+stationId อยู่แล้ว) แต่ส่งแนบไปด้วยเผื่อ
+ * อนาคตอยากใช้เป็น idempotency key เพิ่มเติม/ไว้ตรวจสอบย้อนหลังฝั่ง Sheet */
+export interface CheckinPayload {
+  userId: string
+  displayName?: string
+  stationId: string
+  stationName?: string
+  point?: number
+  clientId?: string
+}
+
 interface MemberPayload extends IdentityValues, DemographicValues {
   action: string
   lineUserId?: string
@@ -165,5 +221,37 @@ export function useMemberApi() {
     return checkResult.found ? loginMember(values, auth) : registerMember(values, auth)
   }
 
-  return { checkMember, registerMember, loginMember, updateMember, getMember, loginByLine, syncMember }
+  /**
+   * action 'checkin' — ส่งผลการสแกน QR ผ่านฐาน 1 ฐานไป Google Sheet (ชีต Journey + Score)
+   * ฝั่ง server-gas เป็นผู้ตัดสินเรื่อง "ห้ามบันทึกซ้ำ" ที่ปลายทางอีกชั้นหนึ่ง
+   * (ดู server-gas/CheckinService.gs -> hasVisitedStation_) เผื่อกรณี Sync จาก
+   * หลายเครื่อง/หลายรอบของผู้เล่นคนเดียวกัน — ใช้คู่กับ composables/useOfflineSync.ts
+   * ที่เป็นตัวคุม queue ฝั่ง client (LocalStorage) ก่อน Sync ขึ้นมาที่นี่อีกที
+   */
+  function checkin(payload: CheckinPayload): Promise<CheckinResponse> {
+    return callApi<CheckinResponse>('checkin', { ...payload })
+  }
+
+  /** action 'getJourney' — ดึงประวัติการเข้าฐานทั้งหมดของผู้เล่นคนเดียวจาก Google Sheet */
+  function getJourney(userId: string): Promise<GetJourneyResponse> {
+    return callApi<GetJourneyResponse>('getJourney', { userId })
+  }
+
+  /** action 'getScore' — ดึงคะแนนสะสมปัจจุบันของผู้เล่นคนเดียวจาก Google Sheet */
+  function getScore(userId: string): Promise<GetScoreResponse> {
+    return callApi<GetScoreResponse>('getScore', { userId })
+  }
+
+  return {
+    checkMember,
+    registerMember,
+    loginMember,
+    updateMember,
+    getMember,
+    loginByLine,
+    syncMember,
+    checkin,
+    getJourney,
+    getScore,
+  }
 }

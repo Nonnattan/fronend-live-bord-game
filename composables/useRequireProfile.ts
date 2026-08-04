@@ -22,12 +22,19 @@ export function useRequireProfile() {
       await navigateTo('/')
       return
     }
+    // isReady มาจาก LocalStorage ล้วน ๆ ตรงนี้แล้ว — ทุกหน้าที่ guard ด้วย composable
+    // นี้ (Home/Map/Scan/History ฯลฯ) ใช้งานได้ทันทีแม้ไม่มีอินเทอร์เน็ตเลย ส่วนการ
+    // รีเฟรชคะแนนจาก Google Sheet ด้านล่างเป็นแค่ของเสริมที่ไม่ block ตรงนี้อยู่แล้ว
     isReady.value = true
 
-    // รีเฟรชข้อมูลล่าสุดจาก Google Sheet แบบเงียบ ๆ (คะแนนสะสม/จำนวนครั้งเข้าใช้)
-    // ถ้าเรียกไม่สำเร็จ (เช่น ยังไม่ตั้งค่า API_BASE_URL หรือเน็ตหลุด) ใช้ค่าที่ cache ไว้ต่อไปได้เลย
+    // Offline First (แก้ไขจุดนี้): เช็ค navigator.onLine ก่อนเสมอ ถ้ารู้อยู่แล้วว่า
+    // ไม่มีอินเทอร์เน็ต ไม่ต้องยิง getMember() เลย (เดิมยิงไปเสมอไม่ว่าจะออนไลน์
+    // หรือไม่ ทำให้ทุกครั้งที่เปิดหน้าที่มี guard นี้ตอนออฟไลน์ จะมี Request ที่
+    // รู้อยู่แล้วว่าต้อง Fail แน่ ๆ ค้างอยู่เบื้องหลังโดยไม่จำเป็น) ถ้ามีเน็ตแต่
+    // เรียกไม่สำเร็จ (เช่น API ล่มชั่วคราว) ยังคง try/catch เงียบ ๆ เหมือนเดิม
+    // ใช้ค่าที่ cache ไว้ต่อไปได้เลย ไม่กระทบการใช้งานหน้าปัจจุบัน
     const memberId = profile.value?.memberId
-    if (memberId) {
+    if (memberId && navigator.onLine) {
       try {
         const res = await getMember(memberId)
         if (res.success && res.member) {
