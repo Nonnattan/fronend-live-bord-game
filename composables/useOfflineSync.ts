@@ -260,6 +260,16 @@ export function useOfflineSync() {
         // ดึงคะแนนล่าสุดไม่สำเร็จ ไม่กระทบผลลัพธ์ Sync Journey ที่ทำสำเร็จไปแล้ว
       }
 
+      // ดึงฐานที่ผ่านจริง + คะแนนสะสมจริงจากชีต "Journey"/"Score" (คนละชีตกับ
+      // "Members" ด้านบน) มา refresh สถานะฐาน/Point ที่หน้า Home-Map ใช้แสดงผล
+      // (useAdventure) ให้ตรงกับ Google Sheet เสมอทันทีหลัง Sync สำเร็จ
+      try {
+        const { refreshFromBackend } = useAdventure()
+        await refreshFromBackend(memberId)
+      } catch {
+        // เงียบไว้ — ไม่กระทบผลลัพธ์ Sync Journey ที่ทำสำเร็จไปแล้วเช่นกัน
+      }
+
       const now = Date.now()
       lastSyncAt.value = now
       writeJson(LAST_SYNC_KEY, now)

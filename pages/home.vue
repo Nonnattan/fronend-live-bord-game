@@ -29,8 +29,10 @@ const {
   initAdventure,
 } = useAdventure();
 
+// ส่ง memberId เข้าไปด้วย (ถ้ามี) เพื่อดึงฐานที่ผ่านจริง + คะแนนสะสมจริงจาก
+// Google Sheet (getJourney/getScore) มาทับ LocalStorage — ดู useAdventure.ts
 onMounted(() => {
-  initAdventure();
+  void initAdventure(profile.value?.memberId);
 });
 
 function goToMapPage() {

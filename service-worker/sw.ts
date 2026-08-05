@@ -18,7 +18,7 @@
  * Background Sync ต่อ ไม่ได้แก้ไข Logic ส่วนนั้นเลย)
  */
 
-import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching'
+import { cleanupOutdatedCaches, matchPrecache, precacheAndRoute } from 'workbox-precaching'
 import { NavigationRoute, registerRoute, setCatchHandler } from 'workbox-routing'
 import { CacheFirst, NetworkFirst, NetworkOnly, StaleWhileRevalidate } from 'workbox-strategies'
 import { ExpirationPlugin } from 'workbox-expiration'
@@ -55,7 +55,30 @@ self.addEventListener('message', (event) => {
 })
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim())
+  event.waitUntil(
+    (async () => {
+      await self.clients.claim()
+      // แก้ไขจุดนี้ (Storage Eviction — สาเหตุที่เป็นไปได้อีกจุดของปัญหา
+      // "เปิดครั้งแรกใช้ได้ แต่ปิดเน็ตแล้วเปิดใหม่พัง"): Android Chrome จะ
+      // พิจารณา Origin ที่ "ยังไม่ได้ขอ Persistent Storage" เป็น Best-effort
+      // Storage เสมอ —ถ้าเครื่องผู้ใช้เจอ Storage Pressure (พื้นที่เครื่องเหลือ
+      // น้อย) หรือผู้ใช้ไม่ได้ "Add to Home Screen"/เปิดแอปบ่อยพอ (Site
+      // Engagement Score ต่ำ) ระบบอาจ Evict (ลบทิ้งเงียบ ๆ) ทั้ง Cache Storage
+      // และ Service Worker Registration ของ Origin นั้นได้เองโดยไม่มี Error ใด ๆ
+      // ให้เห็น — พอผู้ใช้เปิดแอปใหม่ตอนไม่มีเน็ต SW เลยไม่ได้ควบคุมหน้าอยู่
+      // (หรือคุมอยู่แต่ Cache ว่างเปล่า) จึง Fallback ไปที่หน้า Error ของ Browser
+      // เอง (หน้าไดโนเสาร์) ตรงตามอาการที่รายงานมา — ขอ Persistent Storage ตรงนี้
+      // (Best-effort, ไม่ Block Activation ถ้าขอไม่ได้/ไม่รองรับ) เพื่อลดโอกาส
+      // ถูก Evict ให้มากที่สุด — วิธีที่ "แน่นอนที่สุด" ที่เหลืออยู่นอกเหนือจากนี้
+      // (นอกเหนือการควบคุมของโค้ดฝั่งเว็บได้) คือผู้ใช้กด "Add to Home Screen"
+      // ติดตั้งเป็น PWA จริง ซึ่ง Android จะให้ Persistent Storage มาโดยอัตโนมัติเสมอ
+      try {
+        await self.navigator.storage?.persist?.()
+      } catch {
+        // ไม่รองรับ/ถูกปฏิเสธ — ปล่อยผ่าน ไม่ใช่ Error ที่ควร Block การ Activate
+      }
+    })(),
+  )
 })
 
 // -----------------------------------------------------------------------
@@ -74,10 +97,40 @@ const htmlHandler = new NetworkFirst({
 })
 registerRoute(new NavigationRoute(htmlHandler))
 
-// Fallback สุดท้ายจริง ๆ: ไม่มีทั้ง Network และไม่มีใน Cache เลย -> หน้า Offline
-// ที่ถูก Precache ไว้ตั้งแต่ตอน build (ดู nuxt.config.ts -> nitro.prerender)
+// Fallback สุดท้ายจริง ๆ เมื่อ Navigate แล้วไม่มีทั้ง Network และไม่มีใน
+// html-cache-v1 เลย (ดู htmlHandler ด้านบน — NetworkFirst จะ throw มาที่นี่
+// เฉพาะตอนที่ *ทั้ง* Network *และ* Cache ของตัวเองไม่มีคำตอบให้เท่านั้น)
+//
+// แก้ไขจุดนี้ (จุดสำคัญที่สุด — Root Cause ของ "ออฟไลน์แล้วขึ้นหน้า
+// ไดโนเสาร์/หน้า Offline เอง ทั้งที่หน้านั้นถูก Precache ไว้แล้วจริง"):
+// เดิม Fallback ไปหาแค่หน้า `/offline` อย่างเดียวเท่านั้น โดยไม่เคยลองหา
+// หน้าที่ถูก Precache ไว้จริง (Home/Map/History ฯลฯ อยู่ใน Cache ชื่อ
+// `workbox-precache-v2` ซึ่งเป็นคนละ Cache กับ `html-cache-v1` ที่
+// NetworkFirst ใช้) มาก่อนเลย — ปกติแล้วจะไม่มีปัญหา เพราะ Route ของ
+// precacheAndRoute() (บรรทัด 40) ถูกลงทะเบียนก่อน NavigationRoute (จึง
+// เสิร์ฟจาก Precache ตรงได้เลยโดยไม่ผ่าน Handler นี้) — แต่ถ้าเกิดกรณีใด
+// กรณีหนึ่งต่อไปนี้ (Trailing Slash ไม่ตรง / Query String แปลกที่ไม่อยู่ใน
+// ignoreURLParametersMatching / Cache Entry บาง URL หลุดหาย/เสียหายบางส่วน
+// จาก Storage Pressure ของ Android โดยไม่ได้ลบทั้ง Origin) มาถึง Handler นี้
+// จริง ๆ — เดิมจะข้ามหน้าที่ Cache ไว้แล้วจริงไปโชว์หน้า `/offline` เฉย ๆ ทันที
+// ทั้งที่จริงมีเนื้อหาให้ใช้งานได้ ผู้ใช้จึงเข้าใจผิดว่า "ออฟไลน์แล้วใช้งานไม่ได้"
+// ทั้งที่ Cache มีข้อมูลอยู่ — แก้โดยลองหาใน Precache ทั่วไปก่อนเสมอ (ครอบคลุม
+// ทั้ง Exact URL และ URL Variations เช่น '/', '/home' ที่ Workbox จัดการให้เอง)
+// แล้วค่อย Fallback ไปหน้า `/offline` เป็นชั้นสุดท้ายจริง ๆ ถ้าไม่เจอเลย
 setCatchHandler(async ({ request }) => {
   if (request.mode === 'navigate') {
+    const precached = await matchPrecache(request)
+    if (precached) return precached
+
+    // เผื่อ URL ที่ขอมามีการเติม/ตัด Trailing Slash มาไม่ตรงกับ Precache Key
+    // เป๊ะ ๆ (เช่นบาง Browser/Bookmark ส่ง '/home/' แทน '/home') — ลองอีกครั้ง
+    // ด้วย Path ที่ตัด/เติม Trailing Slash สลับกันก่อนยอมแพ้ไปหน้า /offline
+    const url = new URL(request.url)
+    const altPath = url.pathname.endsWith('/') ? url.pathname.slice(0, -1) : `${url.pathname}/`
+    const altUrl = new URL(altPath || '/', url.origin)
+    const precachedAlt = await matchPrecache(altUrl.href)
+    if (precachedAlt) return precachedAlt
+
     const offlinePage = await self.caches.match(OFFLINE_URL, { ignoreSearch: true })
     if (offlinePage) return offlinePage
   }

@@ -15,7 +15,7 @@ import type { Html5Qrcode as Html5QrcodeType, CameraDevice } from 'html5-qrcode'
 import { POINTS_PER_STATION, type StationType } from '~/composables/useAdventure'
 
 definePageMeta({ layout: 'app' })
-const { isReady } = useRequireProfile()
+const { profile, isReady } = useRequireProfile()
 
 const QR_ELEMENT_ID = 'qr-reader'
 
@@ -58,14 +58,18 @@ const checkinFeedback = ref<{ kind: CheckinFeedbackKind; text: string } | null>(
 const syncMessage = ref('')
 const manualCode = ref('')
 
-/** แปลงรหัส/ข้อความที่สแกน/กรอกมาให้เป็น stationId ที่ระบบรู้จัก หรือ null ถ้าไม่รู้จัก */
+/** แปลงรหัส/ข้อความที่สแกน/กรอกมาให้เป็น stationId ที่ระบบรู้จัก หรือ null ถ้าไม่รู้จัก
+ * (เช็คเทียบกับ stations.value เพราะตอนนี้เป็น computed — กรองฐานที่ Admin
+ * ปิดใช้งาน (active:false) ออกไปแล้ว สแกนฐานที่ปิดอยู่จะถือว่า "ไม่พบรหัสฐาน") */
 function resolveStationId(raw: string): StationType | null {
   const trimmed = raw.trim()
   if (!trimmed) return null
   const upper = trimmed.toUpperCase()
-  if (STATION_CODE_MAP[upper]) return STATION_CODE_MAP[upper]
+  if (STATION_CODE_MAP[upper] && stations.value.some((s) => s.id === STATION_CODE_MAP[upper])) {
+    return STATION_CODE_MAP[upper]
+  }
   const lower = trimmed.toLowerCase() as StationType
-  if (stations.some((s) => s.id === lower)) return lower
+  if (stations.value.some((s) => s.id === lower)) return lower
   return null
 }
 
@@ -87,7 +91,9 @@ async function processStationCode(raw: string): Promise<void> {
     return
   }
 
-  const station = stations.find((s) => s.id === stationId)!
+  const station = stations.value.find((s) => s.id === stationId)!
+  // คะแนนของฐานนี้ — ใช้ค่าจากชีต Stations (Admin) ถ้ามี ไม่มี -> fallback ค่าคงที่เดิม
+  const stationPoint = station.points ?? POINTS_PER_STATION
 
   if (isVisited(stationId)) {
     checkinFeedback.value = { kind: 'duplicate', text: `เคยผ่าน${station.name}แล้ว ไม่ต้องสแกนซ้ำ` }
@@ -96,10 +102,10 @@ async function processStationCode(raw: string): Promise<void> {
 
   // บันทึกลง LocalStorage ก่อนเสมอ (Offline First) — ไม่ยิง Google Sheet ตรงนี้
   toggleStation(stationId)
-  queueCheckin(station, POINTS_PER_STATION)
+  queueCheckin(station, stationPoint)
   checkinFeedback.value = {
     kind: 'success',
-    text: `ผ่าน${station.name}สำเร็จ +${POINTS_PER_STATION} Point (บันทึกในเครื่องแล้ว)`,
+    text: `ผ่าน${station.name}สำเร็จ +${stationPoint} Point (บันทึกในเครื่องแล้ว)`,
   }
 
   // Sync ขึ้น Google Sheet เฉพาะตอนผ่านฐานสุดท้าย ("นม") และต้องมีเน็ตเท่านั้น
@@ -202,7 +208,9 @@ async function retryCamera() {
 }
 
 onMounted(async () => {
-  initAdventure()
+  // ส่ง memberId เข้าไปด้วย (ถ้ามี) เพื่อดึงฐานที่ผ่านจริงจาก Google Sheet มา
+  // กันซ้ำได้แม่นยำขึ้น (เผื่อผ่านฐานนี้จากเครื่อง/รอบก่อนหน้าที่ sync ไปแล้ว)
+  await initAdventure(profile.value?.memberId)
   initOfflineSync()
 
   const mod = await import('html5-qrcode')

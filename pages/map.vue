@@ -3,7 +3,10 @@
  * pages/map.vue
  * ---------------------------------------------------------------------------
  * หน้า Map — Adventure Game Map แบบเต็ม ใช้ OpenStreetMap จริงผ่าน Leaflet
- * รองรับ Pan / Zoom เต็มรูปแบบ (Mockup ข้อมูล ไม่เชื่อม Google Sheet / API ใด ๆ)
+ * รองรับ Pan / Zoom เต็มรูปแบบ (ฐานที่ผ่านแล้ว + คะแนนสะสม ดึงจริงจาก Google
+ * Sheet ผ่าน useAdventure().initAdventure(memberId) — ชื่อ/คะแนน/เปิดปิดฐาน
+ * ดึงจากชีต Stations ฝั่ง Admin จริงแล้วเช่นกัน ส่วนตำแหน่ง (lat/lng) กับ
+ * ไอคอน/สียังเป็นข้อมูลตั้งต้นคงที่ฝั่ง frontend เหมือนเดิม)
  *
  * โครงสร้าง (แยกไว้เพื่อสลับไปข้อมูลจริงได้ง่ายในอนาคต):
  * - composables/useAdventure.ts      -> state + logic ของ Journey ทั้งหมด
@@ -18,7 +21,7 @@ import { STATION_TYPE_META } from "~/composables/useAdventure";
 
 definePageMeta({ layout: "app" });
 
-const { isReady } = useRequireProfile();
+const { profile, isReady } = useRequireProfile();
 
 const {
   stations,
@@ -32,8 +35,10 @@ const {
   initAdventure,
 } = useAdventure();
 
+// ส่ง memberId เข้าไปด้วย (ถ้ามี) เพื่อดึงฐานที่ผ่านจริง + คะแนนสะสมจริงจาก
+// Google Sheet (getJourney/getScore) มาทับ LocalStorage — ดู useAdventure.ts
 onMounted(() => {
-  initAdventure();
+  void initAdventure(profile.value?.memberId);
 });
 </script>
 

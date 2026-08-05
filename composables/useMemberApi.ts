@@ -127,6 +127,43 @@ interface GetScoreResponse {
   error?: string
 }
 
+/** 1 ฐานของเกม (ชีต "Stations" ฝั่ง server-gas) — จัดการรายชื่อ/คะแนน/เปิดปิดฐาน
+ * ได้จากหน้า Admin โดยไม่ต้องแก้โค้ด/deploy frontend ใหม่ (ดู server-gas/StationsService.gs)
+ * หมายเหตุ: ยังไม่มีพิกัด lat/lng หรือ "ประเภทฐาน" (ไอคอน/สี) ในชีตนี้ — ตำแหน่ง/
+ * ไอคอนบนแผนที่ Leaflet ปัจจุบันยังคงมาจาก MOCK_ADVENTURE_STATIONS ใน useAdventure.ts */
+export interface StationRecord {
+  id: string
+  order: number
+  name: string
+  points: number
+  description: string
+  active: boolean
+  updatedAt: string
+  imageUrl: string
+}
+
+/** 1 เควสเสริม (ชีต "SideQuests" ฝั่ง server-gas) — คะแนนพิเศษที่ไม่ผูกกับฐานใดฐานหนึ่ง */
+export interface SideQuestRecord {
+  id: string
+  name: string
+  points: number
+  description: string
+  active: boolean
+  updatedAt: string
+}
+
+interface ListStationsResponse {
+  success: boolean
+  stations?: StationRecord[]
+  error?: string
+}
+
+interface ListSideQuestsResponse {
+  success: boolean
+  sideQuests?: SideQuestRecord[]
+  error?: string
+}
+
 /** Payload ที่ส่งไปกับ action 'checkin' — 1 ฐานที่ผ่านสำเร็จ 1 ครั้ง
  * clientId: UUID ที่สร้างฝั่ง client ตอนบันทึกลง Offline Queue (ดู
  * composables/useOfflineSync.ts -> genUuid()) ไม่บังคับ ฝั่ง server-gas ปัจจุบัน
@@ -242,6 +279,18 @@ export function useMemberApi() {
     return callApi<GetScoreResponse>('getScore', { userId })
   }
 
+  /** action 'listStations' — ดึงรายชื่อฐานทั้งหมด (เรียงตาม Order) จากชีต "Stations"
+   * ที่จัดการผ่านหน้า Admin — ใช้แทนรายชื่อฐาน mock ที่ hardcode ไว้ในอนาคตได้
+   * (กรอง active:false ออกเองฝั่งผู้เรียก ถ้าต้องการโชว์เฉพาะฐานที่เปิดใช้งาน) */
+  function listStations(): Promise<ListStationsResponse> {
+    return callApi<ListStationsResponse>('listStations', {})
+  }
+
+  /** action 'listSideQuests' — ดึงรายการเควสเสริมทั้งหมดจากชีต "SideQuests" */
+  function listSideQuests(): Promise<ListSideQuestsResponse> {
+    return callApi<ListSideQuestsResponse>('listSideQuests', {})
+  }
+
   return {
     checkMember,
     registerMember,
@@ -253,5 +302,7 @@ export function useMemberApi() {
     checkin,
     getJourney,
     getScore,
+    listStations,
+    listSideQuests,
   }
 }

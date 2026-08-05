@@ -71,47 +71,59 @@
  *   - CheckinService.gs  : ประสานงาน Journey+Score เข้าด้วยกัน (action handlers)
  * ดูรายละเอียด action ใหม่ (checkin/getJourney/getScore/getLeaderboard) และ
  * โครงสร้างชีตทั้งสองได้ใน server-gas/README.md
+ *
+ * ---------------------------------------------------------------------------
+ * ส่วนต่อขยาย 2: Stations (รายชื่อฐาน) + SideQuests (เควสเสริม)
+ * ---------------------------------------------------------------------------
+ * เช่นเดียวกับ Journey/Score ด้านบน — ไม่แตะ logic เดิมของ Members/Journey/
+ * Score แม้แต่บรรทัดเดียว ของใหม่อยู่แยกไฟล์ทั้งหมด ต่อเชื่อมเข้ามาที่นี่แค่
+ * จุดเดียวคือเพิ่ม case ใหม่ใน switch ของ handleRequest_() ด้านล่าง:
+ *   - StationsService.gs   : CRUD ของชีต "Stations" ล้วน ๆ
+ *   - SideQuestsService.gs : CRUD ของชีต "SideQuests" ล้วน ๆ
+ * Action ใหม่: listStations/createStation/updateStation/deleteStation,
+ * listSideQuests/createSideQuest/updateSideQuest/deleteSideQuest — ใช้ที่มาจาก
+ * แอป Admin (backend-liveboradgame) ผ่าน server/utils/appsScriptClient.ts
  */
 
-const SHEET_NAME = 'Members'
+const SHEET_NAME = "Members";
 const HEADERS = [
-  'Member ID',
-  'First Name',
-  'Last Name',
-  'Phone Number',
-  'LINE User ID',
-  'Display Name',
-  'Profile Picture',
-  'Register Date',
-  'Last Login',
-  'Point',
-  'Total Visit',
-  'Birth Year',
-  'Gender',
-]
+  "Member ID",
+  "First Name",
+  "Last Name",
+  "Phone Number",
+  "LINE User ID",
+  "Display Name",
+  "Profile Picture",
+  "Register Date",
+  "Last Login",
+  "Point",
+  "Total Visit",
+  "Birth Year",
+  "Gender",
+];
 
 /** ค่าเริ่มต้นตอน migrate สำหรับคอลัมน์ที่เพิ่งเพิ่มใหม่ (คีย์ = ชื่อ header ใน HEADERS)
  * ไม่ระบุในนี้ = เติมด้วยค่าว่าง '' (เช่น Birth Year, Gender ที่ยังไม่เคยกรอกมาก่อน) */
 const MIGRATION_DEFAULTS_ = {
-  'Point': 0,
-  'Total Visit': 1,
-}
+  Point: 0,
+  "Total Visit": 1,
+};
 
 /* ------------------------------- Helpers -------------------------------- */
 
 function getSheet_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet()
-  let sheet = ss.getSheetByName(SHEET_NAME)
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) {
-    sheet = ss.insertSheet(SHEET_NAME)
+    sheet = ss.insertSheet(SHEET_NAME);
   }
   if (sheet.getLastRow() === 0) {
-    sheet.appendRow(HEADERS)
-    sheet.setFrozenRows(1)
+    sheet.appendRow(HEADERS);
+    sheet.setFrozenRows(1);
   } else {
-    migrateSheetIfNeeded_(sheet)
+    migrateSheetIfNeeded_(sheet);
   }
-  return sheet
+  return sheet;
 }
 
 /**
@@ -122,57 +134,67 @@ function getSheet_() {
  * กรอกมาก่อน) ให้ทุกแถวข้อมูลเดิมโดยอัตโนมัติ ไม่ต้องแก้มือ ไม่ว่าจะขาดกี่คอลัมน์
  */
 function migrateSheetIfNeeded_(sheet) {
-  const currentCols = sheet.getLastColumn()
-  if (currentCols >= HEADERS.length) return
+  const currentCols = sheet.getLastColumn();
+  if (currentCols >= HEADERS.length) return;
 
-  const missingHeaders = HEADERS.slice(currentCols)
-  sheet.getRange(1, currentCols + 1, 1, missingHeaders.length).setValues([missingHeaders])
+  const missingHeaders = HEADERS.slice(currentCols);
+  sheet
+    .getRange(1, currentCols + 1, 1, missingHeaders.length)
+    .setValues([missingHeaders]);
 
-  const lastRow = sheet.getLastRow()
-  if (lastRow < 2) return
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
 
-  const numRows = lastRow - 1
+  const numRows = lastRow - 1;
   const defaultsRow = missingHeaders.map(function (h) {
-    return Object.prototype.hasOwnProperty.call(MIGRATION_DEFAULTS_, h) ? MIGRATION_DEFAULTS_[h] : ''
-  })
-  const defaults = []
-  for (let i = 0; i < numRows; i++) defaults.push(defaultsRow.slice())
-  sheet.getRange(2, currentCols + 1, numRows, missingHeaders.length).setValues(defaults)
+    return Object.prototype.hasOwnProperty.call(MIGRATION_DEFAULTS_, h)
+      ? MIGRATION_DEFAULTS_[h]
+      : "";
+  });
+  const defaults = [];
+  for (let i = 0; i < numRows; i++) defaults.push(defaultsRow.slice());
+  sheet
+    .getRange(2, currentCols + 1, numRows, missingHeaders.length)
+    .setValues(defaults);
 }
 
 /** วันที่-เวลาปัจจุบัน โซน Asia/Bangkok (UTC+7) รูปแบบ "yyyy-MM-dd HH:mm:ss"
  * เช่น "2026-07-31 14:24:27" — ใช้แทน ISO string (UTC) เดิมสำหรับ Register Date
  * และ Last Login ทุกจุดที่เขียนลงชีต (ไม่กระทบ createdAt ฝั่ง client ใน LocalStorage) */
 function bangkokNow_() {
-  return Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm:ss')
+  return Utilities.formatDate(
+    new Date(),
+    "Asia/Bangkok",
+    "yyyy-MM-dd HH:mm:ss",
+  );
 }
 
 function normalize_(value) {
-  return (value === undefined || value === null) ? '' : value.toString().trim()
+  return value === undefined || value === null ? "" : value.toString().trim();
 }
 
 /** Normalize ค่า Birth Year (ช่วงปีเกิด) ที่รับมาจาก payload — เก็บเป็นข้อความตรง ๆ
  * ตามที่ frontend ส่งมา (เช่น "1996-2006") ไม่แปลงเป็นตัวเลข/คำนวณอายุใด ๆ ทั้งสิ้น
  * คืนค่าว่าง '' ถ้าไม่ได้ส่งมาหรือส่งมาเป็นค่าว่าง (แปลว่า "ยังไม่มีข้อมูล") */
 function normalizeBirthYear_(value) {
-  return normalize_(value)
+  return normalize_(value);
 }
 
 /** สร้าง Member ID อัตโนมัติ ไม่ซ้ำกัน เช่น M-LXQK3F-A1B */
 function generateMemberId_() {
-  const ts = Date.now().toString(36).toUpperCase()
-  const rand = Math.random().toString(36).slice(2, 5).toUpperCase()
-  return 'M-' + ts + '-' + rand
+  const ts = Date.now().toString(36).toUpperCase();
+  const rand = Math.random().toString(36).slice(2, 5).toUpperCase();
+  return "M-" + ts + "-" + rand;
 }
 
 function getAllDataRows_(sheet) {
-  const lastRow = sheet.getLastRow()
-  if (lastRow < 2) return []
-  return sheet.getRange(2, 1, lastRow - 1, HEADERS.length).getValues()
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  return sheet.getRange(2, 1, lastRow - 1, HEADERS.length).getValues();
 }
 
 function rowToMember_(row) {
-  const birthYearRaw = normalize_(row[11])
+  const birthYearRaw = normalize_(row[11]);
   return {
     memberId: row[0],
     firstName: row[1],
@@ -186,31 +208,31 @@ function rowToMember_(row) {
     point: Number(row[9]) || 0,
     totalVisit: Number(row[10]) || 0,
     // birthYear: null = ยังไม่มีข้อมูล — เป็นข้อความช่วงปีเกิด เช่น "1996-2006" ไม่ใช่ตัวเลขอายุ
-    birthYear: birthYearRaw === '' ? null : birthYearRaw,
+    birthYear: birthYearRaw === "" ? null : birthYearRaw,
     gender: normalize_(row[12]),
-  }
+  };
 }
 
 /** คืนค่า row number จริงบนชีต (1-indexed) ที่ LINE User ID (คอลัมน์ E) ตรงกัน หรือ -1 ถ้าไม่พบ */
 function findRowIndexByLineUserId_(sheet, lineUserId) {
-  const id = normalize_(lineUserId)
-  if (!id) return -1
-  const rows = getAllDataRows_(sheet)
+  const id = normalize_(lineUserId);
+  if (!id) return -1;
+  const rows = getAllDataRows_(sheet);
   for (let i = 0; i < rows.length; i++) {
-    if (normalize_(rows[i][4]) === id) return i + 2
+    if (normalize_(rows[i][4]) === id) return i + 2;
   }
-  return -1
+  return -1;
 }
 
 /** คืนค่า row number จริงบนชีต (1-indexed) ที่เบอร์โทรศัพท์ (คอลัมน์ D) ตรงกัน หรือ -1 ถ้าไม่พบ */
 function findRowIndexByPhone_(sheet, phone) {
-  const ph = normalize_(phone)
-  if (!ph) return -1
-  const rows = getAllDataRows_(sheet)
+  const ph = normalize_(phone);
+  if (!ph) return -1;
+  const rows = getAllDataRows_(sheet);
   for (let i = 0; i < rows.length; i++) {
-    if (normalize_(rows[i][3]) === ph) return i + 2
+    if (normalize_(rows[i][3]) === ph) return i + 2;
   }
-  return -1
+  return -1;
 }
 
 /**
@@ -227,40 +249,45 @@ function findRowIndexByPhone_(sheet, phone) {
  * (เป็น ID เฉพาะตัวจริง แม่นยำกว่า) แล้วค่อย fallback ไปเช็คเบอร์โทรศัพท์
  */
 function findExistingRowIndex_(sheet, payload) {
-  const byLine = findRowIndexByLineUserId_(sheet, payload && payload.lineUserId)
-  if (byLine !== -1) return byLine
-  return findRowIndexByPhone_(sheet, payload && payload.phone)
+  const byLine = findRowIndexByLineUserId_(
+    sheet,
+    payload && payload.lineUserId,
+  );
+  if (byLine !== -1) return byLine;
+  return findRowIndexByPhone_(sheet, payload && payload.phone);
 }
 
 function findRowIndexByMemberId_(sheet, memberId) {
-  const rows = getAllDataRows_(sheet)
-  const id = normalize_(memberId)
+  const rows = getAllDataRows_(sheet);
+  const id = normalize_(memberId);
   for (let i = 0; i < rows.length; i++) {
-    if (normalize_(rows[i][0]) === id) return i + 2
+    if (normalize_(rows[i][0]) === id) return i + 2;
   }
-  return -1
+  return -1;
 }
 
 function jsonOutput_(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON)
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(
+    ContentService.MimeType.JSON,
+  );
 }
 
 function errorResponse_(message) {
-  return jsonOutput_({ success: false, error: message })
+  return jsonOutput_({ success: false, error: message });
 }
 
 function requireIdentityFields_(payload) {
   if (!payload || !payload.firstName || !payload.lastName || !payload.phone) {
-    return 'firstName, lastName และ phone จำเป็นต้องส่งมาทั้งหมด'
+    return "firstName, lastName และ phone จำเป็นต้องส่งมาทั้งหมด";
   }
-  return null
+  return null;
 }
 
 /** สร้างแถวใหม่และคืนค่า member object กลับไป (Point เริ่มที่ 0, Total Visit เริ่มที่ 1)
  * บันทึก Birth Year/Gender ด้วยถ้า payload ส่งมา (ไม่บังคับ — ถ้าไม่ส่งมาจะเก็บเป็นค่าว่าง)
  * Birth Year เก็บเป็นข้อความช่วงปีเกิดตรงตามที่ frontend ส่งมา เช่น "1996-2006" */
 function createMemberRow_(sheet, payload, now) {
-  const memberId = generateMemberId_()
+  const memberId = generateMemberId_();
   const newRow = [
     memberId,
     normalize_(payload.firstName),
@@ -275,9 +302,9 @@ function createMemberRow_(sheet, payload, now) {
     1,
     normalizeBirthYear_(payload.birthYear),
     normalize_(payload.gender),
-  ]
-  sheet.appendRow(newRow)
-  return rowToMember_(newRow)
+  ];
+  sheet.appendRow(newRow);
+  return rowToMember_(newRow);
 }
 
 /**
@@ -291,78 +318,93 @@ function createMemberRow_(sheet, payload, now) {
  *   ข้อความช่วงปีเกิดตรงตามที่ frontend ส่งมา เช่น "1996-2006"
  */
 function updateMemberRow_(sheet, rowIndex, payload, now, bumpVisit) {
-  const current = sheet.getRange(rowIndex, 1, 1, HEADERS.length).getValues()[0]
+  const current = sheet.getRange(rowIndex, 1, 1, HEADERS.length).getValues()[0];
 
-  const lineUserId = payload.lineUserId ? normalize_(payload.lineUserId) : current[4]
-  const displayName = payload.displayName ? normalize_(payload.displayName) : current[5]
-  const pictureUrl = payload.pictureUrl ? normalize_(payload.pictureUrl) : current[6]
-  const totalVisit = bumpVisit ? (Number(current[10]) || 0) + 1 : (Number(current[10]) || 0)
-  const birthYear = (payload.birthYear !== undefined && payload.birthYear !== null && payload.birthYear !== '') ? normalizeBirthYear_(payload.birthYear) : current[11]
-  const gender = payload.gender ? normalize_(payload.gender) : current[12]
+  const lineUserId = payload.lineUserId
+    ? normalize_(payload.lineUserId)
+    : current[4];
+  const displayName = payload.displayName
+    ? normalize_(payload.displayName)
+    : current[5];
+  const pictureUrl = payload.pictureUrl
+    ? normalize_(payload.pictureUrl)
+    : current[6];
+  const totalVisit = bumpVisit
+    ? (Number(current[10]) || 0) + 1
+    : Number(current[10]) || 0;
+  const birthYear =
+    payload.birthYear !== undefined &&
+    payload.birthYear !== null &&
+    payload.birthYear !== ""
+      ? normalizeBirthYear_(payload.birthYear)
+      : current[11];
+  const gender = payload.gender ? normalize_(payload.gender) : current[12];
 
   // E:G = LINE User ID, Display Name, Profile Picture
-  sheet.getRange(rowIndex, 5, 1, 3).setValues([[lineUserId, displayName, pictureUrl]])
+  sheet
+    .getRange(rowIndex, 5, 1, 3)
+    .setValues([[lineUserId, displayName, pictureUrl]]);
   // I = Last Login, K = Total Visit
-  sheet.getRange(rowIndex, 9).setValue(now)
-  sheet.getRange(rowIndex, 11).setValue(totalVisit)
+  sheet.getRange(rowIndex, 9).setValue(now);
+  sheet.getRange(rowIndex, 11).setValue(totalVisit);
   // L:M = Birth Year, Gender
-  sheet.getRange(rowIndex, 12, 1, 2).setValues([[birthYear, gender]])
+  sheet.getRange(rowIndex, 12, 1, 2).setValues([[birthYear, gender]]);
 
-  const updated = sheet.getRange(rowIndex, 1, 1, HEADERS.length).getValues()[0]
-  return rowToMember_(updated)
+  const updated = sheet.getRange(rowIndex, 1, 1, HEADERS.length).getValues()[0];
+  return rowToMember_(updated);
 }
 
 /* --------------------------- Action handlers ----------------------------- */
 
 function actionCheckMember_(payload) {
-  const fieldError = requireIdentityFields_(payload)
-  if (fieldError) return { success: false, error: fieldError }
+  const fieldError = requireIdentityFields_(payload);
+  if (fieldError) return { success: false, error: fieldError };
 
-  const sheet = getSheet_()
-  const rowIndex = findExistingRowIndex_(sheet, payload)
+  const sheet = getSheet_();
+  const rowIndex = findExistingRowIndex_(sheet, payload);
 
   if (rowIndex === -1) {
-    return { success: true, found: false }
+    return { success: true, found: false };
   }
-  const row = sheet.getRange(rowIndex, 1, 1, HEADERS.length).getValues()[0]
-  return { success: true, found: true, member: rowToMember_(row) }
+  const row = sheet.getRange(rowIndex, 1, 1, HEADERS.length).getValues()[0];
+  return { success: true, found: true, member: rowToMember_(row) };
 }
 
 function actionRegister_(payload) {
-  const fieldError = requireIdentityFields_(payload)
-  if (fieldError) return { success: false, error: fieldError }
+  const fieldError = requireIdentityFields_(payload);
+  if (fieldError) return { success: false, error: fieldError };
 
-  const sheet = getSheet_()
-  const now = bangkokNow_()
-  const rowIndex = findExistingRowIndex_(sheet, payload)
+  const sheet = getSheet_();
+  const now = bangkokNow_();
+  const rowIndex = findExistingRowIndex_(sheet, payload);
 
   if (rowIndex !== -1) {
     // มีอยู่แล้ว (เบอร์โทรหรือ LINE User ID ตรงกับแถวเดิม) -> ห้ามสร้างซ้ำ
     // ทำเหมือน login (อัปเดต Last Login + Total Visit แทน)
-    const member = updateMemberRow_(sheet, rowIndex, payload, now, true)
-    return { success: true, isNewMember: false, member: member }
+    const member = updateMemberRow_(sheet, rowIndex, payload, now, true);
+    return { success: true, isNewMember: false, member: member };
   }
 
-  const member = createMemberRow_(sheet, payload, now)
-  return { success: true, isNewMember: true, member: member }
+  const member = createMemberRow_(sheet, payload, now);
+  return { success: true, isNewMember: true, member: member };
 }
 
 function actionLogin_(payload) {
-  const fieldError = requireIdentityFields_(payload)
-  if (fieldError) return { success: false, error: fieldError }
+  const fieldError = requireIdentityFields_(payload);
+  if (fieldError) return { success: false, error: fieldError };
 
-  const sheet = getSheet_()
-  const now = bangkokNow_()
-  const rowIndex = findExistingRowIndex_(sheet, payload)
+  const sheet = getSheet_();
+  const now = bangkokNow_();
+  const rowIndex = findExistingRowIndex_(sheet, payload);
 
   if (rowIndex === -1) {
     // ไม่พบสมาชิก -> สร้างใหม่ให้อัตโนมัติ (login-or-register ตาม flow ข้อ 3-5)
-    const member = createMemberRow_(sheet, payload, now)
-    return { success: true, isNewMember: true, member: member }
+    const member = createMemberRow_(sheet, payload, now);
+    return { success: true, isNewMember: true, member: member };
   }
 
-  const member = updateMemberRow_(sheet, rowIndex, payload, now, true)
-  return { success: true, isNewMember: false, member: member }
+  const member = updateMemberRow_(sheet, rowIndex, payload, now, true);
+  return { success: true, isNewMember: false, member: member };
 }
 
 /**
@@ -374,116 +416,153 @@ function actionLogin_(payload) {
  *     ก่อน แล้วค่อยเรียก action 'register' ตามปกติ
  */
 function actionLoginByLine_(payload) {
-  const lineUserId = normalize_(payload && payload.lineUserId)
+  const lineUserId = normalize_(payload && payload.lineUserId);
   if (!lineUserId) {
-    return { success: false, error: 'lineUserId จำเป็นต้องส่งมา' }
+    return { success: false, error: "lineUserId จำเป็นต้องส่งมา" };
   }
 
-  const sheet = getSheet_()
-  const rowIndex = findRowIndexByLineUserId_(sheet, lineUserId)
+  const sheet = getSheet_();
+  const rowIndex = findRowIndexByLineUserId_(sheet, lineUserId);
   if (rowIndex === -1) {
-    return { success: true, found: false }
+    return { success: true, found: false };
   }
 
-  const now = bangkokNow_()
-  const member = updateMemberRow_(sheet, rowIndex, { lineUserId: lineUserId }, now, true)
-  return { success: true, found: true, member: member }
+  const now = bangkokNow_();
+  const member = updateMemberRow_(
+    sheet,
+    rowIndex,
+    { lineUserId: lineUserId },
+    now,
+    true,
+  );
+  return { success: true, found: true, member: member };
 }
 
 function actionGetMember_(payload) {
   if (!payload || !payload.memberId) {
-    return { success: false, error: 'memberId จำเป็นต้องส่งมา' }
+    return { success: false, error: "memberId จำเป็นต้องส่งมา" };
   }
-  const sheet = getSheet_()
-  const rowIndex = findRowIndexByMemberId_(sheet, payload.memberId)
+  const sheet = getSheet_();
+  const rowIndex = findRowIndexByMemberId_(sheet, payload.memberId);
   if (rowIndex === -1) {
-    return { success: false, error: 'ไม่พบสมาชิกตาม memberId ที่ระบุ' }
+    return { success: false, error: "ไม่พบสมาชิกตาม memberId ที่ระบุ" };
   }
-  const row = sheet.getRange(rowIndex, 1, 1, HEADERS.length).getValues()[0]
-  return { success: true, member: rowToMember_(row) }
+  const row = sheet.getRange(rowIndex, 1, 1, HEADERS.length).getValues()[0];
+  return { success: true, member: rowToMember_(row) };
 }
 
 function actionUpdateMember_(payload) {
   if (!payload || !payload.memberId) {
-    return { success: false, error: 'memberId จำเป็นต้องส่งมา' }
+    return { success: false, error: "memberId จำเป็นต้องส่งมา" };
   }
 
-  const sheet = getSheet_()
-  const rowIndex = findRowIndexByMemberId_(sheet, payload.memberId)
+  const sheet = getSheet_();
+  const rowIndex = findRowIndexByMemberId_(sheet, payload.memberId);
   if (rowIndex === -1) {
-    return { success: false, error: 'ไม่พบสมาชิกตาม memberId ที่ระบุ' }
+    return { success: false, error: "ไม่พบสมาชิกตาม memberId ที่ระบุ" };
   }
 
-  const current = sheet.getRange(rowIndex, 1, 1, HEADERS.length).getValues()[0]
+  const current = sheet.getRange(rowIndex, 1, 1, HEADERS.length).getValues()[0];
   const merged = [
     current[0],
-    payload.firstName !== undefined ? normalize_(payload.firstName) : current[1],
+    payload.firstName !== undefined
+      ? normalize_(payload.firstName)
+      : current[1],
     payload.lastName !== undefined ? normalize_(payload.lastName) : current[2],
     payload.phone !== undefined ? normalize_(payload.phone) : current[3],
-    payload.lineUserId !== undefined ? normalize_(payload.lineUserId) : current[4],
-    payload.displayName !== undefined ? normalize_(payload.displayName) : current[5],
-    payload.pictureUrl !== undefined ? normalize_(payload.pictureUrl) : current[6],
+    payload.lineUserId !== undefined
+      ? normalize_(payload.lineUserId)
+      : current[4],
+    payload.displayName !== undefined
+      ? normalize_(payload.displayName)
+      : current[5],
+    payload.pictureUrl !== undefined
+      ? normalize_(payload.pictureUrl)
+      : current[6],
     current[7],
     bangkokNow_(),
     payload.point !== undefined ? Number(payload.point) || 0 : current[9],
-    payload.totalVisit !== undefined ? Number(payload.totalVisit) || 0 : current[10],
-    payload.birthYear !== undefined ? normalizeBirthYear_(payload.birthYear) : current[11],
+    payload.totalVisit !== undefined
+      ? Number(payload.totalVisit) || 0
+      : current[10],
+    payload.birthYear !== undefined
+      ? normalizeBirthYear_(payload.birthYear)
+      : current[11],
     payload.gender !== undefined ? normalize_(payload.gender) : current[12],
-  ]
-  sheet.getRange(rowIndex, 1, 1, HEADERS.length).setValues([merged])
-  return { success: true, member: rowToMember_(merged) }
+  ];
+  sheet.getRange(rowIndex, 1, 1, HEADERS.length).setValues([merged]);
+  return { success: true, member: rowToMember_(merged) };
 }
 
 /* ------------------------------ Entry points ------------------------------ */
 
 function handleRequest_(payload) {
-  const action = payload && payload.action
+  const action = payload && payload.action;
 
   try {
     switch (action) {
-      case 'checkMember':
-        return jsonOutput_(actionCheckMember_(payload))
-      case 'register':
-        return jsonOutput_(actionRegister_(payload))
-      case 'login':
-        return jsonOutput_(actionLogin_(payload))
-      case 'loginByLine':
-        return jsonOutput_(actionLoginByLine_(payload))
-      case 'updateMember':
-        return jsonOutput_(actionUpdateMember_(payload))
-      case 'getMember':
-        return jsonOutput_(actionGetMember_(payload))
+      case "checkMember":
+        return jsonOutput_(actionCheckMember_(payload));
+      case "register":
+        return jsonOutput_(actionRegister_(payload));
+      case "login":
+        return jsonOutput_(actionLogin_(payload));
+      case "loginByLine":
+        return jsonOutput_(actionLoginByLine_(payload));
+      case "updateMember":
+        return jsonOutput_(actionUpdateMember_(payload));
+      case "getMember":
+        return jsonOutput_(actionGetMember_(payload));
       // --- ส่วนต่อขยาย: Journey/Score (ดู JourneyService.gs / ScoreService.gs / CheckinService.gs) ---
-      case 'checkin':
-        return jsonOutput_(actionCheckin_(payload))
-      case 'getJourney':
-        return jsonOutput_(actionGetJourney_(payload))
-      case 'getScore':
-        return jsonOutput_(actionGetScore_(payload))
-      case 'getLeaderboard':
-        return jsonOutput_(actionGetLeaderboard_(payload))
+      case "checkin":
+        return jsonOutput_(actionCheckin_(payload));
+      case "getJourney":
+        return jsonOutput_(actionGetJourney_(payload));
+      case "getScore":
+        return jsonOutput_(actionGetScore_(payload));
+      case "getLeaderboard":
+        return jsonOutput_(actionGetLeaderboard_(payload));
+      // --- ส่วนต่อขยาย 2: Stations/SideQuests (ดู StationsService.gs / SideQuestsService.gs) ---
+      case "listStations":
+        return jsonOutput_(actionListStations_());
+      case "createStation":
+        return jsonOutput_(actionCreateStation_(payload));
+      case "updateStation":
+        return jsonOutput_(actionUpdateStation_(payload));
+      case "deleteStation":
+        return jsonOutput_(actionDeleteStation_(payload));
+      case "listSideQuests":
+        return jsonOutput_(actionListSideQuests_());
+      case "createSideQuest":
+        return jsonOutput_(actionCreateSideQuest_(payload));
+      case "updateSideQuest":
+        return jsonOutput_(actionUpdateSideQuest_(payload));
+      case "deleteSideQuest":
+        return jsonOutput_(actionDeleteSideQuest_(payload));
       default:
-        return errorResponse_('action ไม่ถูกต้องหรือไม่ได้ระบุ ต้องเป็นหนึ่งใน: checkMember, register, login, loginByLine, updateMember, getMember, checkin, getJourney, getScore, getLeaderboard')
+        return errorResponse_(
+          "action ไม่ถูกต้องหรือไม่ได้ระบุ ต้องเป็นหนึ่งใน: checkMember, register, login, loginByLine, updateMember, getMember, checkin, getJourney, getScore, getLeaderboard, listStations, createStation, updateStation, deleteStation, listSideQuests, createSideQuest, updateSideQuest, deleteSideQuest",
+        );
     }
   } catch (err) {
-    return errorResponse_(err && err.message ? err.message : String(err))
+    return errorResponse_(err && err.message ? err.message : String(err));
   }
 }
 
 function doPost(e) {
-  let payload = {}
+  let payload = {};
   try {
-    payload = JSON.parse(e.postData.contents)
+    payload = JSON.parse(e.postData.contents);
   } catch (err) {
-    return errorResponse_('Body ที่ส่งมาไม่ใช่ JSON ที่ถูกต้อง')
+    return errorResponse_("Body ที่ส่งมาไม่ใช่ JSON ที่ถูกต้อง");
   }
-  return handleRequest_(payload)
+  return handleRequest_(payload);
 }
 
 /** รองรับ GET ด้วย เผื่อทดสอบผ่าน URL โดยตรง เช่น
  * ?action=checkMember&firstName=สมชาย&lastName=ใจดี&phone=0812345678
  */
 function doGet(e) {
-  const payload = Object.assign({}, e.parameter)
-  return handleRequest_(payload)
+  const payload = Object.assign({}, e.parameter);
+  return handleRequest_(payload);
 }

@@ -8,15 +8,29 @@
  * แผนที่จริงวาดด้วย Leaflet + OpenStreetMap (ดู components/map/LeafletMap.vue)
  * ตำแหน่งฐานจึงเป็นพิกัดภูมิศาสตร์จริง (lat/lng) แทนเปอร์เซ็นต์บน viewBox เดิม
  *
- * ตอนนี้ยังเป็น Mockup ล้วน ๆ:
- * - รายชื่อ/ตำแหน่ง/ลำดับฐาน เป็นข้อมูลตั้งต้นคงที่ (MOCK_ADVENTURE_STATIONS)
- * - สถานะ "ผ่านฐานแล้วหรือยัง" เก็บไว้ที่ LocalStorage ของเครื่องผู้ใช้ก่อน
+ * รายชื่อ/ตำแหน่ง/ลำดับฐาน (MOCK_ADVENTURE_STATIONS) — พิกัด lat/lng + ประเภทฐาน
+ * (ไอคอน/สี) ยัง hardcode ไว้ฝั่ง frontend เหมือนเดิม (ชีต "Stations" ฝั่ง Admin
+ * ยังไม่มีคอลัมน์พวกนี้ให้ใช้แทน) แต่ name/points/active/description/imageUrl
+ * ดึงจากชีต "Stations" จริงแล้ว ผ่าน useMemberApi().listStations() — จับคู่กับ
+ * ฐาน mock ด้วยลำดับ (Order ฝั่ง Admin เทียบ index ใน MOCK_ADVENTURE_STATIONS)
+ * ดู refreshStationsFromBackend() ด้านล่าง ส่วนสถานะ "ผ่านฐานแล้วหรือยัง" +
+ * "คะแนนสะสม" ผูกกับ Google Sheet จริงแล้วเช่นกัน ผ่าน server-gas (ดู
+ * CheckinService.gs / JourneyService.gs / ScoreService.gs / StationsService.gs)
+ * เรียกผ่าน useMemberApi().getJourney() / getScore() / listStations():
  *
- * ออกแบบให้สลับไปใช้ข้อมูลจริงในอนาคตได้ง่าย โดยไม่ต้องแก้ Component ใด ๆ เลย:
- * - เปลี่ยนแค่ STATIONS ให้ดึงจาก API/Google Sheet แทน MOCK_ADVENTURE_STATIONS
- * - เปลี่ยนแค่ toggleStation()/initAdventure() ให้ยิง API แทน localStorage
- * ทุก Component (AdventureMap, MiniMap, LeafletMap) รับ-ส่งข้อมูลผ่าน
- * props/emit เท่านั้น ไม่ผูกกับ composable นี้ตรง ๆ
+ * - initAdventure(userId?) โหลด LocalStorage ก่อนเสมอ (Offline First ให้เปิดแอป
+ *   ได้ทันทีแม้ไม่มีเน็ต) แล้วถ้ามี userId (memberId) + มีเน็ต จะดึงประวัติ
+ *   ฐานที่ผ่านจริง (getJourney) และคะแนนสะสมที่ยืนยันแล้ว (getScore) จาก
+ *   Google Sheet มา "merge" ทับ LocalStorage อีกที (backend ชนะเสมอถ้าดึงสำเร็จ
+ *   ยกเว้นฐานที่เพิ่งสแกนในเครื่องแต่ยังไม่ทัน Sync ขึ้น Sheet — ฐานพวกนี้ยังคง
+ *   ต้องติดสถานะ "ผ่านแล้ว" อยู่ ไม่ถูกเขี่ยทิ้งแม้ backend จะยังไม่มีก็ตาม)
+ * - totalPoint ใช้คะแนนจริงจากชีต Score (TotalPoint) เป็นหลักถ้าดึงมาได้สำเร็จ
+ *   ดึงไม่ได้ (ออฟไลน์/ยังไม่เคย sync เลย) -> fallback กลับไปคำนวณเองจาก
+ *   จำนวนฐานที่ผ่าน × POINTS_PER_STATION เหมือนเดิม
+ * - toggleStation()/queueCheckin() (เรียกจาก pages/scan.vue) ยังคงบันทึก
+ *   LocalStorage ก่อนเสมอเหมือนเดิม (Offline First) แล้วค่อย Sync ขึ้น Sheet
+ *   ทีหลังผ่าน useOfflineSync.ts — composable นี้แค่เป็นฝ่าย "อ่าน" ข้อมูลที่
+ *   ยืนยันแล้วกลับมาแสดงผลเท่านั้น
  */
 
 const STORAGE_KEY = 'adventureVisitedStations'
@@ -43,11 +57,20 @@ export interface AdventureStation {
   id: string
   name: string
   type: StationType
-  /** พิกัดภูมิศาสตร์จริงของฐาน ใช้วาง Marker บน Leaflet/OpenStreetMap */
+  /** พิกัดภูมิศาสตร์จริงของฐาน ใช้วาง Marker บน Leaflet/OpenStreetMap — ยัง
+   * hardcode ไว้ฝั่ง frontend เหมือนเดิม (ชีต "Stations" ฝั่ง Admin ยังไม่มี
+   * คอลัมน์ lat/lng ให้ดึงมาแทนที่) */
   lat: number
   lng: number
   /** ฐานสุดท้ายของเส้นทาง (ใช้เน้น UI พิเศษ เช่น ป้าย "เข้าเส้นชัย") */
   isFinal?: boolean
+  /** คะแนนที่ได้รับเมื่อผ่านฐานนี้ — ดึงจากชีต "Stations" (Admin) ถ้ามี ไม่มี ->
+   * fallback เป็น POINTS_PER_STATION (ค่าคงที่เดิม) */
+  points?: number
+  /** ฐาน active:false (ปิดใช้งานจากหน้า Admin) จะไม่แสดงในรายการฐานที่เล่นได้เลย */
+  active?: boolean
+  description?: string
+  imageUrl?: string
 }
 
 /** คะแนนต่อ 1 ฐานที่ผ่าน (Mockup) */
@@ -83,13 +106,35 @@ export function useAdventure() {
   // Global reactive state (SSR-safe) — sync จาก LocalStorage ใน initAdventure()
   const visitedIds = useState<string[]>('adventure-visited-stations', () => [])
   const initialized = useState<boolean>('adventure-initialized', () => false)
+  // คะแนนสะสมจริงจากชีต "Score" (Google Sheet) — null = ยังไม่เคยดึงสำเร็จ
+  // (ออฟไลน์ หรือยังไม่เคย sync ฐานไหนขึ้น Sheet เลย) ให้ fallback ไปคำนวณเอง
+  const backendTotalPoint = useState<number | null>('adventure-backend-total-point', () => null)
+  const isSyncingFromBackend = useState<boolean>('adventure-syncing-from-backend', () => false)
 
-  const stations = MOCK_ADVENTURE_STATIONS
-  const totalStations = stations.length
+  // รายชื่อฐาน — เริ่มต้นด้วยค่า mock/hardcode (พิกัด+ไอคอนคงที่) แล้วให้
+  // refreshStationsFromBackend() มา "แปะทับ" เฉพาะ name/points/active/
+  // description/imageUrl จากชีต "Stations" (Admin) ทีหลัง จับคู่กันด้วยลำดับ
+  // (Order ฝั่ง Admin เทียบกับลำดับใน MOCK_ADVENTURE_STATIONS index ต่อ index)
+  // เพราะชีต Stations ยังไม่มีคอลัมน์ lat/lng/ประเภทฐานให้ใช้แทนของ mock ได้เลย
+  const stationsState = useState<AdventureStation[]>('adventure-stations', () =>
+    MOCK_ADVENTURE_STATIONS.map((s) => ({ ...s, points: POINTS_PER_STATION, active: true })),
+  )
+  const stationsInitialized = useState<boolean>('adventure-stations-initialized', () => false)
+
+  // เฉพาะฐานที่ active (ไม่ถูกปิดจากหน้า Admin) เท่านั้นที่นับ/แสดงผลจริง
+  const stations = computed(() => stationsState.value.filter((s) => s.active !== false))
+  const totalStations = computed(() => stations.value.length)
 
   const visitedCount = computed(() => visitedIds.value.length)
-  const totalPoint = computed(() => visitedCount.value * POINTS_PER_STATION)
-  const isComplete = computed(() => visitedCount.value >= totalStations)
+  const totalPoint = computed(() => {
+    if (backendTotalPoint.value !== null) return backendTotalPoint.value
+    // Fallback (ออฟไลน์/ยังไม่เคย sync เลย): รวมคะแนนต่อฐานจริงของแต่ละฐานที่ผ่านแล้ว
+    return visitedIds.value.reduce((sum, id) => {
+      const station = stationsState.value.find((s) => s.id === id)
+      return sum + (station?.points ?? POINTS_PER_STATION)
+    }, 0)
+  })
+  const isComplete = computed(() => visitedCount.value >= totalStations.value)
 
   function isVisited(stationId: string): boolean {
     return visitedIds.value.includes(stationId)
@@ -114,12 +159,98 @@ export function useAdventure() {
     }
   }
 
-  /** เรียกตอน mounted ของหน้า Home/Map เพื่อโหลดค่าล่าสุดจาก LocalStorage (ครั้งแรกใช้ Demo state) */
-  function initAdventure(): void {
+  /**
+   * เรียกตอน mounted ของหน้า Home/Map/Scan เพื่อโหลดค่าล่าสุด
+   * 1) โหลดจาก LocalStorage ก่อนเสมอ (Offline First — ใช้งานได้ทันทีแม้ไม่มีเน็ต
+   *    ครั้งแรกที่ไม่เคยมีข้อมูลเลยในเครื่อง ใช้ DEFAULT_VISITED เป็น Demo state)
+   * 2) ถ้ามี userId (memberId ที่ Login แล้ว) และมีเน็ต -> ดึงประวัติฐานที่ผ่านจริง
+   *    (getJourney) + คะแนนสะสมที่ยืนยันแล้ว (getScore) จาก Google Sheet มา merge
+   *    ทับ (backend ชนะ ยกเว้นฐานที่เพิ่งสแกนในเครื่องแต่ยังไม่ทัน sync ขึ้น Sheet
+   *    ซึ่งยังต้องคงสถานะ "ผ่านแล้ว" ไว้ ไม่ถูกเขี่ยทิ้ง)
+   * ดึงจาก backend ไม่สำเร็จ (ออฟไลน์/API ล่ม) -> เงียบไว้ ใช้ค่า LocalStorage
+   * ต่อไปได้เลย ไม่กระทบการใช้งานหน้าปัจจุบัน (เหมือน pattern เดียวกับ
+   * useRequireProfile.ts)
+   */
+  async function initAdventure(userId?: string): Promise<void> {
     if (initialized.value) return
     const stored = getStoredVisited()
     visitedIds.value = stored ?? DEFAULT_VISITED
     initialized.value = true
+
+    await Promise.all([refreshFromBackend(userId), refreshStationsFromBackend()])
+  }
+
+  /**
+   * ดึงรายชื่อฐานจากชีต "Stations" (จัดการผ่านหน้า Admin) มาแปะทับเฉพาะ
+   * name/points/active/description/imageUrl ของฐาน mock 4 อันเดิม — จับคู่กัน
+   * ด้วยลำดับ (เรียง Order ฝั่ง Admin แล้วจับคู่ index ต่อ index กับ
+   * MOCK_ADVENTURE_STATIONS) เพราะยังไม่มี lat/lng/ประเภทฐานฝั่ง Admin ให้ใช้แทน
+   * ฐานที่ Admin ปิดไว้ (active:false) จะไม่ถูกนับ/แสดงในหน้าเกมเลย (ดู `stations`
+   * computed ด้านบนที่กรอง active ออก) ดึงไม่สำเร็จ (ออฟไลน์/API ล่ม) -> เงียบไว้
+   * ใช้ค่า mock/ค่าล่าสุดที่มีอยู่ต่อไป ไม่กระทบการใช้งานหน้าปัจจุบัน
+   */
+  async function refreshStationsFromBackend(): Promise<void> {
+    if (stationsInitialized.value) return
+    if (!import.meta.client) return
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+
+    try {
+      const { listStations } = useMemberApi()
+      const res = await listStations()
+      if (!res.success || !res.stations || res.stations.length === 0) return
+
+      const sorted = [...res.stations].sort((a, b) => a.order - b.order)
+      stationsState.value = MOCK_ADVENTURE_STATIONS.map((mock, index) => {
+        const admin = sorted[index]
+        if (!admin) return { ...mock, points: POINTS_PER_STATION, active: true }
+        return {
+          ...mock,
+          name: admin.name || mock.name,
+          points: admin.points || POINTS_PER_STATION,
+          active: admin.active,
+          description: admin.description || undefined,
+          imageUrl: admin.imageUrl || undefined,
+        }
+      })
+      stationsInitialized.value = true
+    } catch {
+      // เงียบไว้ — ใช้ค่า mock/ค่าล่าสุดที่มีอยู่ต่อไป
+    }
+  }
+
+  /**
+   * ดึงฐานที่ผ่านจริง (getJourney) + คะแนนสะสมจริง (getScore) จาก Google Sheet
+   * มา merge ทับ state ปัจจุบัน — แยกออกมาจาก initAdventure() เพื่อให้เรียกซ้ำ
+   * ได้อีกครั้งหลัง Sync สำเร็จ (ดู useOfflineSync.ts -> syncNow()) โดยไม่ติด
+   * เงื่อนไข "initialized ครั้งเดียว" ของ initAdventure()
+   */
+  async function refreshFromBackend(userId?: string): Promise<void> {
+    if (!import.meta.client || !userId) return
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+
+    isSyncingFromBackend.value = true
+    try {
+      const { getJourney, getScore } = useMemberApi()
+
+      const [journeyRes, scoreRes] = await Promise.all([
+        getJourney(userId).catch(() => null),
+        getScore(userId).catch(() => null),
+      ])
+
+      if (journeyRes?.success && journeyRes.journey) {
+        const backendVisited = journeyRes.journey.map((entry) => entry.stationId)
+        // merge กับของเดิมในเครื่อง กันเคส "เพิ่งสแกนฐานใหม่แต่ queue ยังไม่ทัน sync"
+        const merged = Array.from(new Set([...visitedIds.value, ...backendVisited]))
+        visitedIds.value = merged
+        persist(merged)
+      }
+
+      if (scoreRes?.success && scoreRes.score) {
+        backendTotalPoint.value = scoreRes.score.totalPoint
+      }
+    } finally {
+      isSyncingFromBackend.value = false
+    }
   }
 
   /** แตะ Marker -> Toggle ผ่านฐาน/ยกเลิก พร้อมอัปเดต Point และ Polyline (ผ่าน computed) */
@@ -144,8 +275,11 @@ export function useAdventure() {
     visitedCount,
     totalPoint,
     isComplete,
+    isSyncingFromBackend: readonly(isSyncingFromBackend),
     isVisited,
     initAdventure,
+    refreshFromBackend,
+    refreshStationsFromBackend,
     toggleStation,
     resetJourney,
   }
