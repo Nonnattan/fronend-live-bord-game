@@ -105,6 +105,9 @@ function goToMapPage() {
               }}</span>
             </span>
             <span class="station-chip__name">{{ station.name }}</span>
+            <span v-if="station.points" class="station-chip__points"
+              >+{{ station.points }}</span
+            >
           </div>
         </div>
       </section>
@@ -348,9 +351,19 @@ function goToMapPage() {
   white-space: nowrap;
 }
 
+.station-chip__points {
+  font-size: 0.5rem;
+  font-weight: 700;
+  color: var(--farm-accent-dark);
+}
+
 @media (max-width: 360px) {
   .station-chip__name {
     font-size: 0.52rem;
+  }
+
+  .station-chip__points {
+    font-size: 0.46rem;
   }
 
   .summary-card__value-num {

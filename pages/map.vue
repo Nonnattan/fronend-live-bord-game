@@ -94,6 +94,9 @@ onMounted(() => {
             isVisited(station.id) ? "✓" : STATION_TYPE_META[station.type].icon
           }}</span>
           <span class="station-row__name">{{ station.name }}</span>
+          <span v-if="station.points" class="station-row__points">
+            +{{ station.points }}
+          </span>
           <span class="station-row__status">
             {{ isVisited(station.id) ? "ผ่านแล้ว" : "ยังไม่ผ่าน" }}
           </span>
@@ -299,6 +302,16 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.station-row__points {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--farm-accent-dark);
+  background: rgba(143, 199, 78, 0.18);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
 }
 
 .station-row__status {

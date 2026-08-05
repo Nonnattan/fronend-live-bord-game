@@ -182,9 +182,15 @@ export function useAdventure() {
 
   /**
    * ดึงรายชื่อฐานจากชีต "Stations" (จัดการผ่านหน้า Admin) มาแปะทับเฉพาะ
-   * name/points/active/description/imageUrl ของฐาน mock 4 อันเดิม — จับคู่กัน
-   * ด้วยลำดับ (เรียง Order ฝั่ง Admin แล้วจับคู่ index ต่อ index กับ
-   * MOCK_ADVENTURE_STATIONS) เพราะยังไม่มี lat/lng/ประเภทฐานฝั่ง Admin ให้ใช้แทน
+   * name/points/active/description/imageUrl ของฐาน mock 4 อันเดิม — เพราะยังไม่มี
+   * lat/lng/ประเภทฐานฝั่ง Admin ให้ใช้แทน จึงต้อง "จับคู่" กับ MOCK_ADVENTURE_STATIONS
+   * ทีละฐาน โดยจับคู่แบบ 2 รอบเพื่อไม่ให้ผิดฐานง่าย ๆ ถ้า Admin สร้าง/ลบ/สลับ
+   * ลำดับฐานไม่ตรงกับ mock เป๊ะ:
+   *   รอบ 1) จับคู่ด้วย "ชื่อฐานตรงกันเป๊ะ" ก่อนเสมอ (ตัดช่องว่างหัว-ท้าย) — แม่นยำสุด
+   *          ถ้า Admin ตั้งชื่อฐานตรงกับ mock อยู่แล้ว (เช่น "ฐานข้าวโพด")
+   *   รอบ 2) ฐาน mock ที่ยังไม่เจอชื่อตรงกัน -> fallback ไปจับคู่ด้วยลำดับ (เรียง
+   *          Order น้อย -> มาก) กับฐาน Admin ที่ "เหลือ" (ยังไม่ถูกจับคู่ไปในรอบ 1)
+   *          เหมือนพฤติกรรมเดิม แต่กันไม่ให้ฐาน Admin ตัวเดียวถูกจับคู่ซ้ำ 2 ฐาน mock
    * ฐานที่ Admin ปิดไว้ (active:false) จะไม่ถูกนับ/แสดงในหน้าเกมเลย (ดู `stations`
    * computed ด้านบนที่กรอง active ออก) ดึงไม่สำเร็จ (ออฟไลน์/API ล่ม) -> เงียบไว้
    * ใช้ค่า mock/ค่าล่าสุดที่มีอยู่ต่อไป ไม่กระทบการใช้งานหน้าปัจจุบัน
@@ -200,8 +206,22 @@ export function useAdventure() {
       if (!res.success || !res.stations || res.stations.length === 0) return
 
       const sorted = [...res.stations].sort((a, b) => a.order - b.order)
+
+      // รอบ 1: จับคู่ด้วยชื่อฐานตรงกันเป๊ะ
+      const byName = new Map(sorted.map((s) => [s.name.trim(), s]))
+      const usedAdminIds = new Set<string>()
+      const matchedByName = MOCK_ADVENTURE_STATIONS.map((mock) => {
+        const admin = byName.get(mock.name.trim())
+        if (admin) usedAdminIds.add(admin.id)
+        return admin ?? null
+      })
+
+      // รอบ 2: ฐาน mock ที่ชื่อไม่ตรง -> fallback จับคู่ด้วยลำดับกับฐาน Admin ที่เหลือ
+      const remainingAdmin = sorted.filter((s) => !usedAdminIds.has(s.id))
+      let remainingIndex = 0
+
       stationsState.value = MOCK_ADVENTURE_STATIONS.map((mock, index) => {
-        const admin = sorted[index]
+        const admin = matchedByName[index] ?? remainingAdmin[remainingIndex++]
         if (!admin) return { ...mock, points: POINTS_PER_STATION, active: true }
         return {
           ...mock,
