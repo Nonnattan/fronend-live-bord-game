@@ -137,7 +137,7 @@ export function useOfflineSync() {
    * Sync Score หากไม่มี Internet จะคืนค่า reason: 'offline' ทันที ไม่แตะ queue เลย
    */
   async function syncNow(): Promise<SyncResult> {
-    if (!import.meta.client || !isOnline.value) {
+    if (!import.meta.client || !isOnline.value || isBrowserOffline()) {
       return {
         success: false,
         reason: 'offline',

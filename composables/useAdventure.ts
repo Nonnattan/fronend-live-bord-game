@@ -206,7 +206,7 @@ export function useAdventure() {
   async function refreshStationsFromBackend(): Promise<void> {
     if (stationsInitialized.value) return
     if (!import.meta.client) return
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+    if (isBrowserOffline()) return
 
     try {
       const { listStations } = useMemberApi()
@@ -268,7 +268,7 @@ export function useAdventure() {
    */
   async function refreshFromBackend(userId?: string): Promise<void> {
     if (!import.meta.client || !userId) return
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+    if (isBrowserOffline()) return
 
     isSyncingFromBackend.value = true
     try {

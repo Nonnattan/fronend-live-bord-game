@@ -12,6 +12,7 @@
 export function useRequireProfile() {
   const { profile, hasProfile, initProfile, refreshFromMember } = useProfile()
   const { getMember } = useMemberApi()
+  const { isOfflineMode } = useOfflineMode()
 
   const isReady = ref(false)
 
@@ -34,7 +35,7 @@ export function useRequireProfile() {
     // เรียกไม่สำเร็จ (เช่น API ล่มชั่วคราว) ยังคง try/catch เงียบ ๆ เหมือนเดิม
     // ใช้ค่าที่ cache ไว้ต่อไปได้เลย ไม่กระทบการใช้งานหน้าปัจจุบัน
     const memberId = profile.value?.memberId
-    if (memberId && navigator.onLine) {
+    if (memberId && !isOfflineMode.value) {
       try {
         const res = await getMember(memberId)
         if (res.success && res.member) {

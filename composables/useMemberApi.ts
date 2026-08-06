@@ -207,6 +207,10 @@ export function useMemberApi() {
   const config = useRuntimeConfig()
 
   async function callApi<T>(action: string, payload: Record<string, unknown>): Promise<T> {
+    if (isBrowserOffline()) {
+      throw new Error('ไม่มีอินเทอร์เน็ต — ใช้ข้อมูลในเครื่องเท่านั้น')
+    }
+
     const apiUrl = config.public.apiBaseUrl
     if (!apiUrl) {
       throw new Error('ยังไม่ได้ตั้งค่า API_BASE_URL (Google Apps Script Web App URL) ใน .env')

@@ -13,6 +13,7 @@
 defineProps<{
   lineLoading?: boolean
   lineError?: string
+  offlineMode?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -39,6 +40,7 @@ const emit = defineEmits<{
 
       <LoginButtons
         :line-loading="lineLoading"
+        :offline-mode="offlineMode"
         class="welcome-page__buttons"
         @select-line="emit('select-line')"
         @select-guest="emit('select-guest')"

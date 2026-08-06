@@ -125,6 +125,7 @@ onMounted(async () => {
 
 /** Step 1: กด "เข้าสู่ระบบด้วย LINE" — ครอบ loginWithLine() เดิม แล้วเช็ค lineUserId ต่อทันที */
 async function handleSelectLine() {
+  if (isOfflineMode.value) return
   await loginWithLine()
   // ถ้า liff.login() ต้อง redirect ออกไปจริง ฟังก์ชันนี้ก็จะ return โดยที่ authData
   // ยังไม่มีค่า (หน้าเว็บกำลังจะถูก redirect ออกไปอยู่แล้ว ไม่ต้องทำอะไรต่อ)
@@ -171,6 +172,7 @@ async function handleMissingFieldsCompleted(member: MemberRecord) {
         v-else-if="!hasAuth"
         :line-loading="isLineLoading"
         :line-error="lineError"
+        :offline-mode="isOfflineMode"
         @select-line="handleSelectLine"
         @select-guest="loginAsGuest"
       />

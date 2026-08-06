@@ -10,6 +10,8 @@
 defineProps<{
   /** true ระหว่างกำลัง init/login กับ LIFF อยู่ (โชว์ spinner + disable ปุ่ม guest) */
   lineLoading?: boolean
+  /** true = อยู่ใน Offline Mode — ซ่อนปุ่ม LINE เหลือแค่ Guest */
+  offlineMode?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -21,6 +23,7 @@ const emit = defineEmits<{
 <template>
   <div class="login-buttons">
     <UButton
+      v-if="!offlineMode"
       block
       size="xl"
       color="success"

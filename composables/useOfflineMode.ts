@@ -1,32 +1,16 @@
 /**
  * composables/useOfflineMode.ts
  * ---------------------------------------------------------------------------
- * ระบบ "Offline Mode" ใหม่ (แยกขาดจาก composables/useOfflineSync.ts เดิม —
- * ไฟล์นั้นเป็นระบบ "เล่นออฟไลน์ได้ แล้ว sync ขึ้น Google Sheet อัตโนมัติทันทีที่
- * มีเน็ต" คนละแนวคิดกับที่นี่ และไฟล์นี้จะไม่เรียกใช้/ไม่แตะไฟล์นั้นเลย)
+ * ระบบ Offline Mode — ตรวจจับสถานะ Internet แบบ real-time (ตอนเปิดแอป +
+ * online/offline events) แล้วสลับโหมดอัตโนมัติ:
+ *   - ไม่มีเน็ต -> isOfflineMode = true ทันที (หยุด API, ใช้ LocalStorage เท่านั้น)
+ *   - มีเน็ตกลับมา -> isOfflineMode = false + trigger auto-sync (plugins/offline-mode.client.ts)
  *
- * หน้าที่ของไฟล์นี้:
- *
- * 1) ตรวจสอบ Internet ทันทีที่เข้าเว็บ (เรียกจาก plugins/offline-mode.client.ts
- *    ซึ่งเป็น Nuxt plugin ที่ทำงานก่อนหน้าไหน ๆ mount) ถ้าไม่มี Internet ->
- *    ล็อกเข้า Offline Mode ทันที และเก็บ flag ไว้ที่ sessionStorage (ผูกกับ
- *    Session ของแท็บ/เบราว์เซอร์ปัจจุบัน) เมื่อล็อกแล้ว ต่อให้ Internet กลับมา
- *    ระหว่างใช้งาน จะ "ไม่สลับกลับ Online" เพราะ checkAndLockOfflineMode()
- *    เช็ค sessionStorage flag ก่อนเสมอ ไม่ใช้ navigator.onLine สด ๆ มาตัดสิน
- *    โหมดซ้ำอีกครั้งในการเปิดหน้าถัดไป/รีเฟรชหน้าเดิมภายใน Session เดียวกัน
- *
- * 2) เก็บข้อมูล "รอบการเล่นแบบ Offline Mode" ลง LocalStorage (ถาวรจริง ข้าม
- *    การปิด/เปิดแอปใหม่ได้ ต่างจาก flag ล็อกโหมดในข้อ 1 ที่อยู่ sessionStorage)
- *    ใช้แสดงผลที่หน้า Profile (ดู components/OfflineSummaryCard.vue):
- *    - round_datetime.start / round_datetime.end
- *    - ฐานที่สแกน: stationId, stationName, scanTime, ลำดับฐาน
- *
- * ไม่แตะ/ไม่เรียกใช้ระบบ Online เดิมเลยสักจุด (useOfflineSync.ts,
- * useMemberApi.ts, server-gas/*) — Offline Mode ใหม่นี้ทำงานอิสระ 100%
- * ผ่าน LocalStorage เท่านั้น
+ * offlineGatePending = true เฉพาะตอนเปิดแอบครั้งแรกขณะ offline (แสดง OfflineGateScreen)
+ * ถ้าเน็ตหลุดระหว่างใช้งาน -> เข้า Offline Mode ทันทีโดยไม่บล็อกหน้าจอ Gate ซ้ำ
  */
 
-const SESSION_LOCK_KEY = 'offlineMode:sessionLocked'
+const GATE_DISMISSED_KEY = 'offlineMode:gateDismissed'
 const ROUND_DATA_KEY = 'offlineMode:roundData'
 
 /** 1 ฐานที่สแกนสำเร็จระหว่างเล่นแบบ Offline Mode */
@@ -42,9 +26,7 @@ export interface OfflineStationLog {
 /** ข้อมูล 1 รอบการเล่นแบบ Offline Mode ของผู้เล่น 1 คน (uid) */
 export interface OfflineRoundData {
   uid: string
-  /** round_datetime.start (ms epoch) — บันทึกทันทีหลังกรอก Registration Form เสร็จ */
   startedAt?: number
-  /** round_datetime.end (ms epoch) — บันทึกเมื่อจบเกม (ผ่านครบทุกฐานแล้ว) */
   endedAt?: number
   stations: OfflineStationLog[]
 }
@@ -56,16 +38,20 @@ function readJson<T>(key: string): T | null {
   try {
     return JSON.parse(raw) as T
   } catch {
-    // ข้อมูลเสีย -> ทิ้งไปเลย ดีกว่าแอปพังทั้งหน้า
     localStorage.removeItem(key)
     return null
   }
 }
 
+/** อ่านสถานะ offline จาก navigator — ใช้เป็นจุดเดียวทั้งโปรเจกต์ */
+export function isBrowserOffline(): boolean {
+  if (!import.meta.client) return false
+  return !navigator.onLine
+}
+
 export function useOfflineMode() {
-  // true ถ้า Session (แท็บ/เบราว์เซอร์ session ปัจจุบัน) นี้ถูกล็อกเข้า Offline Mode แล้ว
   const isOfflineMode = useState<boolean>('offline-mode-locked', () => false)
-  // รอบการเล่นปัจจุบัน (โหลดจาก LocalStorage) — null = ยังไม่เคยมีรอบ Offline Mode เลย
+  const offlineGatePending = useState<boolean>('offline-mode-gate-pending', () => false)
   const roundData = useState<OfflineRoundData | null>('offline-mode-round-data', () => null)
 
   function loadRoundData(): void {
@@ -73,28 +59,49 @@ export function useOfflineMode() {
   }
 
   /**
-   * เรียกครั้งเดียวตอนแอปเริ่มทำงาน (plugins/offline-mode.client.ts)
-   * 1) เคยล็อก Offline Mode ไว้แล้วใน Session นี้ (sessionStorage) -> ล็อกต่อ
-   *    ทันที ไม่ต้องเช็ค navigator.onLine ซ้ำเลย (ตรงตามสเปก "ห้ามสลับเป็น
-   *    Online แม้ Internet จะกลับมา")
-   * 2) ยังไม่เคยล็อกใน Session นี้ -> เช็ค navigator.onLine สด ๆ ครั้งนี้ครั้งเดียว
-   *    - ไม่มีเน็ต -> ล็อกเข้า Offline Mode ทันที + จำไว้ใน sessionStorage
-   *    - มีเน็ต     -> ปล่อยผ่าน ใช้งาน Online ตามปกติ (ไม่แตะ Flow เดิมเลย)
+   * อัปเดต state จาก navigator.onLine
+   * @param fromRuntimeEvent true = มาจาก offline/online event ระหว่างใช้งาน (ไม่แสดง Gate)
    */
-  function checkAndLockOfflineMode(): void {
+  function syncConnectivityState(fromRuntimeEvent = false): void {
     if (!import.meta.client) return
 
-    if (sessionStorage.getItem(SESSION_LOCK_KEY) === '1') {
-      isOfflineMode.value = true
-      loadRoundData()
-      return
-    }
+    const offline = isBrowserOffline()
+    isOfflineMode.value = offline
 
-    if (!navigator.onLine) {
-      sessionStorage.setItem(SESSION_LOCK_KEY, '1')
-      isOfflineMode.value = true
+    if (offline) {
       loadRoundData()
+      const gateDismissed = sessionStorage.getItem(GATE_DISMISSED_KEY) === '1'
+      // แสดง Gate เฉพาะตอนเปิดแอปครั้งแรกขณะ offline — ไม่บล็อกซ้ำเมื่อเน็ตหลุดระหว่างเล่น
+      offlineGatePending.value = !fromRuntimeEvent && !gateDismissed
+    } else {
+      offlineGatePending.value = false
+      sessionStorage.removeItem(GATE_DISMISSED_KEY)
     }
+  }
+
+  /** เรียกครั้งเดียวจาก plugins/offline-mode.client.ts */
+  function initConnectivityWatch(onBackOnline?: () => void): void {
+    if (!import.meta.client) return
+
+    syncConnectivityState(false)
+
+    window.addEventListener('offline', () => {
+      syncConnectivityState(true)
+    })
+
+    window.addEventListener('online', () => {
+      syncConnectivityState(true)
+      onBackOnline?.()
+    })
+  }
+
+  /** กดปุ่ม "เข้าโหมด Offline" ที่ OfflineGateScreen */
+  function confirmOfflineMode(): void {
+    if (!import.meta.client) return
+    sessionStorage.setItem(GATE_DISMISSED_KEY, '1')
+    isOfflineMode.value = true
+    offlineGatePending.value = false
+    loadRoundData()
   }
 
   function persistRoundData(next: OfflineRoundData): void {
@@ -104,12 +111,10 @@ export function useOfflineMode() {
     roundData.value = next
   }
 
-  /** เริ่มรอบเล่นใหม่ — เรียกทันทีหลังกรอก Registration Form (Offline Mode) เสร็จ */
   function startRound(uid: string): void {
     persistRoundData({ uid, startedAt: Date.now(), endedAt: undefined, stations: [] })
   }
 
-  /** บันทึกฐานที่สแกนสำเร็จ (กันซ้ำในตัว — ฐานเดิมจะไม่ถูกบันทึกซ้ำ) */
   function logStationScan(stationId: string, stationName: string): void {
     const current = roundData.value ?? { uid: '', stations: [] }
     if (current.stations.some((s) => s.stationId === stationId)) return
@@ -122,7 +127,6 @@ export function useOfflineMode() {
     })
   }
 
-  /** จบเกม — บันทึก round_datetime.end (เรียกเมื่อผ่านครบทุกฐานแล้วเท่านั้น) */
   function endRound(): void {
     if (!roundData.value || roundData.value.endedAt) return
     persistRoundData({ ...roundData.value, endedAt: Date.now() })
@@ -130,8 +134,10 @@ export function useOfflineMode() {
 
   return {
     isOfflineMode: readonly(isOfflineMode),
+    offlineGatePending: readonly(offlineGatePending),
     roundData: readonly(roundData),
-    checkAndLockOfflineMode,
+    initConnectivityWatch,
+    confirmOfflineMode,
     loadRoundData,
     startRound,
     logStationScan,
