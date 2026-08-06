@@ -20,7 +20,7 @@ import type { AuthData } from '~/types/auth'
 import type { Gender } from '~/types/profile'
 import type { ProfileSchemaOutput } from '~/utils/profileSchema'
 
-const props = defineProps<{ auth: AuthData }>()
+const props = defineProps<{ auth: AuthData; offlineMode?: boolean }>()
 const emit = defineEmits<{ registered: [] }>()
 
 const { saveProfile } = useProfile()
@@ -65,6 +65,29 @@ async function onSubmit(event: FormSubmitEvent<ProfileSchemaOutput>) {
   isSubmitting.value = true
   submitError.value = ''
   try {
+    // -----------------------------------------------------------------
+    // Offline Mode (ใหม่): ห้ามแตะ Backend เลย (ไม่มี Internet อยู่แล้ว) —
+    // บันทึกลง LocalStorage ตรง ๆ ผ่าน saveProfile() เดิม โดยไม่ส่ง member
+    // (ค่าที่ backend ยืนยันแล้ว) เข้าไป เพราะไม่มีการ sync ใด ๆ เกิดขึ้นเลย
+    // uid ที่ใช้คือ props.auth.uid ซึ่งมาจาก useAuth.ts -> loginAsGuest()
+    // สร้างเป็น Unix Timestamp 10 หลักไว้ให้แล้วตั้งแต่ Step 1 (ตรงตามสเปก
+    // "สร้าง uid เป็น Timestamp 10 หลัก") — ไม่มีการสร้าง uid ซ้ำอีกรอบที่นี่
+    // -----------------------------------------------------------------
+    if (props.offlineMode) {
+      saveProfile(
+        {
+          firstName: event.data.firstName,
+          lastName: event.data.lastName,
+          gender: event.data.gender,
+          birthYear: event.data.birthYear,
+          phone: event.data.phone,
+        },
+        props.auth,
+      )
+      emit('registered')
+      return
+    }
+
     // ข้อ 3-5 ในสเปก: ส่งไปตรวจสอบ/บันทึกที่ Google Sheet ผ่าน Google Apps Script
     // ก่อนเสมอ (checkMember -> login หรือ register) แล้วค่อยรวมผลลัพธ์ที่ backend
     // ยืนยันแล้ว (memberId, registerDate, lastLogin) เข้ากับโปรไฟล์ในเครื่อง

@@ -181,16 +181,24 @@ export function useAdventure() {
   }
 
   /**
-   * ดึงรายชื่อฐานจากชีต "Stations" (จัดการผ่านหน้า Admin) มาแปะทับเฉพาะ
-   * name/points/active/description/imageUrl ของฐาน mock 4 อันเดิม — เพราะยังไม่มี
-   * lat/lng/ประเภทฐานฝั่ง Admin ให้ใช้แทน จึงต้อง "จับคู่" กับ MOCK_ADVENTURE_STATIONS
-   * ทีละฐาน โดยจับคู่แบบ 2 รอบเพื่อไม่ให้ผิดฐานง่าย ๆ ถ้า Admin สร้าง/ลบ/สลับ
-   * ลำดับฐานไม่ตรงกับ mock เป๊ะ:
-   *   รอบ 1) จับคู่ด้วย "ชื่อฐานตรงกันเป๊ะ" ก่อนเสมอ (ตัดช่องว่างหัว-ท้าย) — แม่นยำสุด
-   *          ถ้า Admin ตั้งชื่อฐานตรงกับ mock อยู่แล้ว (เช่น "ฐานข้าวโพด")
-   *   รอบ 2) ฐาน mock ที่ยังไม่เจอชื่อตรงกัน -> fallback ไปจับคู่ด้วยลำดับ (เรียง
-   *          Order น้อย -> มาก) กับฐาน Admin ที่ "เหลือ" (ยังไม่ถูกจับคู่ไปในรอบ 1)
-   *          เหมือนพฤติกรรมเดิม แต่กันไม่ให้ฐาน Admin ตัวเดียวถูกจับคู่ซ้ำ 2 ฐาน mock
+   * ดึงรายชื่อฐานจากชีต "Stations" (จัดการผ่านหน้า Admin) มาแปะทับ
+   * name/points/active/description/imageUrl/lat/lng ของฐาน mock 4 อันเดิม —
+   * ต้อง "จับคู่" กับ MOCK_ADVENTURE_STATIONS ทีละฐานก่อนเสมอ (เกมนี้เป็น Board
+   * Game ผังคงที่ 4 ฐาน — corn/cow/soil/milk — ผูกกับ QR Code/ปุ่ม Scan ตายตัว
+   * ดู pages/scan.vue STATION_CODE_MAP + FINAL_STATION_ID จึงไม่เปลี่ยน "จำนวน/id"
+   * ฐานตามอำเภอใจจาก Admin ได้ แต่ "ตำแหน่งบนแผนที่ (lat/lng) และไอคอน (type)"
+   * ปรับได้จาก Admin แล้วผ่านคอลัมน์ Type/Lat/Lng ใหม่ในชีต Stations)
+   *
+   * จับคู่แบบ 3 รอบ เรียงลำดับความแม่นยำจากมากไปน้อย กันจับคู่ผิดฐาน:
+   *   รอบ 1) จับคู่ด้วย "Type" ตรงกัน (Admin เลือกจาก dropdown ประเภทฐานในฟอร์ม)
+   *          — แม่นยำสุด เพราะเป็นค่าที่ตั้งใจกำหนดมาคู่กับฐานนี้โดยเฉพาะ
+   *   รอบ 2) ฐาน mock ที่ยังไม่เจอ Type ตรงกัน -> จับคู่ด้วย "ชื่อฐานตรงกันเป๊ะ"
+   *          (ตัดช่องว่างหัว-ท้าย) กับฐาน Admin ที่เหลือ (ยังไม่ถูกจับคู่ในรอบ 1)
+   *   รอบ 3) ฐาน mock ที่ยังไม่เจอทั้ง Type และชื่อ -> fallback จับคู่ด้วยลำดับ
+   *          (เรียง Order น้อย -> มาก) กับฐาน Admin ที่เหลือทั้งหมด
+   * lat/lng: ใช้ค่าจาก Admin ถ้าตั้งไว้ (ไม่ null ทั้งคู่) ไม่งั้น fallback ไปใช้
+   * พิกัดตั้งต้นของ mock เหมือนเดิม (ทำให้ Admin ย้ายหมุดบนแผนที่ได้จริงโดยไม่ต้อง
+   * แก้โค้ด frontend เลย)
    * ฐานที่ Admin ปิดไว้ (active:false) จะไม่ถูกนับ/แสดงในหน้าเกมเลย (ดู `stations`
    * computed ด้านบนที่กรอง active ออก) ดึงไม่สำเร็จ (ออฟไลน์/API ล่ม) -> เงียบไว้
    * ใช้ค่า mock/ค่าล่าสุดที่มีอยู่ต่อไป ไม่กระทบการใช้งานหน้าปัจจุบัน
@@ -206,23 +214,35 @@ export function useAdventure() {
       if (!res.success || !res.stations || res.stations.length === 0) return
 
       const sorted = [...res.stations].sort((a, b) => a.order - b.order)
-
-      // รอบ 1: จับคู่ด้วยชื่อฐานตรงกันเป๊ะ
-      const byName = new Map(sorted.map((s) => [s.name.trim(), s]))
       const usedAdminIds = new Set<string>()
-      const matchedByName = MOCK_ADVENTURE_STATIONS.map((mock) => {
+
+      // รอบ 1: จับคู่ด้วย Type ตรงกัน (เช่น mock.type === 'corn' กับ admin.type === 'corn')
+      const byType = new Map(sorted.filter((s) => s.type).map((s) => [s.type.trim(), s]))
+      const matchedByType = MOCK_ADVENTURE_STATIONS.map((mock) => {
+        const admin = byType.get(mock.type)
+        if (admin) usedAdminIds.add(admin.id)
+        return admin ?? null
+      })
+
+      // รอบ 2: ที่ยังไม่เจอ -> จับคู่ด้วยชื่อฐานตรงกันเป๊ะ กับฐาน Admin ที่เหลือ
+      const byName = new Map(
+        sorted.filter((s) => !usedAdminIds.has(s.id)).map((s) => [s.name.trim(), s]),
+      )
+      const matchedByTypeOrName = MOCK_ADVENTURE_STATIONS.map((mock, index) => {
+        if (matchedByType[index]) return matchedByType[index]
         const admin = byName.get(mock.name.trim())
         if (admin) usedAdminIds.add(admin.id)
         return admin ?? null
       })
 
-      // รอบ 2: ฐาน mock ที่ชื่อไม่ตรง -> fallback จับคู่ด้วยลำดับกับฐาน Admin ที่เหลือ
+      // รอบ 3: ที่ยังไม่เจอทั้ง Type/ชื่อ -> fallback จับคู่ด้วยลำดับกับฐาน Admin ที่เหลือ
       const remainingAdmin = sorted.filter((s) => !usedAdminIds.has(s.id))
       let remainingIndex = 0
 
       stationsState.value = MOCK_ADVENTURE_STATIONS.map((mock, index) => {
-        const admin = matchedByName[index] ?? remainingAdmin[remainingIndex++]
+        const admin = matchedByTypeOrName[index] ?? remainingAdmin[remainingIndex++]
         if (!admin) return { ...mock, points: POINTS_PER_STATION, active: true }
+        const hasCoords = admin.lat !== null && admin.lng !== null
         return {
           ...mock,
           name: admin.name || mock.name,
@@ -230,6 +250,8 @@ export function useAdventure() {
           active: admin.active,
           description: admin.description || undefined,
           imageUrl: admin.imageUrl || undefined,
+          lat: hasCoords ? (admin.lat as number) : mock.lat,
+          lng: hasCoords ? (admin.lng as number) : mock.lng,
         }
       })
       stationsInitialized.value = true

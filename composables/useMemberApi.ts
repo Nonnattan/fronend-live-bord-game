@@ -140,6 +140,14 @@ export interface StationRecord {
   active: boolean
   updatedAt: string
   imageUrl: string
+  /** ประเภทฐานบนแผนที่ ('corn'/'cow'/'soil'/'milk') — ตั้งค่าได้จากหน้า Admin
+   * ใช้จับคู่กับ MOCK_ADVENTURE_STATIONS เพื่อดึงไอคอน/สี Marker (ดู useAdventure.ts)
+   * ค่าว่าง '' = Admin ยังไม่ได้กำหนด */
+  type: string
+  /** พิกัดภูมิศาสตร์จริงของฐาน — ตั้งค่าได้จากหน้า Admin เพื่อย้ายหมุดบนแผนที่
+   * โดยไม่ต้องแก้โค้ด frontend เลย null = Admin ยังไม่ได้กำหนด (ใช้พิกัดตั้งต้นแทน) */
+  lat: number | null
+  lng: number | null
 }
 
 /** 1 เควสเสริม (ชีต "SideQuests" ฝั่ง server-gas) — คะแนนพิเศษที่ไม่ผูกกับฐานใดฐานหนึ่ง */

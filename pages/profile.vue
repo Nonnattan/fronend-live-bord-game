@@ -11,6 +11,32 @@ definePageMeta({ layout: 'app' })
 const { profile, isReady } = useRequireProfile()
 const { isAnonymous, loginWithLine, resetAuth, logoutLine } = useAuth()
 const { resetProfile } = useProfile()
+const { stations } = useAdventure()
+
+// Offline Mode (ใหม่): ห้ามแสดงคะแนน (ซ่อน stat-box คะแนนสะสมด้านล่าง) +
+// แสดง Card สรุปการเล่นแบบออฟไลน์ (ข้อ 11) ใต้ Profile Card — โหลดข้อมูลรอบ
+// การเล่นล่าสุดจาก LocalStorage ตรงนี้เสมอ (ไม่ใช่แค่ตอน Session ปัจจุบันถูก
+// ล็อก Offline Mode) เพื่อให้เห็นประวัติรอบก่อนหน้าด้วยแม้ตอนนี้จะกลับมามีเน็ต
+// แล้วก็ตาม (ข้อมูลอยู่ใน LocalStorage ถาวรอยู่แล้ว)
+const { isOfflineMode, roundData, loadRoundData } = useOfflineMode()
+onMounted(() => {
+  loadRoundData()
+})
+
+/** รายชื่อฐานที่เล่นแล้ว เรียงตามลำดับที่สแกนสำเร็จจริง (ข้อ 8: ลำดับฐาน) */
+const playedStationNames = computed(() => {
+  if (!roundData.value) return []
+  return [...roundData.value.stations]
+    .sort((a, b) => a.order - b.order)
+    .map((s) => s.stationName)
+})
+
+/** รายชื่อฐานที่เหลือ (ยังไม่ได้สแกนใน Log ของรอบ Offline Mode นี้) */
+const remainingStationNames = computed(() => {
+  if (!roundData.value) return []
+  const playedIds = new Set(roundData.value.stations.map((s) => s.stationId))
+  return stations.value.filter((s) => !playedIds.has(s.id)).map((s) => s.name)
+})
 
 /**
  * รีเซ็ตข้อมูลทดสอบแบบเต็มรูปแบบ:
@@ -64,7 +90,7 @@ async function handleResetForTesting() {
       </div>
 
       <div class="stat-row">
-        <div class="stat-box">
+        <div v-if="!isOfflineMode" class="stat-box">
           <span class="stat-box__value">{{ profile?.point ?? 0 }}</span>
           <span class="stat-box__label">คะแนนสะสม</span>
         </div>
@@ -108,6 +134,18 @@ async function handleResetForTesting() {
           <span class="info-box__value">{{ new Date(profile.lastLogin).toLocaleString('th-TH') }}</span>
         </div>
       </div>
+
+      <!-- Offline Mode (ใหม่, ข้อ 11): Card สรุปการเล่นแบบออฟไลน์ ใต้ Profile Card
+           เดิม — แสดงเฉพาะตอนมีข้อมูลรอบ Offline Mode อยู่จริงใน LocalStorage
+           เท่านั้น (ไม่กระทบ UI ผู้เล่นที่ไม่เคยเล่นแบบออฟไลน์เลย) -->
+      <OfflineSummaryCard
+        v-if="roundData"
+        :uid="roundData.uid"
+        :started-at="roundData.startedAt"
+        :ended-at="roundData.endedAt"
+        :played-station-names="playedStationNames"
+        :remaining-station-names="remainingStationNames"
+      />
 
       <UButton
         v-if="isAnonymous"

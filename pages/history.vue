@@ -1,6 +1,8 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'app' })
 const { profile, isReady } = useRequireProfile()
+// Offline Mode (ใหม่): ห้ามแสดงคะแนน — ใช้ซ่อนคะแนนสะสมในการ์ดสรุปด้านล่าง
+const { isOfflineMode } = useOfflineMode()
 </script>
 
 <template>
@@ -15,7 +17,7 @@ const { profile, isReady } = useRequireProfile()
           <span class="summary-card__value">{{ profile?.totalVisit ?? 0 }}</span>
           <span class="summary-card__label">ครั้งที่เข้าใช้บริการทั้งหมด</span>
         </div>
-        <div class="summary-card__item">
+        <div v-if="!isOfflineMode" class="summary-card__item">
           <span class="summary-card__value">{{ profile?.point ?? 0 }}</span>
           <span class="summary-card__label">คะแนนสะสมปัจจุบัน</span>
         </div>

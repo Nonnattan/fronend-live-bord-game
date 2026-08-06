@@ -36,8 +36,11 @@
 import type { MemberRecord } from '~/composables/useMemberApi'
 
 const { authData, hasAuth, isLineLoading, lineError, initAuth, loginWithLine, loginAsGuest } = useAuth()
-const { hasProfile, initProfile, loginFromMember } = useProfile()
+const { profile, hasProfile, initProfile, loginFromMember } = useProfile()
 const { loginByLine } = useMemberApi()
+// Offline Mode (ใหม่): ล็อกไว้แล้วตั้งแต่ plugins/offline-mode.client.ts ถ้าเข้าเว็บ
+// มาแบบไม่มี Internet — ใช้เช็คในหน้านี้เพื่อข้ามขั้นตอนที่ต้องพึ่งเน็ต (LIFF/LINE)
+const { isOfflineMode, startRound } = useOfflineMode()
 
 // ใช้กันไม่ให้ flash เนื้อหาผิดจังหวะระหว่างที่ยังไม่ได้เช็ค LocalStorage/LIFF/Google Sheet
 const isReady = ref(false)
@@ -101,12 +104,21 @@ onMounted(async () => {
     return
   }
 
-  await initAuth()
+  // -------------------------------------------------------------------
+  // Offline Mode (ใหม่): ถ้า Session นี้ถูกล็อกเข้า Offline Mode แล้ว (ไม่มี
+  // Internet ตอนเข้าเว็บ) ให้ข้าม initAuth()/resolveLineMember() ไปเลย —
+  // ทั้งสองฟังก์ชันนี้คุยกับ LIFF/Google Sheet จริง ต้องใช้ Internet เสมอ
+  // ข้ามไปแสดงหน้า Welcome ทันที ผู้ใช้กด "เข้าใช้งานโดยไม่เชื่อม LINE" (Guest)
+  // ได้ตามปกติ (ไม่พึ่งเน็ตอยู่แล้วในโค้ดเดิม ดู useAuth.ts -> loginAsGuest())
+  // -------------------------------------------------------------------
+  if (!isOfflineMode.value) {
+    await initAuth()
 
-  // ข้อ 4: เพิ่งได้ authData แบบ LINE (จาก initAuth ที่เพิ่งถูก redirect กลับมา)
-  // -> เช็ค lineUserId ก่อนเสมอ (นำทางไป /home เองถ้าครบแล้ว หรือตั้ง pendingMember
-  // ถ้ายังขาด Birth Year/Gender)
-  await resolveLineMember()
+    // ข้อ 4: เพิ่งได้ authData แบบ LINE (จาก initAuth ที่เพิ่งถูก redirect กลับมา)
+    // -> เช็ค lineUserId ก่อนเสมอ (นำทางไป /home เองถ้าครบแล้ว หรือตั้ง pendingMember
+    // ถ้ายังขาด Birth Year/Gender)
+    await resolveLineMember()
+  }
 
   isReady.value = true
 })
@@ -126,6 +138,13 @@ async function handleSelectLine() {
 }
 
 function handleRegistered() {
+  // ข้อ 6-7 (Offline Mode ใหม่): กรอก Registration Form เสร็จแล้ว (บันทึกลง
+  // LocalStorage ผ่าน ProfileForm.vue เรียบร้อยแล้ว) -> เริ่มบันทึก
+  // round_datetime.start ทันที ก่อนเข้าหน้า Home (เฉพาะ Offline Mode เท่านั้น
+  // ไม่กระทบ Flow Online เดิมเลย)
+  if (isOfflineMode.value && profile.value?.uid) {
+    startRound(profile.value.uid)
+  }
   // ฟอร์มบันทึกข้อมูล + sync กับ Google Sheet สำเร็จแล้ว (สมัครสมาชิกใหม่) -> เข้าหน้า Home ทันที
   navigateTo('/home')
 }
@@ -168,6 +187,7 @@ async function handleMissingFieldsCompleted(member: MemberRecord) {
       <ProfileForm
         v-else-if="authData"
         :auth="authData"
+        :offline-mode="isOfflineMode"
         @registered="handleRegistered"
       />
     </div>

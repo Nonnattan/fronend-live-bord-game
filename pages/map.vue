@@ -34,6 +34,8 @@ const {
   resetJourney,
   initAdventure,
 } = useAdventure();
+// Offline Mode (ใหม่): ห้ามแสดงคะแนน — ใช้ซ่อน Point ในการ์ดสรุป + รายการฐานด้านล่าง
+const { isOfflineMode } = useOfflineMode();
 
 // ส่ง memberId เข้าไปด้วย (ถ้ามี) เพื่อดึงฐานที่ผ่านจริง + คะแนนสะสมจริงจาก
 // Google Sheet (getJourney/getScore) มาทับ LocalStorage — ดู useAdventure.ts
@@ -60,11 +62,13 @@ onMounted(() => {
               {{ visitedCount }} / {{ totalStations }}
             </p>
           </div>
-          <div class="stats-card__divider" />
-          <div class="stats-card__stat">
-            <p class="stats-card__label">Point</p>
-            <p class="stats-card__value">{{ totalPoint }}</p>
-          </div>
+          <template v-if="!isOfflineMode">
+            <div class="stats-card__divider" />
+            <div class="stats-card__stat">
+              <p class="stats-card__label">Point</p>
+              <p class="stats-card__value">{{ totalPoint }}</p>
+            </div>
+          </template>
         </div>
 
         <button type="button" class="reset-btn" @click="resetJourney">
@@ -94,7 +98,7 @@ onMounted(() => {
             isVisited(station.id) ? "✓" : STATION_TYPE_META[station.type].icon
           }}</span>
           <span class="station-row__name">{{ station.name }}</span>
-          <span v-if="station.points" class="station-row__points">
+          <span v-if="station.points && !isOfflineMode" class="station-row__points">
             +{{ station.points }}
           </span>
           <span class="station-row__status">

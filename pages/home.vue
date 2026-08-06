@@ -28,6 +28,8 @@ const {
   isVisited,
   initAdventure,
 } = useAdventure();
+// Offline Mode (ใหม่): ห้ามแสดงคะแนน — ใช้ซ่อน Point ใน Summary Card + MiniMap ด้านล่าง
+const { isOfflineMode } = useOfflineMode();
 
 // ส่ง memberId เข้าไปด้วย (ถ้ามี) เพื่อดึงฐานที่ผ่านจริง + คะแนนสะสมจริงจาก
 // Google Sheet (getJourney/getScore) มาทับ LocalStorage — ดู useAdventure.ts
@@ -77,14 +79,16 @@ function goToMapPage() {
               >
             </p>
           </div>
-          <div class="summary-card__divider" />
-          <div class="summary-card__stat">
-            <p class="summary-card__label">Point</p>
-            <p class="summary-card__value">
-              <span class="summary-card__value-num">{{ totalPoint }}</span>
-              <span class="summary-card__value-unit">Point</span>
-            </p>
-          </div>
+          <template v-if="!isOfflineMode">
+            <div class="summary-card__divider" />
+            <div class="summary-card__stat">
+              <p class="summary-card__label">Point</p>
+              <p class="summary-card__value">
+                <span class="summary-card__value-num">{{ totalPoint }}</span>
+                <span class="summary-card__value-unit">Point</span>
+              </p>
+            </div>
+          </template>
         </div>
 
         <div class="station-grid">
@@ -105,7 +109,7 @@ function goToMapPage() {
               }}</span>
             </span>
             <span class="station-chip__name">{{ station.name }}</span>
-            <span v-if="station.points" class="station-chip__points"
+            <span v-if="station.points && !isOfflineMode" class="station-chip__points"
               >+{{ station.points }}</span
             >
           </div>
@@ -119,6 +123,7 @@ function goToMapPage() {
         :visited-count="visitedCount"
         :total-stations="totalStations"
         :total-point="totalPoint"
+        :hide-point="isOfflineMode"
         @open="goToMapPage"
       />
     </div>

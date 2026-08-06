@@ -10,7 +10,7 @@
  * เหมือนไฟล์ JourneyService.gs/ScoreService.gs เดิม)
  *
  * โครงสร้างชีต "Stations" (สร้างอัตโนมัติเมื่อเรียกใช้งานครั้งแรก ไม่ต้องสร้างมือ):
- * Id | Order | Name | Points | Description | Active | UpdatedAt | ImageUrl
+ * Id | Order | Name | Points | Description | Active | UpdatedAt | ImageUrl | Type | Lat | Lng
  *
  * - Id         : รหัสฐาน สร้างอัตโนมัติตอนสร้างใหม่ (generateStationId_) ไม่เปลี่ยนอีก
  * - Order      : ลำดับการแสดงผลบนแผนที่/หน้าเกม (เรียงน้อย -> มาก)
@@ -20,6 +20,11 @@
  * - UpdatedAt  : วันที่-เวลา Asia/Bangkok ล่าสุดที่มีการแก้ไขแถวนี้ (ดู bangkokNow_() ใน Code.gs)
  * - ImageUrl   : URL รูปภาพประจำฐาน (ไม่บังคับ, ค่าว่างได้) — ต่อท้ายสุดโดยตั้งใจ ไม่แทรกกลาง
  *                เพื่อไม่ให้กระทบตำแหน่งคอลัมน์ของแถวเดิมที่อาจมีอยู่แล้วก่อนเพิ่มฟีเจอร์นี้
+ * - Type       : ประเภทฐานบนแผนที่ (ค่าที่รู้จัก: corn/cow/soil/milk — ใช้จับคู่ไอคอน/สี
+ *                Marker ฝั่งเกม) ไม่บังคับ, ว่างได้ (ฝั่งเกมจะ fallback ไปใช้ค่าตั้งต้นเอง)
+ * - Lat / Lng  : พิกัดภูมิศาสตร์จริงของฐานบนแผนที่ (Leaflet/OpenStreetMap) ไม่บังคับ,
+ *                ว่างได้ (ฝั่งเกมจะ fallback ไปใช้พิกัดตั้งต้นถ้าไม่ได้ตั้งไว้) — เพิ่มมาเพื่อ
+ *                ให้ Admin ปรับตำแหน่งหมุดบนแผนที่ได้จริงโดยไม่ต้องแก้โค้ด frontend
  */
 
 const STATIONS_SHEET_NAME = 'Stations'
@@ -32,6 +37,9 @@ const STATIONS_HEADERS = [
   'Active',
   'UpdatedAt',
   'ImageUrl',
+  'Type',
+  'Lat',
+  'Lng',
 ]
 
 /** คืนค่าชีต "Stations" — สร้างชีตใหม่ + ใส่หัวตารางให้อัตโนมัติถ้ายังไม่มี
@@ -45,8 +53,22 @@ function getStationsSheet_() {
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(STATIONS_HEADERS)
     sheet.setFrozenRows(1)
+  } else {
+    migrateStationsSheetIfNeeded_(sheet)
   }
   return sheet
+}
+
+/** Migration: เผื่อชีต "Stations" ถูกสร้างจากเวอร์ชันก่อนเพิ่มคอลัมน์ Type/Lat/Lng
+ * (มีแค่ 8 คอลัมน์ถึง ImageUrl) — เติมหัวตารางที่ขาดให้ครบโดยอัตโนมัติ ไม่กระทบ
+ * ข้อมูลแถวเดิมที่มีอยู่แล้วเลย (แถวเก่าจะมีค่า Type/Lat/Lng เป็นค่าว่างไปก่อน
+ * จนกว่า Admin จะเข้าไปแก้ไขฐานนั้นแล้วตั้งค่าเอง) */
+function migrateStationsSheetIfNeeded_(sheet) {
+  const currentCols = sheet.getLastColumn()
+  if (currentCols >= STATIONS_HEADERS.length) return
+
+  const missingHeaders = STATIONS_HEADERS.slice(currentCols)
+  sheet.getRange(1, currentCols + 1, 1, missingHeaders.length).setValues([missingHeaders])
 }
 
 function getAllStationRows_(sheet) {
@@ -66,6 +88,10 @@ function rowToStation_(row) {
     updatedAt: row[6],
     // row[7] อาจเป็น undefined สำหรับแถวเก่าก่อนเพิ่มคอลัมน์นี้ — ให้ fallback เป็นค่าว่าง
     imageUrl: row[7] ? String(row[7]) : '',
+    // row[8..10] อาจเป็น undefined สำหรับแถวเก่าก่อนเพิ่ม Type/Lat/Lng — fallback ค่าว่าง/null
+    type: row[8] ? String(row[8]) : '',
+    lat: row[9] === '' || row[9] === undefined || row[9] === null ? null : Number(row[9]),
+    lng: row[10] === '' || row[10] === undefined || row[10] === null ? null : Number(row[10]),
   }
 }
 
@@ -106,6 +132,9 @@ function createStation_(sheet, input, now) {
     input.active !== false,
     now,
     normalize_(input.imageUrl),
+    normalize_(input.type),
+    input.lat === undefined || input.lat === null || input.lat === '' ? '' : Number(input.lat),
+    input.lng === undefined || input.lng === null || input.lng === '' ? '' : Number(input.lng),
   ]
   sheet.appendRow(newRow)
   return rowToStation_(newRow)
@@ -123,6 +152,9 @@ function updateStation_(sheet, rowIndex, input, now) {
     input.active !== undefined ? !!input.active : current[5],
     now,
     input.imageUrl !== undefined ? normalize_(input.imageUrl) : current[7],
+    input.type !== undefined ? normalize_(input.type) : current[8],
+    input.lat !== undefined ? (input.lat === null || input.lat === '' ? '' : Number(input.lat)) : current[9],
+    input.lng !== undefined ? (input.lng === null || input.lng === '' ? '' : Number(input.lng)) : current[10],
   ]
   sheet.getRange(rowIndex, 1, 1, STATIONS_HEADERS.length).setValues([updatedRow])
   return rowToStation_(updatedRow)

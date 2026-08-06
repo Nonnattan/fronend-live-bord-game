@@ -50,8 +50,12 @@ const STATION_CODE_MAP: Record<string, StationType> = {
 /** ฐานสุดท้ายของเส้นทาง — ผ่านฐานนี้แล้วให้ลอง Sync ขึ้น Google Sheet ทันที (ถ้ามีเน็ต) */
 const FINAL_STATION_ID: StationType = 'milk'
 
-const { stations, isVisited, toggleStation, initAdventure } = useAdventure()
+const { stations, isVisited, isComplete, toggleStation, initAdventure } = useAdventure()
 const { isOnline, hasPending, pendingCount, isSyncing, queueCheckin, syncNow, initOfflineSync } = useOfflineSync()
+// Offline Mode (ใหม่): ถ้า Session นี้ถูกล็อกเข้า Offline Mode ไว้แล้ว ห้ามแตะ
+// ระบบ Online/Sync เดิมข้างบนเลยสักฟังก์ชัน (queueCheckin/syncNow) — ใช้ log
+// ของตัวเองแยกต่างหากแทน (ดู composables/useOfflineMode.ts)
+const { isOfflineMode, logStationScan, endRound } = useOfflineMode()
 
 type CheckinFeedbackKind = 'success' | 'duplicate' | 'invalid'
 const checkinFeedback = ref<{ kind: CheckinFeedbackKind; text: string } | null>(null)
@@ -102,6 +106,25 @@ async function processStationCode(raw: string): Promise<void> {
 
   // บันทึกลง LocalStorage ก่อนเสมอ (Offline First) — ไม่ยิง Google Sheet ตรงนี้
   toggleStation(stationId)
+
+  // -------------------------------------------------------------------
+  // Offline Mode (ใหม่): ห้ามแตะระบบ Online/Sync เดิมเลย (queueCheckin/
+  // runSync) — บันทึก stationId/stationName/scanTime/ลำดับฐาน ลง Log ของ
+  // ตัวเองแทน (ข้อ 8) และ "ห้ามแสดงคะแนน" ในข้อความ feedback (ข้อ 9) —
+  // เมื่อผ่านครบทุกฐานแล้ว (isComplete) ให้บันทึก round_datetime.end (ข้อ 10)
+  // -------------------------------------------------------------------
+  if (isOfflineMode.value) {
+    logStationScan(stationId, station.name)
+    checkinFeedback.value = {
+      kind: 'success',
+      text: `ผ่าน${station.name}สำเร็จ (บันทึกในเครื่องแล้ว)`,
+    }
+    if (isComplete.value) {
+      endRound()
+    }
+    return
+  }
+
   queueCheckin(station, stationPoint)
   checkinFeedback.value = {
     kind: 'success',
@@ -309,8 +332,22 @@ onBeforeUnmount(async () => {
         <UButton type="submit" color="primary" size="lg" :disabled="!manualCode.trim()">ยืนยัน</UButton>
       </form>
 
-      <!-- สถานะ Offline Sync: ข้อมูลค้าง Sync กี่ฐาน + ปุ่ม Sync มือ -->
-      <section class="sync-card">
+      <!-- Offline Mode (ใหม่): ล็อกทั้ง Session แล้ว ไม่มีการ Sync ขึ้น Google Sheet
+           เลย จึงไม่แสดงการ์ด Sync เดิม (จะสับสน เพราะเดิมอ้างอิง navigator.onLine
+           สด ๆ ซึ่งอาจกลับมาออนไลน์ได้ระหว่างเล่น แต่แอปยังคงล็อก Offline Mode
+           อยู่) แสดง Badge ง่าย ๆ แทนว่ากำลังอยู่ในโหมดออฟไลน์ -->
+      <section v-if="isOfflineMode" class="sync-card">
+        <div class="sync-card__row">
+          <UIcon name="i-lucide-wifi-off" class="sync-card__icon sync-card__icon--offline" />
+          <div class="sync-card__text">
+            <p class="sync-card__title">โหมดออฟไลน์</p>
+            <p class="sync-card__desc">ข้อมูลบันทึกในเครื่องเท่านั้น ไม่มีการเชื่อมต่ออินเทอร์เน็ต</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- สถานะ Offline Sync (ระบบเดิม): ข้อมูลค้าง Sync กี่ฐาน + ปุ่ม Sync มือ -->
+      <section v-else class="sync-card">
         <div class="sync-card__row">
           <UIcon
             :name="isOnline ? 'i-lucide-wifi' : 'i-lucide-wifi-off'"

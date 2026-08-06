@@ -21,6 +21,8 @@ defineProps<{
   visitedCount: number
   totalStations: number
   totalPoint: number
+  /** Offline Mode (ใหม่): ห้ามแสดงคะแนน — ซ่อน Chip "Point" เมื่อ true (default false, ไม่กระทบ Flow เดิม) */
+  hidePoint?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -59,7 +61,7 @@ const emit = defineEmits<{
           <UIcon name="i-lucide-flag" class="mini-map__stat-icon" />
           เข้าฐานแล้ว {{ visitedCount }} / {{ totalStations }}
         </span>
-        <span class="mini-map__stat">
+        <span v-if="!hidePoint" class="mini-map__stat">
           <UIcon name="i-lucide-coins" class="mini-map__stat-icon" />
           Point {{ totalPoint }}
         </span>
