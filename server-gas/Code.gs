@@ -34,6 +34,11 @@
  * ที่เป็น UTC "2026-07-31T07:24:27.667Z") ดู bangkokNow_()
  *
  * Actions ที่รองรับ (ส่งมาใน body เป็น JSON, key "action"):
+ *   - ping         : Diagnostics ล้วน ๆ (ไม่มีการเขียนข้อมูล) — ตอบกลับว่า deployment
+ *                    นี้ผูกกับสเปรดชีต/ชีต Members ไหน, header ตรงกับที่โค้ดคาดหวังไหม,
+ *                    deploy โค้ดเวอร์ชันไหนอยู่ — เรียกผ่าน URL ตรง ๆ ได้เลย เช่น
+ *                    {WebAppURL}?action=ping — ใช้ตรวจก่อนว่า deployment ที่กำลังใช้
+ *                    งานอยู่จริงชี้ไปสเปรดชีตที่ถูกต้องหรือเปล่า ก่อนไล่ debug จุดอื่น
  *   - checkMember  : ค้นหาสมาชิกจาก lineUserId หรือ phone (ไม่มีการเขียนข้อมูล)
  *   - register     : สร้างสมาชิกใหม่ (ถ้ามีอยู่แล้ว — เบอร์โทรหรือ lineUserId ตรงกับ
  *                    แถวเดิม — จะไม่สร้างซ้ำ จะอัปเดต Last Login + Total Visit แทน)
@@ -59,6 +64,21 @@
  * preflight — ฝั่งนี้ยังคง JSON.parse(e.postData.contents) ได้ตามปกติ ไม่สนใจ
  * ว่า header ประกาศเป็น content-type อะไร
  *
+ * ---------------------------------------------------------------------------
+ * Audit เพิ่มเติม (loginByLine หาสมาชิกเดิมไม่เจอ): ตรวจ Logic การจับคู่ lineUserId
+ * ทั้งหมดแล้ว (findRowIndexByLineUserId_, actionLoginByLine_, การ Mapping คอลัมน์
+ * ตาม HEADERS) พบว่า Logic ถูกต้องตามสเปกทุกจุด — ไม่พบบั๊กใน Logic การเปรียบเทียบเอง
+ * แต่เพิ่มการป้องกัน/มองเห็นปัญหา 3 อย่างที่เป็นสาเหตุที่พบบ่อยที่สุดของอาการนี้ใน
+ * โปรเจกต์ลักษณะนี้ (ดูรายละเอียดที่ฟังก์ชันนั้น ๆ):
+ *   1) normalize_() ตอนนี้ตัดอักขระที่มองไม่เห็น (zero-width space/BOM) ออกด้วย ไม่ใช่
+ *      แค่ .trim() เฉย ๆ — กันกรณี LINE User ID ที่พิมพ์/วางมือลงชีตมีอักขระแฝงติดมา
+ *   2) getSheet_()/findRowIndexByLineUserId_()/actionLoginByLine_() log รายละเอียด
+ *      ทุก request ไว้ใน Executions log (lineUserId ที่รับมา, เจอหรือไม่, แถวไหน,
+ *      สเปรดชีต/ชีตที่ผูกอยู่จริง) — เปิด Apps Script Editor > Executions ดูได้ทันที
+ *   3) เพิ่ม action 'ping' (diagnostics ล้วน ๆ ไม่เขียนข้อมูล) ให้เช็คได้ทันทีว่า
+ *      deployment ที่กำลังใช้งานอยู่จริงผูกกับสเปรดชีต/ชีต Members อันไหน, header ตรง
+ *      กับที่โค้ดคาดหวังไหม (เผื่อ deployment ผูกผิดสเปรดชีต ซึ่งเป็นสาเหตุคลาสสิกที่สุด
+ *      ของอาการ "มีสมาชิกอยู่จริงแต่ระบบหาไม่เจอเลยสักครั้ง")
  * ---------------------------------------------------------------------------
  * ส่วนต่อขยาย: ระบบ Journey (ประวัติการเข้าฐาน) + Score (คะแนนสะสม)
  * ---------------------------------------------------------------------------
@@ -114,10 +134,57 @@ const MIGRATION_DEFAULTS_ = {
 function getSheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(SHEET_NAME);
+  const existedBefore = !!sheet;
+  if (!sheet) {
+    // ไม่พบชีตชื่อ "Members" ในสเปรดชีตที่ Web App นี้ผูกอยู่ -> สร้างชีตเปล่าใหม่ให้
+    // อัตโนมัติ (พฤติกรรมเดิม) แต่ "นี่คือสัญญาณอันตราย" ถ้าเกิดขึ้นทั้งที่ผู้ใช้ยืนยันว่า
+    // มีข้อมูลสมาชิกอยู่แล้วจริง — แปลว่า Web App Deployment นี้ผูก (bound) อยู่กับคนละ
+    // Spreadsheet กับที่ผู้ใช้เปิดดูอยู่ (เช่น Deploy จาก Apps Script ที่แนบอยู่กับ
+    // สเปรดชีตคนละไฟล์ หรือชื่อแท็บสะกดต่างกัน เช่น "Members " มีช่องว่างท้าย, "member"
+    // ตัวเล็ก, "สมาชิก") ทำให้ทุก login/loginByLine หาสมาชิกเดิมไม่เจอเสมอ (สร้างชีต
+    // ใหม่ว่าง ๆ ซ้ำไปเรื่อย ๆ ทุกครั้งที่ deploy ใหม่ที่ไหนก็ตาม) -> log ไว้ให้เห็นชัดเจน
+    // ใน Executions log (Apps Script Editor > Executions) เพื่อ debug ได้ทันที
+    console.error(
+      '[getSheet_] ไม่พบชีตชื่อ "' +
+      SHEET_NAME +
+      '" ในสเปรดชีตนี้ -> กำลังสร้างชีตใหม่ว่าง ๆ. ' +
+      "ถ้าคุณคิดว่ามีสมาชิกอยู่แล้ว ให้ตรวจสอบว่า Web App deployment นี้ผูกอยู่กับ " +
+      "สเปรดชีต (Spreadsheet ID: " +
+      ss.getId() +
+      ', ชื่อไฟล์: "' +
+      ss.getName() +
+      '") ' +
+      'ตรงกับไฟล์ที่คุณเปิดดูข้อมูลสมาชิกอยู่จริงหรือไม่ และชื่อแท็บสะกดว่า "' +
+      SHEET_NAME +
+      '" ' +
+      "เป๊ะ ๆ หรือไม่ (ตัวพิมพ์เล็ก-ใหญ่ และช่องว่างมีผล)",
+    );
+  } else {
+    console.log(
+      '[getSheet_] พบชีต "' +
+      SHEET_NAME +
+      '" แล้ว (Spreadsheet ID: ' +
+      ss.getId() +
+      ', ชื่อไฟล์: "' +
+      ss.getName() +
+      '", แถวข้อมูลปัจจุบัน: ' +
+      Math.max(sheet.getLastRow() - 1, 0) +
+      ")",
+    );
+  }
   if (!sheet) {
     sheet = ss.insertSheet(SHEET_NAME);
   }
   if (sheet.getLastRow() === 0) {
+    if (existedBefore) {
+      // พบชีต "Members" แล้วแต่ไม่มีข้อมูลเลยแม้แต่หัวตาราง (แถวว่างสนิท) — log ไว้เผื่อ
+      // เป็นชีตผิดที่ถูก insert ไว้เฉย ๆ ไม่ใช่ชีตสมาชิกจริง
+      console.warn(
+        '[getSheet_] ชีต "' +
+        SHEET_NAME +
+        '" มีอยู่แล้วแต่ไม่มีข้อมูลเลย (แถวว่างสนิท) -> กำลังใส่หัวตาราง',
+      );
+    }
     sheet.appendRow(HEADERS);
     sheet.setFrozenRows(1);
   } else {
@@ -169,8 +236,17 @@ function bangkokNow_() {
   );
 }
 
+/** ตัดอักขระที่มองไม่เห็น (zero-width space/joiner, BOM ฯลฯ) ออก — อักขระเหล่านี้
+ * ไม่ถูกตัดด้วย .trim() ธรรมดา แต่หลุดติดเข้ามาได้ง่ายเวลาพิมพ์/วางค่า (เช่น LINE
+ * User ID หรือเบอร์โทร) ลงในเซลล์ Google Sheet ด้วยมือ หรือ copy มาจากที่อื่น ทำให้
+ * ค่าที่ "ดูเหมือนตรงกันเป๊ะบนหน้าจอ" กลับเทียบไม่ตรงกัน (=== ไม่ผ่าน) และหาแถวเดิมไม่เจอ */
+function stripInvisibleChars_(str) {
+  return str.replace(/[\u200B-\u200D\uFEFF\u00A0]/g, "");
+}
+
 function normalize_(value) {
-  return value === undefined || value === null ? "" : value.toString().trim();
+  if (value === undefined || value === null) return "";
+  return stripInvisibleChars_(value.toString().trim()).trim();
 }
 
 /** Normalize ค่า Birth Year (ช่วงปีเกิด) ที่รับมาจาก payload — เก็บเป็นข้อความตรง ๆ
@@ -219,8 +295,26 @@ function findRowIndexByLineUserId_(sheet, lineUserId) {
   if (!id) return -1;
   const rows = getAllDataRows_(sheet);
   for (let i = 0; i < rows.length; i++) {
-    if (normalize_(rows[i][4]) === id) return i + 2;
+    if (normalize_(rows[i][4]) === id) {
+      console.log(
+        '[findRowIndexByLineUserId_] รับ lineUserId="' +
+        id +
+        '" -> พบที่แถว ' +
+        (i + 2) +
+        " (สแกนทั้งหมด " +
+        rows.length +
+        " แถว)",
+      );
+      return i + 2;
+    }
   }
+  console.log(
+    '[findRowIndexByLineUserId_] รับ lineUserId="' +
+    id +
+    '" -> ไม่พบ (สแกนทั้งหมด ' +
+    rows.length +
+    " แถว)",
+  );
   return -1;
 }
 
@@ -334,8 +428,8 @@ function updateMemberRow_(sheet, rowIndex, payload, now, bumpVisit) {
     : Number(current[10]) || 0;
   const birthYear =
     payload.birthYear !== undefined &&
-    payload.birthYear !== null &&
-    payload.birthYear !== ""
+      payload.birthYear !== null &&
+      payload.birthYear !== ""
       ? normalizeBirthYear_(payload.birthYear)
       : current[11];
   const gender = payload.gender ? normalize_(payload.gender) : current[12];
@@ -416,7 +510,12 @@ function actionLogin_(payload) {
  *     ก่อน แล้วค่อยเรียก action 'register' ตามปกติ
  */
 function actionLoginByLine_(payload) {
-  const lineUserId = normalize_(payload && payload.lineUserId);
+  const rawLineUserId = payload && payload.lineUserId;
+  const lineUserId = normalize_(rawLineUserId);
+  console.log(
+    "[actionLoginByLine_] เริ่มทำงาน — payload.lineUserId ที่ได้รับ (ดิบ): " +
+    JSON.stringify(rawLineUserId),
+  );
   if (!lineUserId) {
     return { success: false, error: "lineUserId จำเป็นต้องส่งมา" };
   }
@@ -424,7 +523,17 @@ function actionLoginByLine_(payload) {
   const sheet = getSheet_();
   const rowIndex = findRowIndexByLineUserId_(sheet, lineUserId);
   if (rowIndex === -1) {
-    return { success: true, found: false };
+    console.log(
+      '[actionLoginByLine_] lineUserId="' +
+      lineUserId +
+      '" -> found:false, ตอบกลับให้ frontend พาไปหน้าสมัครสมาชิก',
+    );
+    return {
+      success: true,
+      found: false,
+      // ฟิลด์เสริมไว้ debug เท่านั้น (ไม่กระทบ frontend เดิม ซึ่งอ่านแค่ success/found)
+      _debug: { receivedLineUserId: lineUserId, matchedRow: null },
+    };
   }
 
   const now = bangkokNow_();
@@ -435,7 +544,21 @@ function actionLoginByLine_(payload) {
     now,
     true,
   );
-  return { success: true, found: true, member: member };
+  console.log(
+    '[actionLoginByLine_] lineUserId="' +
+    lineUserId +
+    '" -> found:true ที่แถว ' +
+    rowIndex +
+    " (memberId=" +
+    member.memberId +
+    ") ตอบกลับ found:true พร้อมข้อมูลสมาชิก",
+  );
+  return {
+    success: true,
+    found: true,
+    member: member,
+    _debug: { receivedLineUserId: lineUserId, matchedRow: rowIndex },
+  };
 }
 
 function actionGetMember_(payload) {
@@ -494,6 +617,45 @@ function actionUpdateMember_(payload) {
   return { success: true, member: rowToMember_(merged) };
 }
 
+/**
+ * action 'ping' — Diagnostics เท่านั้น (ไม่มีการเขียนข้อมูลใด ๆ ทั้งสิ้น) ไว้ตรวจสอบตรง ๆ
+ * ว่า Web App deployment ที่กำลังเรียกอยู่นี้ผูกกับ (bound to) สเปรดชีตไหน มีชีต
+ * "Members" ที่ header/จำนวนแถวตรงกับที่เห็นในหน้า Google Sheet จริงหรือไม่ — เรียกดูได้
+ * ตรง ๆ ผ่าน URL Web App เช่น:
+ *   https://script.google.com/macros/s/XXX/exec?action=ping
+ * ใช้แก้ปัญหา 2 เรื่องที่พบบ่อยที่สุดของบั๊ก "หาสมาชิกเดิมไม่เจอ":
+ *   1) deploy ผิด/ไม่ได้ deploy เวอร์ชันล่าสุด (ดู deployedCodeVersion ด้านล่าง)
+ *   2) Web App ผูกอยู่กับคนละสเปรดชีตกับที่ผู้ใช้เปิดดูข้อมูลสมาชิกอยู่จริง
+ *      (ดู spreadsheetId/spreadsheetName เทียบกับ URL ของ Google Sheet ที่เปิดอยู่)
+ */
+const DEPLOYED_CODE_VERSION_ = "2026-08-07-loginByLine-audit-1";
+
+function actionPing_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  const info = {
+    deployedCodeVersion: DEPLOYED_CODE_VERSION_,
+    spreadsheetId: ss.getId(),
+    spreadsheetName: ss.getName(),
+    spreadsheetUrl: ss.getUrl(),
+    membersSheetFound: !!sheet,
+  };
+  if (sheet) {
+    info.membersSheetName = sheet.getName();
+    info.membersLastRow = sheet.getLastRow();
+    info.membersLastColumn = sheet.getLastColumn();
+    info.membersRowCount = Math.max(sheet.getLastRow() - 1, 0);
+    info.headerRow =
+      sheet.getLastRow() >= 1
+        ? sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]
+        : [];
+    info.expectedHeaders = HEADERS;
+    info.headersMatchExpected =
+      JSON.stringify(info.headerRow) === JSON.stringify(HEADERS);
+  }
+  return { success: true, ping: info };
+}
+
 /* ------------------------------ Entry points ------------------------------ */
 
 function handleRequest_(payload) {
@@ -501,6 +663,8 @@ function handleRequest_(payload) {
 
   try {
     switch (action) {
+      case "ping":
+        return jsonOutput_(actionPing_());
       case "checkMember":
         return jsonOutput_(actionCheckMember_(payload));
       case "register":
@@ -541,7 +705,7 @@ function handleRequest_(payload) {
         return jsonOutput_(actionDeleteSideQuest_(payload));
       default:
         return errorResponse_(
-          "action ไม่ถูกต้องหรือไม่ได้ระบุ ต้องเป็นหนึ่งใน: checkMember, register, login, loginByLine, updateMember, getMember, checkin, getJourney, getScore, getLeaderboard, listStations, createStation, updateStation, deleteStation, listSideQuests, createSideQuest, updateSideQuest, deleteSideQuest",
+          "action ไม่ถูกต้องหรือไม่ได้ระบุ ต้องเป็นหนึ่งใน: ping, checkMember, register, login, loginByLine, updateMember, getMember, checkin, getJourney, getScore, getLeaderboard, listStations, createStation, updateStation, deleteStation, listSideQuests, createSideQuest, updateSideQuest, deleteSideQuest",
         );
     }
   } catch (err) {

@@ -63,8 +63,11 @@ function hasMissingFields(member: MemberRecord): boolean {
 async function resolveLineMember(): Promise<void> {
   if (authData.value?.loginType !== 'line' || hasProfile.value) return
 
+  const lineUserId = authData.value.uid
+  console.log('[resolveLineMember] เรียก loginByLine ด้วย lineUserId:', lineUserId)
+
   try {
-    const result = await loginByLine(authData.value.uid)
+    const result = await loginByLine(lineUserId)
     if (result.success && result.found && result.member) {
       if (hasMissingFields(result.member)) {
         pendingMember.value = result.member
@@ -72,10 +75,22 @@ async function resolveLineMember(): Promise<void> {
       }
       loginFromMember(result.member, authData.value)
       await navigateTo('/home')
+      return
     }
-  } catch {
-    // เช็คไม่สำเร็จ (เช่น เน็ตหลุด/ยังไม่ได้ตั้งค่า API_BASE_URL) -> ปล่อยผ่านไป
-    // หน้ากรอกฟอร์มตามปกติ ไม่ block ผู้ใช้ไม่ให้สมัครสมาชิกต่อได้
+    if (!result.success) {
+      // เรียก Code.gs สำเร็จ แต่ backend ตอบ error กลับมา (ไม่ใช่ "ไม่พบสมาชิก" ปกติ)
+      // -> log ทั้ง object ทั้งก้อนไว้เสมอ (ไม่ใช่แค่ result.error) เผื่อ backend ตอบ
+      // มาแบบไม่มี field error เลย (เช่น deploy เป็นโค้ดเวอร์ชันเก่า) จะได้เห็นว่าจริง ๆ
+      // แล้ว response ทั้งก้อนหน้าตาเป็นอย่างไร ไม่ใช่แค่ "undefined" ที่ debug ไม่ออก
+      console.error('[resolveLineMember] loginByLine ตอบ error:', result.error, '| response ทั้งก้อน:', result)
+    }
+    // result.success === true && result.found === false -> ไม่พบสมาชิกจริง ๆ (ปกติ)
+  } catch (err) {
+    // เรียกไม่สำเร็จจริง ๆ (เน็ตหลุด/CORS/deploy URL ผิด/ยังไม่ได้ตั้งค่า API_BASE_URL/
+    // response ผิดรูปแบบที่ callApi() ดักไว้แล้ว ฯลฯ) -> log ไว้ให้เห็นสาเหตุจริงเสมอ
+    // แล้วค่อยปล่อยผ่านไปหน้ากรอกฟอร์มตามปกติ ไม่ block ผู้ใช้ไม่ให้สมัครสมาชิกต่อได้
+    // (พฤติกรรม UI เดิมไม่เปลี่ยน แค่เพิ่มการมองเห็น error)
+    console.error('[resolveLineMember] loginByLine เรียกไม่สำเร็จ:', err)
   }
 }
 

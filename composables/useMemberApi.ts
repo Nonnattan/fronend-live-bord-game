@@ -207,21 +207,68 @@ export function useMemberApi() {
   const config = useRuntimeConfig()
 
   async function callApi<T>(action: string, payload: Record<string, unknown>): Promise<T> {
-    if (isBrowserOffline()) {
-      throw new Error('ไม่มีอินเทอร์เน็ต — ใช้ข้อมูลในเครื่องเท่านั้น')
-    }
-
+    // หมายเหตุ (แก้บั๊ก Online พัง): เดิมเช็ค isBrowserOffline() (navigator.onLine) ที่นี่ก่อน
+    // ยิง request ทุกครั้ง — navigator.onLine ไม่น่าเชื่อถือพอที่จะเอามาตัดสินใจไม่ยิง API
+    // เลย (รายงานผิดพลาดได้บ่อย โดยเฉพาะใน LINE in-app browser) ทำให้ loginByLine()/
+    // resolveLineMember() ล้มเหลวเงียบ ๆ ทั้งที่จริงมีเน็ต ผู้ใช้ที่มี Account อยู่แล้วจึง
+    // ตรวจสอบ lineUserId ไม่ได้และถูกพาไปหน้าสมัครสมาชิกใหม่ผิด ๆ — ตัด logic Offline
+    // ออกจากชั้น API นี้ทั้งหมด (แยก Online/Offline logic ตามสเปก) ให้ $fetch เป็นผู้ตัดสิน
+    // เองตามธรรมชาติว่ายิงสำเร็จหรือไม่ ผู้เรียกทุกจุดมี try/catch ดักไว้อยู่แล้ว
     const apiUrl = config.public.apiBaseUrl
     if (!apiUrl) {
       throw new Error('ยังไม่ได้ตั้งค่า API_BASE_URL (Google Apps Script Web App URL) ใน .env')
     }
 
-    return await $fetch<T>(apiUrl, {
+    // หมายเหตุ (แก้บั๊ก "ตอบ error: undefined"): เดิมใช้ $fetch<T>() ตรง ๆ แล้วเชื่อว่า
+    // response จะเป็น JSON ตามรูปแบบที่ Code.gs ส่งกลับเสมอ — แต่ Google Apps Script
+    // Web App จะไม่ตอบ JSON ในบางกรณี เช่น deployment ตั้ง "Who has access" ไม่ใช่
+    // "Anyone" (ต้อง login Google ก่อน), หรือใช้ URL /dev แทน /exec — กรณีนี้ Google
+    // จะตอบกลับเป็นหน้า HTML (login/authorization page) แทน ทำให้ $fetch parse ออกมา
+    // เป็น string เปล่า ๆ แล้วโค้ดฝั่งเรียก (เช่น resolveLineMember) อ่าน .success/.error
+    // จาก string นั้นได้ค่า undefined ทั้งคู่ -> ขึ้น log "ตอบ error: undefined" ที่ debug ไม่ออก
+    // ว่าจริง ๆ แล้วปัญหาคืออะไร — เปลี่ยนมาดึงเป็น text ก่อนเสมอ แล้ว JSON.parse เอง
+    // เพื่อดักกรณีนี้แล้วโยน Error ข้อความชัดเจนแทน
+    const raw = await $fetch<string>(apiUrl, {
       method: 'POST',
       // ดูหมายเหตุ CORS ด้านบน — ห้ามเปลี่ยนเป็น application/json
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action, ...payload }),
+      responseType: 'text',
     })
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      const preview = raw.slice(0, 200).replace(/\s+/g, ' ').trim()
+      throw new Error(
+        `Google Apps Script ไม่ได้ตอบกลับเป็น JSON (action: ${action}) — มักเกิดจาก Deployment ` +
+        `ตั้ง "Who has access" ไม่ใช่ "Anyone" หรือยังไม่ได้ Deploy เวอร์ชันล่าสุด หรือ API_BASE_URL ` +
+        `ผิด/เป็น URL /dev แทน /exec ดู server-gas/README.md หัวข้อ Deploy ` +
+        `— ตัวอย่าง response ที่ได้กลับมา: "${preview}${raw.length > 200 ? '...' : ''}"`,
+      )
+    }
+
+    // หมายเหตุ (แก้บั๊ก "ตอบ error: undefined"): เดิม JSON.parse ผ่านแล้วก็ cast เป็น T ทันที
+    // โดยไม่เช็คว่าโครงสร้างจริง ๆ ตรงตามที่คาดหวังไหม (ต้องมี key "success" เป็น boolean
+    // เสมอ ตามสเปก Code.gs) — ถ้า parsed ออกมาเป็น JSON ที่ valid แต่หน้าตาไม่ตรงเลย
+    // (เช่น Google ตอบ error page ของตัวเองในรูป {"error":{"code":500,...}} ตอน quota/
+    // permission มีปัญหา, หรือ handler ฝั่ง Code.gs มีบั๊กแล้ว return ผิดรูปแบบ) โค้ดเดิม
+    // จะปล่อยให้ผ่านไปเงียบ ๆ แล้วปลายทาง (resolveLineMember) อ่าน .success/.error จาก
+    // object ที่หน้าตาไม่ตรงสเปกได้ค่า undefined ทั้งคู่ -> ขึ้น log "ตอบ error: undefined"
+    // ที่ debug ไม่ออกว่าจริง ๆ แล้วได้อะไรกลับมา — เช็คโครงสร้างที่นี่แทน แล้วโยน Error
+    // ที่มีข้อความ + เนื้อหา response จริงแนบมาด้วยเสมอ ไม่ปล่อยผ่านให้ปลายทางเจอ undefined เงียบ ๆ
+    if (typeof parsed !== 'object' || parsed === null || !('success' in parsed)) {
+      const preview = raw.slice(0, 300).replace(/\s+/g, ' ').trim()
+      throw new Error(
+        `Google Apps Script ตอบกลับเป็น JSON แต่ไม่ตรงรูปแบบที่คาดไว้ (action: ${action}) ` +
+        `— ควรมี key "success" เสมอ แต่ไม่มี มักเกิดจาก Apps Script deployment เป็นเวอร์ชันเก่า ` +
+        `(ยังไม่ได้ deploy โค้ดล่าสุด) หรือ Google ตอบ error ของตัวเอง (quota/permission) แทน ` +
+        `— response จริงที่ได้: "${preview}${raw.length > 300 ? '...' : ''}"`,
+      )
+    }
+
+    return parsed as T
   }
 
   function checkMember(values: IdentityValues): Promise<CheckMemberResponse> {
