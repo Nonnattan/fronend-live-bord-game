@@ -228,6 +228,11 @@ export function useMemberApi() {
     // จาก string นั้นได้ค่า undefined ทั้งคู่ -> ขึ้น log "ตอบ error: undefined" ที่ debug ไม่ออก
     // ว่าจริง ๆ แล้วปัญหาคืออะไร — เปลี่ยนมาดึงเป็น text ก่อนเสมอ แล้ว JSON.parse เอง
     // เพื่อดักกรณีนี้แล้วโยน Error ข้อความชัดเจนแทน
+    // [API DEBUG] log URL สุดท้ายที่กำลังจะถูกส่งเข้า $fetch จริง ๆ (ไม่ใช่แค่ค่าที่อ่านจาก .env ตอน build) เพื่อพิสูจน์ว่า production
+    // runtime กำลังใช้ apiBaseUrl ตัวไหนอยู่จริง — ถ้า URL ที่ log ออกมาไม่ตรงกับ deployment ที่ ?action=ping
+    // ทดสอบผ่าน แปลว่า runtimeConfig.public.apiBaseUrl ที่ build/deploy ไว้เป็นค่าเก่า
+    console.log('[API DEBUG] ' + action + ' URL =', apiUrl)
+
     const raw = await $fetch<string>(apiUrl, {
       method: 'POST',
       // ดูหมายเหตุ CORS ด้านบน — ห้ามเปลี่ยนเป็น application/json
@@ -258,6 +263,25 @@ export function useMemberApi() {
     // object ที่หน้าตาไม่ตรงสเปกได้ค่า undefined ทั้งคู่ -> ขึ้น log "ตอบ error: undefined"
     // ที่ debug ไม่ออกว่าจริง ๆ แล้วได้อะไรกลับมา — เช็คโครงสร้างที่นี่แทน แล้วโยน Error
     // ที่มีข้อความ + เนื้อหา response จริงแนบมาด้วยเสมอ ไม่ปล่อยผ่านให้ปลายทางเจอ undefined เงียบ ๆ
+    // [Audit] เคสเฉพาะที่พบจริง: deployment เก่าที่ยังไม่ได้อัปเดตโค้ด (ก่อนแก้ Code.gs)
+    // ตอบกลับเป็น { "status": "error", "message": "..." } แทน { "success": ... } —
+    // ตรวจแยกเคสนี้ก่อนเพื่อให้ error message ชี้สาเหตุตรงจุดทันที (deployment ไม่ใช่โค้ด)
+    // แทนข้อความรวม ๆ ด้านล่างที่ต้องเดาเอง
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'status' in parsed &&
+      !('success' in parsed)
+    ) {
+      const legacyMessage = (parsed as { message?: unknown }).message
+      throw new Error(
+        `Google Apps Script ตอบกลับด้วยรูปแบบเก่า { status: "..." } แทน { success: ... } ` +
+        `(action: ${action}) — แปลว่า Deployment ที่ API_BASE_URL ชี้ไปอยู่ ยังเป็นโค้ดเวอร์ชัน ` +
+        `เก่ากว่าที่แก้ไว้ใน server-gas/Code.gs (ยังไม่ได้ Deploy > Manage deployments > New version) ` +
+        `ไม่ใช่บั๊กจากฝั่ง frontend — ข้อความจาก server เดิม: "${String(legacyMessage ?? '')}"`,
+      )
+    }
+
     if (typeof parsed !== 'object' || parsed === null || !('success' in parsed)) {
       const preview = raw.slice(0, 300).replace(/\s+/g, ' ').trim()
       throw new Error(

@@ -25,8 +25,17 @@ const SCORE_HEADERS = [
 /** คืนค่าชีต "Score" — สร้างชีตใหม่ + ใส่หัวตารางให้อัตโนมัติถ้ายังไม่มี
  * (ไม่แตะต้องชีต "Members" หรือชีตอื่นใดในสเปรดชีตเดียวกันเลย) */
 function getScoreSheet_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet()
+  // [Audit] เช็คค่าคงที่ชื่อชีตไม่เป็น undefined/null/ว่าง ก่อนใช้งาน
+  requireSheetName_(SCORE_SHEET_NAME, 'SCORE_SHEET_NAME')
+  // ⚠️ FIX: openById(SPREADSHEET_ID) แทน getActiveSpreadsheet() — เหมือนที่แก้ไว้ใน
+  // Code.gs::getSheet_() (SPREADSHEET_ID เป็น global const ที่ประกาศใน Code.gs เดียวกัน
+  // ในโปรเจกต์ Apps Script)
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID)
   let sheet = ss.getSheetByName(SCORE_SHEET_NAME)
+  Logger.log(
+    '[getScoreSheet_] Spreadsheet ID=%s, Sheet Name=%s, Sheet Object=%s',
+    ss.getId(), SCORE_SHEET_NAME, sheet ? 'found' : 'null (not found yet)',
+  )
   if (!sheet) {
     sheet = ss.insertSheet(SCORE_SHEET_NAME)
   }
@@ -34,10 +43,14 @@ function getScoreSheet_() {
     sheet.appendRow(SCORE_HEADERS)
     sheet.setFrozenRows(1)
   }
-  return sheet
+  return assertSheetReady_(sheet, SCORE_SHEET_NAME, ss)
 }
 
 function getAllScoreRows_(sheet) {
+  // [Audit] เช็ค !sheet ก่อนเรียก .getLastRow()/.getRange() ทุกครั้ง
+  if (!sheet) {
+    throw new Error('getAllScoreRows_ ถูกเรียกด้วย sheet เป็น null/undefined — ผู้เรียกต้องได้ sheet มาจาก getScoreSheet_() เท่านั้น')
+  }
   const lastRow = sheet.getLastRow()
   if (lastRow < 2) return []
   return sheet.getRange(2, 1, lastRow - 1, SCORE_HEADERS.length).getValues()
