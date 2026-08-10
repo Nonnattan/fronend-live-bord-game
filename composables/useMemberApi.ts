@@ -85,9 +85,12 @@ interface LoginByLineResponse {
   error?: string
 }
 
-/** 1 แถวประวัติการเข้าฐาน (ชีต "Journey" ฝั่ง server-gas) */
+/** 1 แถวประวัติการเข้าฐาน (ชีต "Journey" ฝั่ง server-gas)
+ * roundId: รอบการเล่นที่บันทึกแถวนี้ (ดู server-gas/RoundService.gs + CheckinService.gs)
+ * ใช้กันข้อมูลซ้ำฝั่ง backend เท่านั้น ไม่ได้ใช้แสดงผลในหน้า History ปัจจุบัน */
 export interface JourneyEntry {
   timestamp: string
+  roundId?: string
   userId: string
   displayName: string
   stationId: string
@@ -127,6 +130,45 @@ interface GetScoreResponse {
   error?: string
 }
 
+/** 1 รอบการเล่น (ชีต "Round" ฝั่ง server-gas — ดู server-gas/RoundService.gs)
+ * status: 'Started' (เริ่มรอบแล้ว ยังไม่จบ) / 'Ended' (จบรอบแล้ว) */
+export interface RoundEntry {
+  roundId: string
+  userId: string
+  displayName: string
+  startTime: string
+  endTime: string | null
+  status: string
+}
+
+/** Payload ที่ส่งไปกับ action 'roundStart' — roundId สร้างฝั่ง client (UUID) ครั้งเดียว
+ * ต่อ 1 รอบ แล้วใช้ซ้ำตลอดทั้งรอบ (ดู composables/useRound.ts) */
+export interface RoundStartPayload {
+  roundId: string
+  userId: string
+  displayName?: string
+}
+
+interface RoundStartResponse {
+  success: boolean
+  alreadyStarted?: boolean
+  round?: RoundEntry
+  error?: string
+}
+
+interface RoundEndResponse {
+  success: boolean
+  alreadyEnded?: boolean
+  round?: RoundEntry
+  error?: string
+}
+
+interface GetRoundResponse {
+  success: boolean
+  round?: RoundEntry | null
+  error?: string
+}
+
 /** 1 ฐานของเกม (ชีต "Stations" ฝั่ง server-gas) — จัดการรายชื่อ/คะแนน/เปิดปิดฐาน
  * ได้จากหน้า Admin โดยไม่ต้องแก้โค้ด/deploy frontend ใหม่ (ดู server-gas/StationsService.gs)
  * หมายเหตุ: ยังไม่มีพิกัด lat/lng หรือ "ประเภทฐาน" (ไอคอน/สี) ในชีตนี้ — ตำแหน่ง/
@@ -148,6 +190,19 @@ export interface StationRecord {
    * โดยไม่ต้องแก้โค้ด frontend เลย null = Admin ยังไม่ได้กำหนด (ใช้พิกัดตั้งต้นแทน) */
   lat: number | null
   lng: number | null
+  /** รหัส QR เฉพาะของฐานนี้ (สร้าง/คงค่าโดยฝั่ง server-gas เท่านั้น — ดู
+   * StationsService.gs) ใช้ตรวจสอบตอนสแกน QR ผ่าน action 'verifyStationQr'
+   * ไม่บังคับต้องมีในทุก response (เช่น listStations เก่าก่อนเพิ่มคอลัมน์นี้) */
+  qrToken?: string
+}
+
+/** ผลลัพธ์ของ action 'verifyStationQr' — ตรวจสอบว่า qrToken ที่สแกนได้จากกล้อง
+ * ตรงกับฐานไหนในระบบจริงหรือไม่ (ดู server-gas/StationsService.gs ->
+ * actionVerifyStationQr_) ไม่มีการเขียนข้อมูลใด ๆ ทั้งสิ้น */
+export interface VerifyStationQrResponse {
+  success: boolean
+  station?: StationRecord
+  error?: string
 }
 
 /** 1 เควสเสริม (ชีต "SideQuests" ฝั่ง server-gas) — คะแนนพิเศษที่ไม่ผูกกับฐานใดฐานหนึ่ง */
@@ -362,11 +417,37 @@ export function useMemberApi() {
     return callApi<GetScoreResponse>('getScore', { userId })
   }
 
+  /** action 'roundStart' — บันทึก "Round Start" ของ 1 รอบการเล่น (ดู server-gas/RoundService.gs)
+   * roundId ซ้ำกับรอบที่เคย Sync สำเร็จมาแล้ว -> backend คืน alreadyStarted:true เฉย ๆ
+   * ไม่เขียนซ้ำ (idempotent) ใช้คู่กับ composables/useRound.ts ที่คุมไม่ให้เรียกซ้ำจาก
+   * refresh/re-render ฝั่ง client อีกชั้นหนึ่ง */
+  function roundStart(payload: RoundStartPayload): Promise<RoundStartResponse> {
+    return callApi<RoundStartResponse>('roundStart', { ...payload })
+  }
+
+  /** action 'roundEnd' — บันทึก "Round End" ของรอบเดิม (roundId เดิมเท่านั้น) */
+  function roundEnd(roundId: string, userId: string): Promise<RoundEndResponse> {
+    return callApi<RoundEndResponse>('roundEnd', { roundId, userId })
+  }
+
+  /** action 'getRound' — ดึงรอบล่าสุดของผู้เล่น 1 คน (ไม่เขียนข้อมูล) */
+  function getRound(userId: string): Promise<GetRoundResponse> {
+    return callApi<GetRoundResponse>('getRound', { userId })
+  }
+
   /** action 'listStations' — ดึงรายชื่อฐานทั้งหมด (เรียงตาม Order) จากชีต "Stations"
    * ที่จัดการผ่านหน้า Admin — ใช้แทนรายชื่อฐาน mock ที่ hardcode ไว้ในอนาคตได้
    * (กรอง active:false ออกเองฝั่งผู้เรียก ถ้าต้องการโชว์เฉพาะฐานที่เปิดใช้งาน) */
   function listStations(): Promise<ListStationsResponse> {
     return callApi<ListStationsResponse>('listStations', {})
+  }
+
+  /** action 'verifyStationQr' — ส่ง qrToken ที่อ่านได้จากกล้องตอนสแกน QR ไปตรวจสอบ
+   * กับ Google Sheet โดยตรง (ONLINE เท่านั้น ไม่มี fallback offline) ก่อนเอา Station
+   * ที่ backend ยืนยันกลับมาเข้า Check-in flow เดิม (ดู pages/scan.vue) — ไม่เขียน
+   * ข้อมูลใด ๆ ทั้งสิ้น เหมือน listStations */
+  function verifyStationQr(qrToken: string): Promise<VerifyStationQrResponse> {
+    return callApi<VerifyStationQrResponse>('verifyStationQr', { qrToken })
   }
 
   /** action 'listSideQuests' — ดึงรายการเควสเสริมทั้งหมดจากชีต "SideQuests" */
@@ -385,7 +466,11 @@ export function useMemberApi() {
     checkin,
     getJourney,
     getScore,
+    roundStart,
+    roundEnd,
+    getRound,
     listStations,
+    verifyStationQr,
     listSideQuests,
   }
 }

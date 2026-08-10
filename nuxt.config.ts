@@ -3,6 +3,13 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   modules: ['@nuxt/ui', '@vite-pwa/nuxt'],
   css: ['~/assets/css/main.css', 'leaflet/dist/leaflet.css'],
+
+  fonts: {
+  providers: {
+    google: false,
+  },
+},
+
   app: {
     head: {
       title: 'Register',

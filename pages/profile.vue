@@ -6,6 +6,8 @@
  * + ปุ่มเชื่อมบัญชี LINE (เฉพาะ Guest) และปุ่มรีเซ็ตข้อมูลไว้ทดสอบ
  */
 
+import { STATION_TYPE_META, type StationType } from '~/composables/useAdventure'
+
 definePageMeta({ layout: 'app' })
 
 const { profile, isReady } = useRequireProfile()
@@ -36,6 +38,104 @@ const remainingStationNames = computed(() => {
   if (!roundData.value) return []
   const playedIds = new Set(roundData.value.stations.map((s) => s.stationId))
   return stations.value.filter((s) => !playedIds.has(s.id)).map((s) => s.name)
+})
+
+/**
+ * Online Game Summary Card (ใหม่) — สรุปการเล่นแบบ "ออนไลน์" ใต้ Profile Card
+ * reuse API/Service เดิมทั้งหมดผ่าน useMemberApi() (getRound/getJourney/getScore)
+ * ไม่แตะ Map/QR/Journey(useJourney.ts)/Round(useRound.ts) หรือ Offline Mode เลย
+ * ห้ามใช้ข้อมูล Offline (roundData/OfflineSummaryCard ด้านบน) มาแสดงในการ์ดนี้
+ * เด็ดขาดตามสเปก — ข้อมูลหลักคือ "Journey ของ Round ปัจจุบัน" (กรองด้วย roundId
+ * ที่ได้จาก getRound() สด ๆ ทุกครั้งที่โหลด ไม่ใช่แค่ currentRoundId ในหน่วยความจำ
+ * ของ useRound() เพราะอยากได้ Status ล่าสุดจริงจาก Sheet เสมอ)
+ */
+const { getRound, getJourney, getScore } = useMemberApi()
+
+/** ลำดับ+ชื่อฐานตายตัวตามสเปก (ข้าวโพด -> วัว -> ดิน -> นม) — ดึงชื่อจริงจาก
+ * useAdventure().stations (ผูกกับชีต "Stations" ผ่าน listStations() อยู่แล้ว)
+ * เพื่อไม่สร้างรายชื่อฐานซ้ำอีกชุด ถ้าหาไม่เจอ (ยังไม่ได้ initAdventure()) ค่อย
+ * fallback ไปใช้ label ใน STATION_TYPE_META */
+const ONLINE_STATION_TYPES: StationType[] = ['corn', 'cow', 'soil', 'milk']
+
+const onlineRoundStatus = ref<'Started' | 'Ended' | null>(null)
+const onlineDoneStationIds = ref<Set<string>>(new Set())
+const onlinePoint = ref<number | null>(null)
+const onlineSummaryLoading = ref(false)
+const onlineSummaryError = ref(false)
+const onlineSummaryLoaded = ref(false)
+
+const onlineStations = computed(() =>
+  ONLINE_STATION_TYPES.map((type) => {
+    const adminStation = stations.value.find((s) => s.type === type)
+    return {
+      type,
+      name: adminStation?.name || STATION_TYPE_META[type].label,
+      done: onlineDoneStationIds.value.has(adminStation?.id ?? type),
+    }
+  }),
+)
+
+/** ดึงข้อมูล Online Summary ล่าสุดจาก server-gas — เรียกได้ซ้ำได้เสมอ (ปุ่มรีเฟรช
+ * ในการ์ด + เรียกอัตโนมัติทุกครั้งที่หน้า Profile mount/กลับมา active หลัง Scan) */
+async function loadOnlineSummary(): Promise<void> {
+  const memberId = profile.value?.memberId
+  if (!memberId || isOfflineMode.value) return
+
+  onlineSummaryLoading.value = true
+  onlineSummaryError.value = false
+  try {
+    const roundRes = await getRound(memberId)
+    if (!roundRes.success) throw new Error(roundRes.error || 'getRound failed')
+
+    const round = roundRes.round ?? null
+    onlineRoundStatus.value = round ? (round.status === 'Ended' ? 'Ended' : 'Started') : null
+
+    if (!round) {
+      onlineDoneStationIds.value = new Set()
+    } else {
+      const journeyRes = await getJourney(memberId)
+      if (journeyRes.success && journeyRes.journey) {
+        onlineDoneStationIds.value = new Set(
+          journeyRes.journey
+            .filter((entry) => entry.roundId === round.roundId)
+            .map((entry) => entry.stationId),
+        )
+      } else {
+        onlineDoneStationIds.value = new Set()
+      }
+    }
+
+    const scoreRes = await getScore(memberId)
+    onlinePoint.value = scoreRes.success && scoreRes.score ? scoreRes.score.totalPoint : null
+
+    onlineSummaryLoaded.value = true
+  } catch {
+    onlineSummaryError.value = true
+  } finally {
+    onlineSummaryLoading.value = false
+  }
+}
+
+// โหลดครั้งแรกทันทีที่ Profile พร้อม (isReady มาจาก useRequireProfile ด้านบน) —
+// ใช้ watch แทน onMounted ตรง ๆ เพราะ isReady เป็น async (ต้องรอ initProfile()/
+// guard เสร็จก่อนถึงจะรู้ memberId จริง) + คอยรีเฟรชอัตโนมัติทุกครั้งที่กลับมา
+// หน้า Profile (เช่นสแกนฐานเสร็จแล้วกดกลับมาดู) ผ่าน visibilitychange
+watch(isReady, (ready) => {
+  if (ready) void loadOnlineSummary()
+})
+
+function handleVisibilityChange(): void {
+  if (document.visibilityState === 'visible' && isReady.value) {
+    void loadOnlineSummary()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 
 /**
@@ -134,6 +234,20 @@ async function handleResetForTesting() {
           <span class="info-box__value">{{ new Date(profile.lastLogin).toLocaleString('th-TH') }}</span>
         </div>
       </div>
+
+      <!-- Online Game Summary Card (ใหม่) — แสดงเฉพาะตอนไม่ได้อยู่ใน Offline Mode
+           เท่านั้น (ห้ามใช้ Offline data แทน Online data ตามสเปก) ข้อมูลหลักคือ
+           Journey ของ Round ปัจจุบัน ดึงสด ๆ จาก server-gas ทุกครั้งที่หน้านี้
+           mount/กลับมา active หรือกดปุ่มรีเฟรชในการ์ด -->
+      <OnlineSummaryCard
+        v-if="!isOfflineMode"
+        :round-status="onlineRoundStatus"
+        :stations="onlineStations"
+        :point="onlinePoint"
+        :loading="onlineSummaryLoading"
+        :error="onlineSummaryError"
+        @refresh="loadOnlineSummary"
+      />
 
       <!-- Offline Mode (ใหม่, ข้อ 11): Card สรุปการเล่นแบบออฟไลน์ ใต้ Profile Card
            เดิม — แสดงเฉพาะตอนมีข้อมูลรอบ Offline Mode อยู่จริงใน LocalStorage

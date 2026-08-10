@@ -6,8 +6,8 @@
  * useRequireProfile() เหมือนทุกหน้าในแอป ไม่ได้แก้ logic เดิมของ guard นี้เลย)
  *
  * ประกอบด้วย:
- * 1) MiniMap ของ Adventure Game Map (OpenStreetMap จริงผ่าน Leaflet สูง ~250px,
- *    ไม่ Zoom/Pan) กดแล้วไปหน้า Map เต็มที่ /map
+ * 1) MiniMap ของ Adventure Game Map (พื้นหลังภาพ PNG สูง ~250px ไม่ใช้
+ *    Leaflet/OpenStreetMap/GPS) กดแล้วไปหน้า Map เต็มที่ /map
  * 2) Summary Card ด้านล่าง — เข้าฐานแล้ว X/Y + Point สะสม + รายการฐานทั้งหมด
  *    ข้อมูล/สถานะทั้งหมดมาจาก useAdventure() (composables/useAdventure.ts)
  *    เพียงจุดเดียว ทำให้ในอนาคตสลับไปใช้ข้อมูลจริงได้โดยไม่ต้องแก้หน้านี้
@@ -22,7 +22,6 @@ const { profile, isReady } = useRequireProfile();
 const {
   stations,
   totalStations,
-  visitedIds,
   visitedCount,
   totalPoint,
   isVisited,
@@ -116,16 +115,10 @@ function goToMapPage() {
         </div>
       </section>
 
-      <!-- Mini Adventure Map: กดทั้ง Card เพื่อไปหน้า Map เต็ม -->
-      <MiniMap
-        :stations="stations"
-        :visited-ids="visitedIds"
-        :visited-count="visitedCount"
-        :total-stations="totalStations"
-        :total-point="totalPoint"
-        :hide-point="isOfflineMode"
-        @open="goToMapPage"
-      />
+      <!-- Mini Adventure Map: แผนที่อ้างอิงตำแหน่งฐานย่อ ๆ ไม่มี Progress/สถานะผ่านฐาน
+           (ดูสรุปเข้าฐานแล้ว/Point ได้จาก Summary Card ด้านบนแทน) กดทั้ง Card
+           เพื่อไปหน้า Map เต็ม -->
+      <MiniMap :stations="stations" @open="goToMapPage" />
     </div>
   </div>
 </template>

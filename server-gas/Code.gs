@@ -93,6 +93,14 @@
  * โครงสร้างชีตทั้งสองได้ใน server-gas/README.md
  *
  * ---------------------------------------------------------------------------
+ * ส่วนต่อขยาย 1b: Round (รอบการเล่น)
+ * ---------------------------------------------------------------------------
+ * RoundService.gs มีอยู่แล้วก่อนหน้านี้แต่ยังไม่เคยต่อเชื่อมเข้า handleRequest_()
+ * เลย (ไม่มี action เรียกใช้ได้จริงฝั่ง Web App) — เพิ่ม 3 action ใหม่ที่นี่
+ * (roundStart/roundEnd/getRound) โดย "ไม่แก้" RoundService.gs แม้แต่บรรทัดเดียว
+ * แค่เรียกใช้ actionRoundStart_/actionRoundEnd_/actionGetRound_ ที่มีอยู่แล้ว
+ *
+ * ---------------------------------------------------------------------------
  * ส่วนต่อขยาย 2: Stations (รายชื่อฐาน) + SideQuests (เควสเสริม)
  * ---------------------------------------------------------------------------
  * เช่นเดียวกับ Journey/Score ด้านบน — ไม่แตะ logic เดิมของ Members/Journey/
@@ -715,6 +723,12 @@ function handleRequest_(payload) {
         return jsonOutput_(actionGetScore_(payload));
       case "getLeaderboard":
         return jsonOutput_(actionGetLeaderboard_(payload));
+      case "roundStart":
+        return jsonOutput_(actionRoundStart_(payload));
+      case "roundEnd":
+        return jsonOutput_(actionRoundEnd_(payload));
+      case "getRound":
+        return jsonOutput_(actionGetRound_(payload));
       case "listStations":
         return jsonOutput_(actionListStations_());
       case "createStation":
@@ -723,6 +737,11 @@ function handleRequest_(payload) {
         return jsonOutput_(actionUpdateStation_(payload));
       case "deleteStation":
         return jsonOutput_(actionDeleteStation_(payload));
+      // ไฟล์ใหม่: action 'verifyStationQr' — Frontend สแกน QR ของฐานจริง (ONLINE
+      // เท่านั้น) แล้วส่ง qrToken มาตรวจสอบตรงนี้ ก่อนเอาไป Check-in/บันทึก Journey
+      // ต่อ (ดู actionVerifyStationQr_ ใน StationsService.gs — ไม่เขียนข้อมูลใด ๆ)
+      case "verifyStationQr":
+        return jsonOutput_(actionVerifyStationQr_(payload));
       case "listSideQuests":
         return jsonOutput_(actionListSideQuests_());
       case "createSideQuest":
@@ -733,7 +752,7 @@ function handleRequest_(payload) {
         return jsonOutput_(actionDeleteSideQuest_(payload));
       default:
         return errorResponse_(
-          "action ไม่ถูกต้องหรือไม่ได้ระบุ ต้องเป็นหนึ่งใน: ping, checkMember, register, login, loginByLine, updateMember, getMember, checkin, getJourney, getScore, getLeaderboard, listStations, createStation, updateStation, deleteStation, listSideQuests, createSideQuest, updateSideQuest, deleteSideQuest",
+          "action ไม่ถูกต้องหรือไม่ได้ระบุ ต้องเป็นหนึ่งใน: ping, checkMember, register, login, loginByLine, updateMember, getMember, checkin, getJourney, getScore, getLeaderboard, roundStart, roundEnd, getRound, listStations, createStation, updateStation, deleteStation, verifyStationQr, listSideQuests, createSideQuest, updateSideQuest, deleteSideQuest",
         );
     }
   } catch (err) {

@@ -71,6 +71,16 @@ export interface AdventureStation {
   active?: boolean
   description?: string
   imageUrl?: string
+  /** ไฟล์ใหม่ (แก้บั๊ก QR Scan หา Station ไม่เจอ): id ของฐานจริงฝั่ง Backend (ชีต
+   * "Stations") ที่ถูกจับคู่มาลงฐานกระดานเกมช่องนี้ตอน refreshStationsFromBackend()
+   * — ไม่ว่าจะจับคู่ได้ด้วย Type/ชื่อ/หรือ fallback ตามลำดับก็ตาม (ดู 3 รอบการจับคู่
+   * ด้านล่าง) ค่านี้ "การันตี" ว่าตรงกับแถวเดียวกันในชีต Stations เป๊ะ ๆ เสมอ ต่างจาก
+   * การเทียบ Type/ชื่อตรง ๆ ที่ต้อง Admin ตั้งค่าให้ตรงกับกระดานก่อนถึงจะแม่นยำ
+   * ใช้จับคู่ตอนสแกน QR (pages/scan.vue -> processScannedStationQr()) เพื่อรู้ว่า
+   * Station ที่ backend ยืนยันมาจาก verifyStationQr คือฐานไหนบนกระดาน โดยไม่ต้อง
+   * พึ่งพา Type ที่ Admin อาจยังไม่ได้ตั้งค่าเลย undefined = ยังไม่เคย sync สำเร็จ
+   * (ออฟไลน์/ยังไม่มีฐานใน Backend ตรงกับช่องนี้) */
+  backendId?: string
 }
 
 /** คะแนนต่อ 1 ฐานที่ผ่าน (Mockup) */
@@ -99,8 +109,26 @@ export const MOCK_ADVENTURE_STATIONS: AdventureStation[] = [
   { id: 'soil', name: 'ฐานดิน', type: 'soil', lat: 14.643, lng: 101.121 },
 ]
 
+/**
+ * ตำแหน่ง % (X-Y) ของฐานทั้ง 4 บนภาพพื้นหลัง PNG (Board Game Layout) — ใช้ร่วมกัน
+ * ทั้งหน้า Map เต็มจอ (components/map/AdventureMap.vue) และ Mini Map บนหน้า Home
+ * (components/map/MiniMap.vue) เพื่อไม่ต้อง hardcode พิกัดซ้ำ 2 ที่ เป็นแค่
+ * Layout ของ UI ล้วน ๆ (ไม่ใช่ข้อมูลจาก Google Sheet/Admin จึงไม่ผิดกติกา
+ * "ห้าม hardcode ข้อมูลใหม่"):
+ *
+ *   🌽 ข้าวโพด ──────── 🐄 วัว
+ *      │                    │
+ *   🌱 ดิน   ──────── 🥛 นม (ฐานสุดท้าย)
+ */
+export const ADVENTURE_STATION_POSITIONS: Record<string, { x: number; y: number }> = {
+  corn: { x: 24, y: 26 },
+  cow: { x: 76, y: 26 },
+  soil: { x: 24, y: 76 },
+  milk: { x: 76, y: 76 },
+}
+
 /** ค่าตั้งต้นสำหรับ Demo Mockup: ผ่านฐานแรก (ข้าวโพด) แล้ว 1 ฐาน */
-const DEFAULT_VISITED: string[] = ['corn']
+const DEFAULT_VISITED: string[] = []
 
 export function useAdventure() {
   // Global reactive state (SSR-safe) — sync จาก LocalStorage ใน initAdventure()
@@ -252,6 +280,11 @@ export function useAdventure() {
           imageUrl: admin.imageUrl || undefined,
           lat: hasCoords ? (admin.lat as number) : mock.lat,
           lng: hasCoords ? (admin.lng as number) : mock.lng,
+          // ไฟล์ใหม่: เก็บ id ฝั่ง Backend ของแถวที่จับคู่ได้ไว้เสมอ (ไม่ว่าจะจับคู่
+          // ได้จากรอบไหนก็ตาม) ให้ pages/scan.vue ใช้จับคู่ผลลัพธ์จาก verifyStationQr
+          // กลับมาที่ฐานบนกระดานได้แม่นยำ 100% โดยไม่ต้องพึ่ง Type ที่ Admin อาจยัง
+          // ไม่ได้ตั้งค่า
+          backendId: admin.id,
         }
       })
       stationsInitialized.value = true

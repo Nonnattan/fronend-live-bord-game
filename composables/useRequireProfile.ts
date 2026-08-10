@@ -13,6 +13,7 @@ export function useRequireProfile() {
   const { profile, hasProfile, initProfile, refreshFromMember } = useProfile()
   const { getMember } = useMemberApi()
   const { isOfflineMode } = useOfflineMode()
+  const { ensureRoundStarted } = useRound()
 
   const isReady = ref(false)
 
@@ -28,13 +29,22 @@ export function useRequireProfile() {
     // รีเฟรชคะแนนจาก Google Sheet ด้านล่างเป็นแค่ของเสริมที่ไม่ block ตรงนี้อยู่แล้ว
     isReady.value = true
 
+    // Online Round (ใหม่): จุดนี้คือ "หลัง Online Login สำเร็จ" ของทุกหน้าที่มี guard
+    // นี้ (มี memberId แล้วแน่นอนเพราะผ่าน hasProfile.value ด้านบนมาแล้ว) — เรียกได้
+    // ทุกครั้งที่หน้า mount (Refresh/เปลี่ยนหน้า/กลับหน้าเดิม) อย่างปลอดภัย เพราะ
+    // ensureRoundStarted() เองมี logic กันเรียก roundStart() ซ้ำอยู่แล้ว (ดู
+    // composables/useRound.ts) — ไม่เรียกตอน Offline Mode เหมือน getMember() ด้านล่าง
+    const memberId = profile.value?.memberId
+    if (memberId && !isOfflineMode.value) {
+      void ensureRoundStarted(memberId, profile.value?.displayName)
+    }
+
     // Offline First (แก้ไขจุดนี้): เช็ค navigator.onLine ก่อนเสมอ ถ้ารู้อยู่แล้วว่า
     // ไม่มีอินเทอร์เน็ต ไม่ต้องยิง getMember() เลย (เดิมยิงไปเสมอไม่ว่าจะออนไลน์
     // หรือไม่ ทำให้ทุกครั้งที่เปิดหน้าที่มี guard นี้ตอนออฟไลน์ จะมี Request ที่
     // รู้อยู่แล้วว่าต้อง Fail แน่ ๆ ค้างอยู่เบื้องหลังโดยไม่จำเป็น) ถ้ามีเน็ตแต่
     // เรียกไม่สำเร็จ (เช่น API ล่มชั่วคราว) ยังคง try/catch เงียบ ๆ เหมือนเดิม
     // ใช้ค่าที่ cache ไว้ต่อไปได้เลย ไม่กระทบการใช้งานหน้าปัจจุบัน
-    const memberId = profile.value?.memberId
     if (memberId && !isOfflineMode.value) {
       try {
         const res = await getMember(memberId)
