@@ -12,8 +12,10 @@
  * (ไอคอน/สี) ยัง hardcode ไว้ฝั่ง frontend เหมือนเดิม (ชีต "Stations" ฝั่ง Admin
  * ยังไม่มีคอลัมน์พวกนี้ให้ใช้แทน) แต่ name/points/active/description/imageUrl
  * ดึงจากชีต "Stations" จริงแล้ว ผ่าน useMemberApi().listStations() — จับคู่กับ
- * ฐาน mock ด้วยลำดับ (Order ฝั่ง Admin เทียบ index ใน MOCK_ADVENTURE_STATIONS)
- * ดู refreshStationsFromBackend() ด้านล่าง ส่วนสถานะ "ผ่านฐานแล้วหรือยัง" +
+ * ฐาน mock ด้วย "ลำดับ (order)" เท่านั้น (เรียง order น้อย -> มาก แล้ว zip เข้ากับ
+ * BOARD_POSITION_ORDER ทีละตำแหน่งตามผังกระดานที่กำหนดตายตัว — ห้ามใช้ Type/ชื่อ
+ * ฐานมาช่วยจัดลำดับเด็ดขาด) ดู BOARD_POSITION_ORDER + refreshStationsFromBackend()
+ * ด้านล่าง ส่วนสถานะ "ผ่านฐานแล้วหรือยัง" +
  * "คะแนนสะสม" ผูกกับ Google Sheet จริงแล้วเช่นกัน ผ่าน server-gas (ดู
  * CheckinService.gs / JourneyService.gs / ScoreService.gs / StationsService.gs)
  * เรียกผ่าน useMemberApi().getJourney() / getScore() / listStations():
@@ -89,10 +91,10 @@ export const POINTS_PER_STATION = 250
 /**
  * ฐานทั้ง 4 วางเป็นรูปสี่เหลี่ยม (Board Game Layout) ไม่ใช่เส้นตรง:
  *
- *   🌽 ข้าวโพด ──────── 🐄 วัว
+ *   🌱 ดิน   ──────── 🐄 วัว
  *      │                    │
  *      │                    │
- *   🌱 ดิน   ──────── 🥛 นม (ฐานสุดท้าย)
+ *   🌽 ข้าวโพด ──────── 🥛 นม (ฐานสุดท้าย)
  *
  * เรียงลำดับใน array ตามเข็มนาฬิกา (ข้าวโพด -> วัว -> นม -> ดิน) เพื่อให้
  * LeafletMap.vue วาด Polyline วนรอบครบ 4 ด้านของสี่เหลี่ยมได้เลยแค่เชื่อม
@@ -110,20 +112,41 @@ export const MOCK_ADVENTURE_STATIONS: AdventureStation[] = [
 ]
 
 /**
+ * ลำดับฐานบนกระดาน (ตำแหน่ง 1-4) เทียบกับ `order` จากฝั่ง Backend (ชีต
+ * "Stations") ตามผังที่กำหนดตายตัว — index 0 ของ array นี้ = ฐาน backend ที่
+ * order น้อยที่สุด (order = 1), index 1 = order 2, ฯลฯ:
+ *
+ *   2 (ซ้ายบน)  -------- 3 (ขวาบน)
+ *   |                          |
+ *   |                          |
+ *   1 (ซ้ายล่าง) -------- 4 (ขวาล่าง)
+ *
+ * เทียบกับตำแหน่ง % จริงใน ADVENTURE_STATION_POSITIONS ด้านล่าง:
+ *   order 1 -> ซ้ายล่าง (corn: x24,y76)   order 2 -> ซ้ายบน (soil: x24,y26)
+ *   order 3 -> ขวาบน   (cow:  x76,y26)   order 4 -> ขวาล่าง (milk: x76,y76)
+ *
+ * ใช้ "ลำดับ (order) เท่านั้น" ในการจับคู่ฐาน backend เข้ากับช่องบนกระดาน —
+ * ห้ามใช้ type/name ของฝั่ง Backend มาช่วยจัดลำดับเด็ดขาด (ดู
+ * refreshStationsFromBackend() ด้านล่าง) เพื่อไม่ให้ผลลัพธ์เปลี่ยนไปตามค่าที่
+ * Admin อาจตั้ง Type/ชื่อไม่ตรงกับผังจริง
+ */
+const BOARD_POSITION_ORDER: string[] = ['corn', 'soil', 'cow', 'milk']
+
+/**
  * ตำแหน่ง % (X-Y) ของฐานทั้ง 4 บนภาพพื้นหลัง PNG (Board Game Layout) — ใช้ร่วมกัน
  * ทั้งหน้า Map เต็มจอ (components/map/AdventureMap.vue) และ Mini Map บนหน้า Home
  * (components/map/MiniMap.vue) เพื่อไม่ต้อง hardcode พิกัดซ้ำ 2 ที่ เป็นแค่
  * Layout ของ UI ล้วน ๆ (ไม่ใช่ข้อมูลจาก Google Sheet/Admin จึงไม่ผิดกติกา
  * "ห้าม hardcode ข้อมูลใหม่"):
  *
- *   🌽 ข้าวโพด ──────── 🐄 วัว
+ *   🌱 ดิน   ──────── 🐄 วัว
  *      │                    │
- *   🌱 ดิน   ──────── 🥛 นม (ฐานสุดท้าย)
+ *   🌽 ข้าวโพด ──────── 🥛 นม (ฐานสุดท้าย)
  */
 export const ADVENTURE_STATION_POSITIONS: Record<string, { x: number; y: number }> = {
-  corn: { x: 24, y: 26 },
+  soil: { x: 24, y: 26 },
   cow: { x: 76, y: 26 },
-  soil: { x: 24, y: 76 },
+  corn: { x: 24, y: 76 },
   milk: { x: 76, y: 76 },
 }
 
@@ -214,16 +237,14 @@ export function useAdventure() {
    * ต้อง "จับคู่" กับ MOCK_ADVENTURE_STATIONS ทีละฐานก่อนเสมอ (เกมนี้เป็น Board
    * Game ผังคงที่ 4 ฐาน — corn/cow/soil/milk — ผูกกับ QR Code/ปุ่ม Scan ตายตัว
    * ดู pages/scan.vue STATION_CODE_MAP + FINAL_STATION_ID จึงไม่เปลี่ยน "จำนวน/id"
-   * ฐานตามอำเภอใจจาก Admin ได้ แต่ "ตำแหน่งบนแผนที่ (lat/lng) และไอคอน (type)"
-   * ปรับได้จาก Admin แล้วผ่านคอลัมน์ Type/Lat/Lng ใหม่ในชีต Stations)
+   * ฐานตามอำเภอใจจาก Admin ได้ แต่ "ตำแหน่งบนแผนที่ (lat/lng)" ปรับได้จาก Admin
+   * แล้วผ่านคอลัมน์ Lat/Lng ในชีต Stations)
    *
-   * จับคู่แบบ 3 รอบ เรียงลำดับความแม่นยำจากมากไปน้อย กันจับคู่ผิดฐาน:
-   *   รอบ 1) จับคู่ด้วย "Type" ตรงกัน (Admin เลือกจาก dropdown ประเภทฐานในฟอร์ม)
-   *          — แม่นยำสุด เพราะเป็นค่าที่ตั้งใจกำหนดมาคู่กับฐานนี้โดยเฉพาะ
-   *   รอบ 2) ฐาน mock ที่ยังไม่เจอ Type ตรงกัน -> จับคู่ด้วย "ชื่อฐานตรงกันเป๊ะ"
-   *          (ตัดช่องว่างหัว-ท้าย) กับฐาน Admin ที่เหลือ (ยังไม่ถูกจับคู่ในรอบ 1)
-   *   รอบ 3) ฐาน mock ที่ยังไม่เจอทั้ง Type และชื่อ -> fallback จับคู่ด้วยลำดับ
-   *          (เรียง Order น้อย -> มาก) กับฐาน Admin ที่เหลือทั้งหมด
+   * จับคู่ด้วย "ลำดับ (order)" เท่านั้น — ห้ามใช้ Type/ชื่อฐานมาช่วยจัดลำดับ
+   * เด็ดขาด: เรียงฐาน Backend ตาม order น้อย -> มาก แล้ว zip เข้ากับ
+   * BOARD_POSITION_ORDER ทีละตำแหน่ง (order 1 = ตำแหน่งแรกในผัง [ซ้ายล่าง],
+   * order 2 = ตำแหน่งที่สอง [ซ้ายบน], ...) ดูผัง/คำอธิบายเต็มที่คอมเมนต์เหนือ
+   * BOARD_POSITION_ORDER ด้านบน
    * lat/lng: ใช้ค่าจาก Admin ถ้าตั้งไว้ (ไม่ null ทั้งคู่) ไม่งั้น fallback ไปใช้
    * พิกัดตั้งต้นของ mock เหมือนเดิม (ทำให้ Admin ย้ายหมุดบนแผนที่ได้จริงโดยไม่ต้อง
    * แก้โค้ด frontend เลย)
@@ -241,34 +262,19 @@ export function useAdventure() {
       const res = await listStations()
       if (!res.success || !res.stations || res.stations.length === 0) return
 
+      // เรียงตาม order เท่านั้น (น้อย -> มาก) — ไม่ใช้ Type/ชื่อฐานในการจัดลำดับเลย
       const sorted = [...res.stations].sort((a, b) => a.order - b.order)
-      const usedAdminIds = new Set<string>()
 
-      // รอบ 1: จับคู่ด้วย Type ตรงกัน (เช่น mock.type === 'corn' กับ admin.type === 'corn')
-      const byType = new Map(sorted.filter((s) => s.type).map((s) => [s.type.trim(), s]))
-      const matchedByType = MOCK_ADVENTURE_STATIONS.map((mock) => {
-        const admin = byType.get(mock.type)
-        if (admin) usedAdminIds.add(admin.id)
-        return admin ?? null
+      // zip ทีละตำแหน่ง: ฐาน backend ที่ order น้อยสุด (sorted[0]) -> ตำแหน่งแรกใน
+      // BOARD_POSITION_ORDER (order 1 = ซ้ายล่าง), sorted[1] -> order 2 (ซ้ายบน) ฯลฯ
+      const byBoardId = new Map<string, (typeof sorted)[number]>()
+      BOARD_POSITION_ORDER.forEach((mockId, index) => {
+        const admin = sorted[index]
+        if (admin) byBoardId.set(mockId, admin)
       })
 
-      // รอบ 2: ที่ยังไม่เจอ -> จับคู่ด้วยชื่อฐานตรงกันเป๊ะ กับฐาน Admin ที่เหลือ
-      const byName = new Map(
-        sorted.filter((s) => !usedAdminIds.has(s.id)).map((s) => [s.name.trim(), s]),
-      )
-      const matchedByTypeOrName = MOCK_ADVENTURE_STATIONS.map((mock, index) => {
-        if (matchedByType[index]) return matchedByType[index]
-        const admin = byName.get(mock.name.trim())
-        if (admin) usedAdminIds.add(admin.id)
-        return admin ?? null
-      })
-
-      // รอบ 3: ที่ยังไม่เจอทั้ง Type/ชื่อ -> fallback จับคู่ด้วยลำดับกับฐาน Admin ที่เหลือ
-      const remainingAdmin = sorted.filter((s) => !usedAdminIds.has(s.id))
-      let remainingIndex = 0
-
-      stationsState.value = MOCK_ADVENTURE_STATIONS.map((mock, index) => {
-        const admin = matchedByTypeOrName[index] ?? remainingAdmin[remainingIndex++]
+      stationsState.value = MOCK_ADVENTURE_STATIONS.map((mock) => {
+        const admin = byBoardId.get(mock.id)
         if (!admin) return { ...mock, points: POINTS_PER_STATION, active: true }
         const hasCoords = admin.lat !== null && admin.lng !== null
         return {
@@ -280,10 +286,9 @@ export function useAdventure() {
           imageUrl: admin.imageUrl || undefined,
           lat: hasCoords ? (admin.lat as number) : mock.lat,
           lng: hasCoords ? (admin.lng as number) : mock.lng,
-          // ไฟล์ใหม่: เก็บ id ฝั่ง Backend ของแถวที่จับคู่ได้ไว้เสมอ (ไม่ว่าจะจับคู่
-          // ได้จากรอบไหนก็ตาม) ให้ pages/scan.vue ใช้จับคู่ผลลัพธ์จาก verifyStationQr
-          // กลับมาที่ฐานบนกระดานได้แม่นยำ 100% โดยไม่ต้องพึ่ง Type ที่ Admin อาจยัง
-          // ไม่ได้ตั้งค่า
+          // เก็บ id ฝั่ง Backend ของแถวที่จับคู่ได้ตามลำดับ (order) ไว้เสมอ ให้
+          // pages/scan.vue ใช้จับคู่ผลลัพธ์จาก verifyStationQr กลับมาที่ฐานบน
+          // กระดานได้แม่นยำ 100% (backendId การันตีตรงกับแถวเดียวกันในชีต Stations)
           backendId: admin.id,
         }
       })

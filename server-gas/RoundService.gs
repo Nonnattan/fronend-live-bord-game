@@ -9,7 +9,12 @@
  * ScoreService.gs เดิม)
  *
  * โครงสร้างชีต "Round" (สร้างอัตโนมัติเมื่อเรียกใช้งานครั้งแรก ไม่ต้องสร้างมือ):
- * RoundId | UserId | DisplayName | StartTime | EndTime | Status
+ * RoundId | UserId | FirstName | StartTime | EndTime | Status
+ *
+ * FirstName: ชื่อจริงจากฟอร์มโปรไฟล์ (profile.firstName ฝั่ง frontend) — ใช้แทน
+ * DisplayName (LINE profile) เดิม เพราะผู้ใช้ที่ไม่ได้ Login ผ่าน LINE (Guest/
+ * กรอกฟอร์มเอง) ไม่มีค่า DisplayName เลย แต่ firstName เป็นฟิลด์บังคับกรอกของ
+ * ทุกคนเสมอ (ดู types/profile.ts -> UserProfile.firstName)
  *
  * Status: 'Started' (เริ่มรอบแล้ว ยังไม่จบ) / 'Ended' (จบรอบแล้ว)
  *
@@ -21,7 +26,7 @@
  */
 
 const ROUND_SHEET_NAME = 'Round'
-const ROUND_HEADERS = ['RoundId', 'UserId', 'DisplayName', 'StartTime', 'EndTime', 'Status']
+const ROUND_HEADERS = ['RoundId', 'UserId', 'FirstName', 'StartTime', 'EndTime', 'Status']
 
 /** คืนค่าชีต "Round" — สร้างชีตใหม่ + ใส่หัวตารางให้อัตโนมัติถ้ายังไม่มี
  * (ไม่แตะต้องชีตอื่นใดในสเปรดชีตเดียวกันเลย) */
@@ -53,7 +58,7 @@ function rowToRoundEntry_(row) {
   return {
     roundId: row[0],
     userId: row[1],
-    displayName: row[2],
+    firstName: row[2],
     startTime: row[3],
     endTime: row[4] || null,
     status: row[5],
@@ -73,7 +78,7 @@ function findRoundRowIndexById_(sheet, roundId) {
 
 /**
  * action 'roundStart' — บันทึก "Round Start" ของ 1 รอบการเล่น
- * Payload: { roundId, userId, displayName }
+ * Payload: { roundId, userId, firstName }
  *
  * RoundId ซ้ำกับแถวเดิม (เคย Sync สำเร็จมาแล้ว/กด Sync ซ้ำ) -> "ห้ามเขียนซ้ำ"
  * คืนค่า alreadyStarted: true พร้อมแถวเดิมทันที ไม่เขียนข้อมูลเพิ่ม
@@ -94,7 +99,7 @@ function actionRoundStart_(payload) {
   const row = [
     normalize_(payload.roundId),
     normalize_(payload.userId),
-    normalize_(payload.displayName),
+    normalize_(payload.firstName),
     now,
     '',
     'Started',

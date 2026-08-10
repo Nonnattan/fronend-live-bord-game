@@ -10,7 +10,12 @@
  * CheckinService.gs แทน ไฟล์นี้เปิดเผยแค่ primitive operations ของชีต Journey
  *
  * โครงสร้างชีต "Journey" (สร้างอัตโนมัติเมื่อเรียกใช้งานครั้งแรก ไม่ต้องสร้างมือ):
- * Timestamp | RoundId | UserId | DisplayName | StationId | StationName | Point | Status
+ * Timestamp | RoundId | UserId | FirstName | StationId | StationName | Point | Status
+ *
+ * FirstName: ชื่อจริงจากฟอร์มโปรไฟล์ (profile.firstName ฝั่ง frontend) — ใช้แทน
+ * DisplayName (LINE profile) เดิม เพราะผู้ใช้ที่ไม่ได้ Login ผ่าน LINE (Guest/
+ * กรอกฟอร์มเอง) ไม่มีค่า DisplayName เลย แต่ firstName เป็นฟิลด์บังคับกรอกของ
+ * ทุกคนเสมอ (ดู types/profile.ts -> UserProfile.firstName)
  *
  * RoundId: มาจาก Round ปัจจุบันของผู้ใช้ (ดู RoundService.gs — ไฟล์นี้ไม่แก้/ไม่รู้จัก
  * Round logic ใด ๆ เอง แค่รับค่า roundId ที่ผู้เรียก (CheckinService.gs) resolve มาให้
@@ -32,7 +37,7 @@ const JOURNEY_HEADERS = [
   'Timestamp',
   'RoundId',
   'UserId',
-  'DisplayName',
+  'FirstName',
   'StationId',
   'StationName',
   'Point',
@@ -98,7 +103,7 @@ function rowToJourneyEntry_(row) {
     timestamp: row[0],
     roundId: row[1],
     userId: row[2],
-    displayName: row[3],
+    firstName: row[3],
     stationId: row[4],
     stationName: row[5],
     point: Number(row[6]) || 0,
@@ -141,7 +146,7 @@ function appendJourneyEntry_(sheet, entry) {
     entry.timestamp,
     normalize_(entry.roundId),
     normalize_(entry.userId),
-    normalize_(entry.displayName),
+    normalize_(entry.firstName),
     normalize_(entry.stationId),
     normalize_(entry.stationName),
     Number(entry.point) || 0,

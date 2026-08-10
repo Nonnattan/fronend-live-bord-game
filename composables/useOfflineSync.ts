@@ -222,7 +222,10 @@ export function useOfflineSync() {
       // ------- Step 3: Sync Journey -------
       // ส่งฐานที่ค้างอยู่ใน queue ทีละฐานผ่าน action 'checkin' — ฝั่ง server-gas
       // จะกันบันทึกซ้ำให้อีกชั้น (alreadyVisited) เผื่อเคย Sync จากเครื่องอื่นมาก่อน
-      const displayName = profile.value?.displayName || `${profile.value?.firstName ?? ''} ${profile.value?.lastName ?? ''}`.trim()
+      // ใช้ profile.firstName ตรง ๆ (ฟิลด์บังคับกรอกของทุกคนเสมอ ไม่ว่าจะ Login ผ่าน
+      // LINE หรือไม่) แทน displayName เดิม (LINE profile) ซึ่งผู้ใช้ที่ไม่ได้ Login
+      // ผ่าน LINE ไม่มีค่าเลย
+      const firstName = profile.value?.firstName ?? ''
       const queue = [...pendingCheckins.value]
       const remaining: PendingCheckin[] = []
       let syncedCount = 0
@@ -231,7 +234,7 @@ export function useOfflineSync() {
         try {
           const res = await checkin({
             userId: memberId,
-            displayName,
+            firstName,
             stationId: item.stationId,
             stationName: item.stationName,
             point: item.point,

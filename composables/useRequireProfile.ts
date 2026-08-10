@@ -36,7 +36,7 @@ export function useRequireProfile() {
     // composables/useRound.ts) — ไม่เรียกตอน Offline Mode เหมือน getMember() ด้านล่าง
     const memberId = profile.value?.memberId
     if (memberId && !isOfflineMode.value) {
-      void ensureRoundStarted(memberId, profile.value?.displayName)
+      void ensureRoundStarted(memberId, profile.value?.firstName)
     }
 
     // Offline First (แก้ไขจุดนี้): เช็ค navigator.onLine ก่อนเสมอ ถ้ารู้อยู่แล้วว่า

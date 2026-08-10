@@ -8,9 +8,9 @@
  * เดียวกับ components/map/AdventureMap.vue (ใช้ ADVENTURE_STATION_POSITIONS
  * จาก useAdventure.ts ร่วมกัน ไม่ hardcode ซ้ำ)
  *
- * เป็นแค่ "หน้าอ้างอิงตำแหน่งฐาน" ย่อ ๆ เท่านั้น ไม่แสดง Progress หรือสถานะผ่าน
- * ฐานใด ๆ ทั้งสิ้น (ไม่มี Checkmark ไม่มีคะแนนสะสม/จำนวนฐานที่ผ่าน) — เป็น
- * Presentational component รับข้อมูลผ่าน props ทั้งหมด แล้ว emit "open" ออกไป
+ * เป็น "หน้าอ้างอิงตำแหน่งฐาน" ย่อ ๆ ที่รับ visitedIds จาก useAdventure()
+ * ผ่าน props เดียวกับ Main Map เพื่อแสดง ✓ ที่จุดเดียวกันโดยไม่สร้าง scanned state
+ * แยกเอง แล้ว emit "open" ออกไป
  * ให้หน้า (page) เป็นผู้สั่ง navigateTo('/map') เอง
  */
 
@@ -19,7 +19,12 @@ import { ADVENTURE_STATION_POSITIONS, STATION_TYPE_META } from '~/composables/us
 
 const props = defineProps<{
   stations: AdventureStation[]
+  visitedIds: readonly string[]
 }>()
+
+function isVisited(stationId: string): boolean {
+  return props.visitedIds.includes(stationId)
+}
 
 const emit = defineEmits<{
   open: []
@@ -52,6 +57,7 @@ function positionOf(station: AdventureStation): { x: number; y: number } {
         v-for="station in props.stations"
         :key="station.id"
         class="mini-map__pin"
+        :class="{ 'mini-map__pin--visited': isVisited(station.id) }"
         :style="{
           left: `${positionOf(station).x}%`,
           top: `${positionOf(station).y}%`,
@@ -60,7 +66,7 @@ function positionOf(station: AdventureStation): { x: number; y: number } {
         }"
         :aria-label="station.name"
       >
-        {{ STATION_TYPE_META[station.type].icon }}
+        {{ isVisited(station.id) ? '✓' : STATION_TYPE_META[station.type].icon }}
       </span>
     </div>
 
@@ -129,6 +135,13 @@ function positionOf(station: AdventureStation): { x: number; y: number } {
   font-size: 0.9rem;
   line-height: 1;
   pointer-events: none;
+}
+
+.mini-map__pin--visited {
+  --pin-color: #5fb648 !important;
+  --pin-color-dark: #457a26 !important;
+  color: #fff;
+  font-weight: 800;
 }
 
 .mini-map__footer {

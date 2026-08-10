@@ -7,7 +7,7 @@
  * เลย แค่เป็นตัวคุมฝั่ง client ว่า "เมื่อไหร่ควรเรียก roundStart()" เท่านั้น
  *
  * กติกา:
- * - เรียก ensureRoundStarted(userId, displayName) ได้บ่อยเท่าไหร่ก็ได้ (เช่น ทุก
+ * - เรียก ensureRoundStarted(userId, firstName) ได้บ่อยเท่าไหร่ก็ได้ (เช่น ทุก
  *   ครั้งที่หน้า Home/Map/Scan mount ผ่าน useRequireProfile) แต่จะยิง roundStart()
  *   ขึ้น Google Sheet จริง ๆ "ครั้งเดียว" ต่อ 1 รอบเท่านั้น — ป้องกัน Refresh หน้า/
  *   เปลี่ยนหน้า/กลับหน้าเดิม สร้าง Round ซ้ำ ด้วย 3 ชั้น:
@@ -79,7 +79,7 @@ export function useRound() {
    * และเรียก roundStart() "เพียง 1 ครั้ง" ต่อรอบตามสเปก เรียกซ้ำได้ปลอดภัยเสมอ
    * (Refresh หน้า/เปลี่ยนหน้า/กลับหน้าเดิม จะไม่สร้าง Round ใหม่)
    */
-  async function ensureRoundStarted(userId: string, displayName?: string): Promise<void> {
+  async function ensureRoundStarted(userId: string, firstName?: string): Promise<void> {
     if (!import.meta.client || !userId) return
 
     // ชั้น 1: มี Round ในหน่วยความจำอยู่แล้วและยังไม่ End -> ไม่ต้องทำอะไรต่อ
@@ -113,7 +113,7 @@ export function useRound() {
 
         // ไม่มี Round ที่ยัง Started เลย -> เริ่มรอบใหม่จริง ๆ (roundStart() เพียง 1 ครั้ง)
         const newRoundId = genRoundUuid()
-        const started = await roundStart({ roundId: newRoundId, userId, displayName }).catch(() => null)
+        const started = await roundStart({ roundId: newRoundId, userId, firstName }).catch(() => null)
         if (started?.success) {
           const roundId = started.round?.roundId || newRoundId
           currentRoundId.value = roundId

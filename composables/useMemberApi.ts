@@ -87,22 +87,26 @@ interface LoginByLineResponse {
 
 /** 1 แถวประวัติการเข้าฐาน (ชีต "Journey" ฝั่ง server-gas)
  * roundId: รอบการเล่นที่บันทึกแถวนี้ (ดู server-gas/RoundService.gs + CheckinService.gs)
- * ใช้กันข้อมูลซ้ำฝั่ง backend เท่านั้น ไม่ได้ใช้แสดงผลในหน้า History ปัจจุบัน */
+ * ใช้กันข้อมูลซ้ำฝั่ง backend เท่านั้น ไม่ได้ใช้แสดงผลในหน้า History ปัจจุบัน
+ * firstName: ชื่อจริงจากฟอร์มโปรไฟล์ (profile.firstName) — ใช้แทน displayName (LINE
+ * profile) เดิม เพราะผู้ใช้ที่ไม่ได้ Login ผ่าน LINE (Guest/กรอกฟอร์มเอง) ไม่มีค่า
+ * displayName เลย แต่ firstName เป็นฟิลด์บังคับกรอกของทุกคนเสมอ */
 export interface JourneyEntry {
   timestamp: string
   roundId?: string
   userId: string
-  displayName: string
+  firstName: string
   stationId: string
   stationName: string
   point: number
   status: string
 }
 
-/** คะแนนสะสมของผู้เล่น 1 คน (ชีต "Score" ฝั่ง server-gas) */
+/** คะแนนสะสมของผู้เล่น 1 คน (ชีต "Score" ฝั่ง server-gas)
+ * firstName: ดูหมายเหตุเดียวกับ JourneyEntry ด้านบน */
 export interface ScoreEntry {
   userId: string
-  displayName: string
+  firstName: string
   totalPoint: number
   totalStation: number
   updatedAt: string
@@ -131,11 +135,12 @@ interface GetScoreResponse {
 }
 
 /** 1 รอบการเล่น (ชีต "Round" ฝั่ง server-gas — ดู server-gas/RoundService.gs)
- * status: 'Started' (เริ่มรอบแล้ว ยังไม่จบ) / 'Ended' (จบรอบแล้ว) */
+ * status: 'Started' (เริ่มรอบแล้ว ยังไม่จบ) / 'Ended' (จบรอบแล้ว)
+ * firstName: ดูหมายเหตุเดียวกับ JourneyEntry ด้านบน (types/useMemberApi.ts) */
 export interface RoundEntry {
   roundId: string
   userId: string
-  displayName: string
+  firstName: string
   startTime: string
   endTime: string | null
   status: string
@@ -146,7 +151,7 @@ export interface RoundEntry {
 export interface RoundStartPayload {
   roundId: string
   userId: string
-  displayName?: string
+  firstName?: string
 }
 
 interface RoundStartResponse {
@@ -234,7 +239,7 @@ interface ListSideQuestsResponse {
  * อนาคตอยากใช้เป็น idempotency key เพิ่มเติม/ไว้ตรวจสอบย้อนหลังฝั่ง Sheet */
 export interface CheckinPayload {
   userId: string
-  displayName?: string
+  firstName?: string
   stationId: string
   stationName?: string
   point?: number

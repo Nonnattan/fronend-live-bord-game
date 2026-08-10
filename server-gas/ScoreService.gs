@@ -10,13 +10,18 @@
  * CheckinService.gs แทน ไฟล์นี้เปิดเผยแค่ primitive operations ของชีต Score
  *
  * โครงสร้างชีต "Score" (สร้างอัตโนมัติเมื่อเรียกใช้งานครั้งแรก ไม่ต้องสร้างมือ):
- * UserId | DisplayName | TotalPoint | TotalStation | UpdatedAt
+ * UserId | FirstName | TotalPoint | TotalStation | UpdatedAt
+ *
+ * FirstName: ชื่อจริงจากฟอร์มโปรไฟล์ (profile.firstName ฝั่ง frontend) — ใช้แทน
+ * DisplayName (LINE profile) เดิม เพราะผู้ใช้ที่ไม่ได้ Login ผ่าน LINE (Guest/
+ * กรอกฟอร์มเอง) ไม่มีค่า DisplayName เลย แต่ firstName เป็นฟิลด์บังคับกรอกของ
+ * ทุกคนเสมอ (ดู types/profile.ts -> UserProfile.firstName)
  */
 
 const SCORE_SHEET_NAME = 'Score'
 const SCORE_HEADERS = [
   'UserId',
-  'DisplayName',
+  'FirstName',
   'TotalPoint',
   'TotalStation',
   'UpdatedAt',
@@ -59,7 +64,7 @@ function getAllScoreRows_(sheet) {
 function rowToScoreEntry_(row) {
   return {
     userId: row[0],
-    displayName: row[1],
+    firstName: row[1],
     totalPoint: Number(row[2]) || 0,
     totalStation: Number(row[3]) || 0,
     updatedAt: row[4],
@@ -95,14 +100,14 @@ function getScoreByUserId_(sheet, userId) {
  * ต้องเรียกฟังก์ชันนี้เฉพาะตอนยืนยันแล้วว่าเป็นการผ่านฐาน "ใหม่" เท่านั้น
  * (addPoint/addStation ควรเป็นค่าบวกของรอบนี้รอบเดียว ไม่ใช่ค่ารวมสะสม)
  */
-function upsertScore_(sheet, userId, displayName, addPoint, addStation, now) {
+function upsertScore_(sheet, userId, firstName, addPoint, addStation, now) {
   const uid = normalize_(userId)
   const rowIndex = findScoreRowIndexByUserId_(sheet, uid)
 
   if (rowIndex === -1) {
     const newRow = [
       uid,
-      normalize_(displayName),
+      normalize_(firstName),
       Number(addPoint) || 0,
       Number(addStation) || 0,
       now,
@@ -114,8 +119,8 @@ function upsertScore_(sheet, userId, displayName, addPoint, addStation, now) {
   const current = sheet.getRange(rowIndex, 1, 1, SCORE_HEADERS.length).getValues()[0]
   const updatedRow = [
     uid,
-    // ถ้ารอบนี้ส่ง displayName มาใหม่ ใช้ค่าล่าสุดแทน (เผื่อผู้เล่นเปลี่ยนชื่อ) ไม่ส่งมา = คงชื่อเดิมไว้
-    displayName ? normalize_(displayName) : current[1],
+    // ถ้ารอบนี้ส่ง firstName มาใหม่ ใช้ค่าล่าสุดแทน (เผื่อผู้เล่นแก้ไขชื่อ) ไม่ส่งมา = คงชื่อเดิมไว้
+    firstName ? normalize_(firstName) : current[1],
     (Number(current[2]) || 0) + (Number(addPoint) || 0),
     (Number(current[3]) || 0) + (Number(addStation) || 0),
     now,

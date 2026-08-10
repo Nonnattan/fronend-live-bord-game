@@ -8,10 +8,9 @@
  * useAdventure().refreshStationsFromBackend() — ตำแหน่งบนภาพ (%) กับไอคอน/สี
  * ยังเป็น Layout คงที่ฝั่ง frontend เหมือนเดิม ดู components/map/AdventureMap.vue)
  *
- * หน้านี้เป็นแค่ "หน้าอ้างอิงตำแหน่งฐาน" เท่านั้น ไม่แสดง Progress/สถานะผ่านฐาน
- * ใด ๆ (ไม่มี Checkmark ไม่มีคะแนนสะสม ไม่มีปุ่ม Toggle/Reset) — การบันทึกผ่าน
- * ฐานจริงทำผ่านการสแกน QR (ดู pages/scan.vue -> useOfflineSync.ts) เท่านั้น
- * ไม่แตะ/ไม่เกี่ยวข้องกับหน้านี้เลย
+ * หน้านี้เป็น "หน้าอ้างอิงตำแหน่งฐาน" และแสดง ✓ จาก visitedIds ชุดเดียวกับ
+ * MiniMap/หน้าสรุป โดยไม่มี state สแกนแยกหรือปุ่ม Toggle/Reset — การบันทึกผ่าน
+ * ฐานจริงยังทำผ่านการสแกน QR (ดู pages/scan.vue -> useOfflineSync.ts) เท่านั้น
  *
  * โครงสร้าง (แยกไว้เพื่อสลับไปข้อมูลจริงได้ง่ายในอนาคต):
  * - composables/useAdventure.ts      -> รายชื่อฐาน (Stations) จริงจาก Google Sheet
@@ -24,12 +23,12 @@ import AdventureMap from "~/components/map/AdventureMap.vue";
 
 definePageMeta({ layout: "app" });
 
-const { isReady } = useRequireProfile();
+const { profile, isReady } = useRequireProfile();
 
-const { stations, refreshStationsFromBackend } = useAdventure();
+const { stations, visitedIds, initAdventure } = useAdventure();
 
 onMounted(() => {
-  void refreshStationsFromBackend();
+  void initAdventure(profile.value?.memberId);
 });
 </script>
 
@@ -42,8 +41,8 @@ onMounted(() => {
     </div>
 
     <div v-else class="map-page">
-      <!-- Adventure Map เต็ม: แผนที่อ้างอิงตำแหน่งฐานล้วน ๆ ไม่มี Progress/สถานะผ่านฐาน -->
-      <AdventureMap :stations="stations" />
+      <!-- Adventure Map เต็ม: ใช้ตำแหน่งและ scanned state ชุดเดียวกับ MiniMap -->
+      <AdventureMap :stations="stations" :visited-ids="visitedIds" />
     </div>
   </div>
 </template>

@@ -6,11 +6,9 @@
  * PNG ล้วน ๆ (ไม่ใช้ Leaflet/OpenStreetMap/GPS ใด ๆ) 4 ฐานวางเป็นรูปสี่เหลี่ยม
  * (Board Game Layout) ด้วยพิกัด % (X-Y) ทับบนภาพพื้นหลัง
  *
- * เป็น "Presentational component" ล้วน ๆ: รับ stations ผ่าน props (ยังคงเป็น
- * ข้อมูลฐานจริงจาก useAdventure()/Google Sheet เหมือนเดิม — ไม่มีการ hardcode
- * ชื่อ/คะแนน/ฐานใหม่ใด ๆ) แผนที่นี้เป็นแค่ "หน้าอ้างอิงตำแหน่งฐาน" เท่านั้น
- * ไม่แสดง Progress หรือสถานะผ่านฐานใด ๆ ทั้งสิ้น (ไม่มี Checkmark ไม่มีการ
- * เปลี่ยนสี/ไอคอนตามสถานะ) — การบันทึกผ่านฐานจริงทำผ่านการสแกน QR
+ * เป็น "Presentational component" ล้วน ๆ: รับ stations และ visitedIds จาก
+ * useAdventure() ผ่าน props — ไม่มี state สแกนแยกของตัวเอง เพื่อให้เครื่องหมาย ✓
+ * ซิงก์กับ MiniMap และหน้าสรุปตลอดเวลา การบันทึกผ่านฐานจริงยังทำผ่านการสแกน QR
  * (ดู pages/scan.vue) เท่านั้น ไม่ใช่จากหน้านี้
  *
  * ตำแหน่ง % ของฐานทั้ง 4 ใช้ค่าจาก useAdventure.ts (ADVENTURE_STATION_POSITIONS)
@@ -22,7 +20,12 @@ import { ADVENTURE_STATION_POSITIONS, STATION_TYPE_META } from "~/composables/us
 
 const props = defineProps<{
   stations: AdventureStation[];
+  visitedIds: readonly string[];
 }>();
+
+function isVisited(stationId: string): boolean {
+  return props.visitedIds.includes(stationId);
+}
 
 function positionOf(station: AdventureStation): { x: number; y: number } {
   return ADVENTURE_STATION_POSITIONS[station.id] ?? { x: 50, y: 50 };
@@ -42,6 +45,7 @@ function positionOf(station: AdventureStation): { x: number; y: number } {
       v-for="station in props.stations"
       :key="station.id"
       class="station-pin"
+      :class="{ 'station-pin--visited': isVisited(station.id) }"
       :style="{ left: `${positionOf(station).x}%`, top: `${positionOf(station).y}%` }"
       :aria-label="station.name"
     >
@@ -52,7 +56,7 @@ function positionOf(station: AdventureStation): { x: number; y: number } {
           '--pin-color-dark': STATION_TYPE_META[station.type].colorDark,
         }"
       >
-        <span class="station-pin__icon">{{ STATION_TYPE_META[station.type].icon }}</span>
+        <span class="station-pin__icon">{{ isVisited(station.id) ? '✓' : STATION_TYPE_META[station.type].icon }}</span>
       </span>
       <span class="station-pin__label">{{ station.name }}</span>
     </div>
@@ -106,6 +110,11 @@ function positionOf(station: AdventureStation): { x: number; y: number } {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.station-pin--visited .station-pin__body {
+  --pin-color: #5fb648 !important;
+  --pin-color-dark: #457a26 !important;
 }
 
 .station-pin__icon {

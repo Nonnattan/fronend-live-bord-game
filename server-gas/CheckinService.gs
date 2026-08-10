@@ -30,14 +30,14 @@
  *     ผ่าน actionRoundStart_ ที่มีอยู่แล้ว (ไม่ได้เพิ่ม logic ใหม่ แค่เรียกใช้ของเดิม)
  * ฟังก์ชันนี้ไม่แตะ/ไม่แก้ RoundService.gs แม้แต่บรรทัดเดียว เป็นแค่ตัวประสานงาน
  * (coordinator) เหมือนที่ actionCheckin_ ประสานงาน Journey กับ Score อยู่แล้ว */
-function resolveCurrentRoundId_(userId, displayName) {
+function resolveCurrentRoundId_(userId, firstName) {
   const existing = actionGetRound_({ userId: userId })
   if (existing.success && existing.round && normalize_(existing.round.status) === 'Started') {
     return existing.round.roundId
   }
 
   const newRoundId = Utilities.getUuid()
-  actionRoundStart_({ roundId: newRoundId, userId: userId, displayName: displayName })
+  actionRoundStart_({ roundId: newRoundId, userId: userId, firstName: firstName })
   return newRoundId
 }
 
@@ -51,7 +51,7 @@ function requireCheckinFields_(payload) {
 
 /**
  * action 'checkin' — เรียกตอนสแกน QR ที่ฐานสำเร็จ
- * Payload: { userId, displayName, stationId, stationName, point }
+ * Payload: { userId, firstName, stationId, stationName, point }
  *   - point ไม่บังคับส่งมา (default 0 ถ้าไม่ส่ง) เป็นคะแนนของ "ฐานนี้ฐานเดียว"
  *
  * Flow:
@@ -70,7 +70,7 @@ function actionCheckin_(payload) {
   const journeySheet = getJourneySheet_()
   const userId = normalize_(payload.userId)
   const stationId = normalize_(payload.stationId)
-  const roundId = resolveCurrentRoundId_(userId, payload.displayName)
+  const roundId = resolveCurrentRoundId_(userId, payload.firstName)
 
   if (hasVisitedStation_(journeySheet, userId, stationId, roundId)) {
     return { success: true, alreadyVisited: true }
@@ -83,7 +83,7 @@ function actionCheckin_(payload) {
     timestamp: now,
     roundId: roundId,
     userId: userId,
-    displayName: payload.displayName,
+    firstName: payload.firstName,
     stationId: stationId,
     stationName: payload.stationName,
     point: point,
@@ -91,7 +91,7 @@ function actionCheckin_(payload) {
   })
 
   const scoreSheet = getScoreSheet_()
-  const score = upsertScore_(scoreSheet, userId, payload.displayName, point, 1, now)
+  const score = upsertScore_(scoreSheet, userId, payload.firstName, point, 1, now)
 
   return { success: true, alreadyVisited: false, journeyEntry: journeyEntry, score: score }
 }

@@ -24,6 +24,7 @@ const {
   totalStations,
   visitedCount,
   totalPoint,
+  visitedIds,
   isVisited,
   initAdventure,
 } = useAdventure();
@@ -118,7 +119,11 @@ function goToMapPage() {
       <!-- Mini Adventure Map: แผนที่อ้างอิงตำแหน่งฐานย่อ ๆ ไม่มี Progress/สถานะผ่านฐาน
            (ดูสรุปเข้าฐานแล้ว/Point ได้จาก Summary Card ด้านบนแทน) กดทั้ง Card
            เพื่อไปหน้า Map เต็ม -->
-      <MiniMap :stations="stations" @open="goToMapPage" />
+      <MiniMap
+        :stations="stations"
+        :visited-ids="visitedIds"
+        @open="goToMapPage"
+      />
     </div>
   </div>
 </template>
