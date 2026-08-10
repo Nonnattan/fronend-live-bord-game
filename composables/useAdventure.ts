@@ -310,7 +310,17 @@ export function useAdventure() {
 
     isSyncingFromBackend.value = true
     try {
-      const { getJourney, getScore } = useMemberApi()
+      const { getRound, getJourney, getScore } = useMemberApi()
+
+      // [Fix] ดึง Round ปัจจุบัน (สด ๆ จาก backend เหมือน pages/profile.vue ทำอยู่
+      // แล้ว) มาก่อนเสมอ เพื่อใช้กรอง Journey ให้เหลือเฉพาะ "รอบปัจจุบัน" เท่านั้น
+      // ก่อนหน้านี้ getJourney(userId) คืนประวัติฐาน "ทุก Round ที่เคยเล่นมาทั้งหมด"
+      // มา merge ตรง ๆ ทำให้หลังจบเกม+เริ่มรอบใหม่ (RoundId ใหม่) ฐานทั้ง 4 จะติด
+      // สถานะ "ผ่านแล้ว" ค้างมาจากรอบก่อนทันที สแกนฐานในรอบใหม่ไม่ได้เลยสักฐาน —
+      // ไม่มีการลบ/แก้ Journey/Round เก่าใน Database ใด ๆ ทั้งสิ้น แค่กรองฝั่งอ่านเท่านั้น
+      const roundRes = await getRound(userId).catch(() => null)
+      const currentRoundId =
+        roundRes?.success && roundRes.round?.status === 'Started' ? roundRes.round.roundId : null
 
       const [journeyRes, scoreRes] = await Promise.all([
         getJourney(userId).catch(() => null),
@@ -318,7 +328,12 @@ export function useAdventure() {
       ])
 
       if (journeyRes?.success && journeyRes.journey) {
-        const backendVisited = journeyRes.journey.map((entry) => entry.stationId)
+        // ไม่มี Round ที่ยัง Started อยู่เลย (เช่นเพิ่งกด "จบเกม" ไป ยังไม่ทัน
+        // สร้าง Round ใหม่) -> ไม่ merge ฐานใด ๆ จาก backend เพิ่ม (currentRoundId
+        // เป็น null จะกรองได้ array ว่างเสมอ เพราะ entry.roundId ไม่มีทาง === null)
+        // ป้องกัน fallback แบบเดิมที่เอาประวัติทุก Round มา merge รวมกัน
+        const scopedJourney = journeyRes.journey.filter((entry) => entry.roundId === currentRoundId)
+        const backendVisited = scopedJourney.map((entry) => entry.stationId)
         // merge กับของเดิมในเครื่อง กันเคส "เพิ่งสแกนฐานใหม่แต่ queue ยังไม่ทัน sync"
         const merged = Array.from(new Set([...visitedIds.value, ...backendVisited]))
         visitedIds.value = merged
@@ -343,9 +358,19 @@ export function useAdventure() {
     persist(next)
   }
 
+  /**
+   * [Fix] ตอนนี้เรียกจริงตอนกด "จบเกม" ที่ฐานนม (ดู pages/scan.vue ->
+   * endGameAfterFinalStation) — เดิมฟังก์ชันนี้มีอยู่แล้วแต่ไม่เคยถูกเรียกใช้ที่ไหน
+   * เลยสักจุด ทำให้ฐานที่ผ่านแล้ว/คะแนน ค้างอยู่ในเครื่องข้ามรอบ (Round เปลี่ยนไปแล้ว
+   * แต่ Client state ไม่รีเซ็ต) เพิ่ม backendTotalPoint = null (เดิมไม่รีเซ็ต) ด้วย
+   * เพื่อเคลียร์คะแนนที่ cache ไว้จากรอบก่อน ให้รอบใหม่คำนวณคะแนนใหม่ทั้งหมด
+   * ไม่มีการลบ/แก้ข้อมูลใน Database ใด ๆ ทั้งสิ้น — ล้างแค่ LocalStorage/State ฝั่ง
+   * เครื่องนี้เท่านั้น (Round/Journey/Score เก่าในชีตยังอยู่ครบเหมือนเดิม)
+   */
   function resetJourney(): void {
     visitedIds.value = []
     persist([])
+    backendTotalPoint.value = null
   }
 
   return {

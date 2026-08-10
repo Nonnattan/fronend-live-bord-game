@@ -11,6 +11,13 @@
  *
  * ข้อมูลหลักมาจาก "Journey ของ Round ปัจจุบัน" เท่านั้น (กรอง roundId ฝั่งผู้เรียก
  * มาให้แล้ว) แสดงสถานะ 4 ฐานตายตัวตามสเปก: ข้าวโพด / วัว / ดิน / นม
+ *
+ * [Fix] เพิ่ม 3 อย่างตามสเปก Profile Card: ฐานปัจจุบัน (currentStationName),
+ * เวลาเริ่ม Round (startTime), เวลาจบ Round (endTime) — รับมาเป็น props ล้วน ๆ
+ * เหมือนเดิม (Presentational component ไม่มี logic/เรียก API เอง) ฝั่ง
+ * pages/profile.vue เป็นผู้คำนวณ/ดึงข้อมูลจริงทั้งหมด ส่วน "point" เปลี่ยนความหมาย
+ * จากคะแนนสะสมทั้งชีวิตเดิม เป็นคะแนนสะสม "ของ Round นี้เท่านั้น" ตามสเปก (ดู
+ * pages/profile.vue::loadOnlineSummary สำหรับที่มาของค่าที่ส่งเข้ามา)
  */
 
 export interface OnlineStationStatus {
@@ -25,8 +32,14 @@ const props = defineProps<{
   roundStatus: 'Started' | 'Ended' | null
   /** สถานะทั้ง 4 ฐาน เรียงลำดับตายตัว: ข้าวโพด -> วัว -> ดิน -> นม */
   stations: OnlineStationStatus[]
-  /** คะแนนสะสมปัจจุบัน — null = API เดิมยังไม่รองรับ/ดึงไม่สำเร็จ (ซ่อนแถวนี้) */
+  /** ฐานล่าสุดที่ผ่านในรอบนี้ — null = ยังไม่ผ่านฐานไหนเลยในรอบนี้ */
+  currentStationName: string | null
+  /** คะแนนสะสม "ของ Round นี้" เท่านั้น — null = ยังไม่มี Round เลย/API ดึงไม่สำเร็จ (ซ่อนแถวนี้) */
   point: number | null
+  /** เวลาเริ่ม Round (ISO string จาก server-gas) — null = ยังไม่มี Round เลย */
+  startTime: string | null
+  /** เวลาจบ Round — null = Round ยังไม่จบ/ยังไม่มี Round เลย */
+  endTime: string | null
   loading: boolean
   /** ดึงข้อมูลครั้งล่าสุดไม่สำเร็จ (ออนไลน์แต่ API ล่ม) — ไม่ใช่ Offline Mode */
   error: boolean
@@ -44,6 +57,15 @@ const statusLabel = computed(() => {
 })
 
 const statusColor = computed(() => (props.roundStatus === 'Ended' ? 'neutral' : 'success'))
+
+/** แปลง ISO string จาก Backend เป็นรูปแบบวัน-เวลาไทยอ่านง่าย — คืนค่า '-' ถ้าไม่มี
+ * ค่า/แปลงไม่ได้ (เช่นยังไม่จบ Round เลยไม่มี endTime) */
+function formatDateTime(value: string | null): string {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  return date.toLocaleString('th-TH')
+}
 </script>
 
 <template>
@@ -85,9 +107,24 @@ const statusColor = computed(() => (props.roundStatus === 'Ended' ? 'neutral' : 
       </li>
     </ul>
 
+    <div class="online-summary-card__row">
+      <span class="online-summary-card__label">ฐานปัจจุบัน</span>
+      <span class="online-summary-card__value">{{ props.currentStationName ?? 'ยังไม่เริ่มเล่น' }}</span>
+    </div>
+
     <div v-if="props.point !== null" class="online-summary-card__row">
-      <span class="online-summary-card__label">คะแนนสะสม</span>
+      <span class="online-summary-card__label">คะแนนสะสม (รอบนี้)</span>
       <span class="online-summary-card__value">{{ props.point }}</span>
+    </div>
+
+    <div class="online-summary-card__row">
+      <span class="online-summary-card__label">เวลาเริ่ม Round</span>
+      <span class="online-summary-card__value">{{ formatDateTime(props.startTime) }}</span>
+    </div>
+
+    <div class="online-summary-card__row">
+      <span class="online-summary-card__label">เวลาจบ Round</span>
+      <span class="online-summary-card__value">{{ formatDateTime(props.endTime) }}</span>
     </div>
 
     <p v-if="props.error" class="online-summary-card__error">

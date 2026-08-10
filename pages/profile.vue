@@ -42,14 +42,16 @@ const remainingStationNames = computed(() => {
 
 /**
  * Online Game Summary Card (ใหม่) — สรุปการเล่นแบบ "ออนไลน์" ใต้ Profile Card
- * reuse API/Service เดิมทั้งหมดผ่าน useMemberApi() (getRound/getJourney/getScore)
- * ไม่แตะ Map/QR/Journey(useJourney.ts)/Round(useRound.ts) หรือ Offline Mode เลย
+ * reuse API/Service เดิมทั้งหมดผ่าน useMemberApi() (getRound/getJourney) — [Fix]
+ * ไม่ใช้ getScore() (คะแนนสะสมทั้งชีวิต) แล้ว เพราะสเปก Profile Card ต้องการ
+ * "คะแนนสะสมของ Round" เท่านั้น ซึ่งคำนวณจาก Journey ที่กรอง roundId ด้านล่างได้
+ * อยู่แล้วโดยไม่ต้องยิง API เพิ่ม ไม่แตะ Map/QR/Journey(useJourney.ts)/Round(useRound.ts) หรือ Offline Mode เลย
  * ห้ามใช้ข้อมูล Offline (roundData/OfflineSummaryCard ด้านบน) มาแสดงในการ์ดนี้
  * เด็ดขาดตามสเปก — ข้อมูลหลักคือ "Journey ของ Round ปัจจุบัน" (กรองด้วย roundId
  * ที่ได้จาก getRound() สด ๆ ทุกครั้งที่โหลด ไม่ใช่แค่ currentRoundId ในหน่วยความจำ
  * ของ useRound() เพราะอยากได้ Status ล่าสุดจริงจาก Sheet เสมอ)
  */
-const { getRound, getJourney, getScore } = useMemberApi()
+const { getRound, getJourney } = useMemberApi()
 
 /** ลำดับ+ชื่อฐานตายตัวตามสเปก (ข้าวโพด -> วัว -> ดิน -> นม) — ดึงชื่อจริงจาก
  * useAdventure().stations (ผูกกับชีต "Stations" ผ่าน listStations() อยู่แล้ว)
@@ -59,7 +61,17 @@ const ONLINE_STATION_TYPES: StationType[] = ['corn', 'cow', 'soil', 'milk']
 
 const onlineRoundStatus = ref<'Started' | 'Ended' | null>(null)
 const onlineDoneStationIds = ref<Set<string>>(new Set())
-const onlinePoint = ref<number | null>(null)
+// [Fix] เปลี่ยนจากคะแนนสะสม "ทั้งชีวิต" (เดิมดึงจาก getScore()/ชีต Score ซึ่งรวม
+// ทุก Round ที่เคยเล่นมา) เป็นคะแนนสะสม "ของ Round ปัจจุบันเท่านั้น" ตามสเปก Profile
+// Card — คำนวณจากผลรวม Point ของ Journey ที่กรอง roundId ตรงกับ Round ปัจจุบันแล้ว
+// (ข้อมูลเดียวกับที่ใช้นับ onlineDoneStationIds ด้านล่าง ไม่ต้องยิง API เพิ่ม)
+const onlineRoundScore = ref<number | null>(null)
+/** ฐานล่าสุดที่สแกนผ่านในรอบปัจจุบัน (เรียงตาม Timestamp) — null = ยังไม่ผ่านฐานไหนเลย */
+const onlineCurrentStationName = ref<string | null>(null)
+/** เวลาเริ่ม/จบ Round ปัจจุบัน — มาจาก RoundEntry.startTime/endTime ตรง ๆ (ของเดิมที่
+ * server-gas ส่งมาอยู่แล้วทุกครั้ง แค่ไม่เคยถูกนำมาแสดงผลในหน้านี้) */
+const onlineRoundStartTime = ref<string | null>(null)
+const onlineRoundEndTime = ref<string | null>(null)
 const onlineSummaryLoading = ref(false)
 const onlineSummaryError = ref(false)
 const onlineSummaryLoaded = ref(false)
@@ -89,24 +101,38 @@ async function loadOnlineSummary(): Promise<void> {
 
     const round = roundRes.round ?? null
     onlineRoundStatus.value = round ? (round.status === 'Ended' ? 'Ended' : 'Started') : null
+    onlineRoundStartTime.value = round?.startTime ?? null
+    onlineRoundEndTime.value = round?.endTime ?? null
 
     if (!round) {
       onlineDoneStationIds.value = new Set()
+      onlineRoundScore.value = null
+      onlineCurrentStationName.value = null
     } else {
       const journeyRes = await getJourney(memberId)
       if (journeyRes.success && journeyRes.journey) {
-        onlineDoneStationIds.value = new Set(
-          journeyRes.journey
-            .filter((entry) => entry.roundId === round.roundId)
-            .map((entry) => entry.stationId),
-        )
+        // Journey เฉพาะของ "Round ปัจจุบัน" นี้เท่านั้น (roundId ตรงกัน) — Journey/
+        // Round เก่าของรอบก่อน ๆ ยังอยู่ครบใน Database เหมือนเดิมทุกประการ แค่ไม่ถูก
+        // นำมาปนกับการ์ดของรอบนี้ (ดู composables/useAdventure.ts::refreshFromBackend
+        // ที่แก้ไขจุดเดียวกันแบบเดียวกัน)
+        const roundJourney = journeyRes.journey.filter((entry) => entry.roundId === round.roundId)
+
+        onlineDoneStationIds.value = new Set(roundJourney.map((entry) => entry.stationId))
+
+        // คะแนนสะสม "ของ Round นี้" = ผลรวม Point ของ Journey ที่กรองไว้ด้านบน
+        onlineRoundScore.value = roundJourney.reduce((sum, entry) => sum + (Number(entry.point) || 0), 0)
+
+        // ฐานปัจจุบัน = ฐานล่าสุดที่สแกนผ่าน (Timestamp มากที่สุด) ในรอบนี้
+        const latestEntry = [...roundJourney].sort(
+          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+        ).at(-1)
+        onlineCurrentStationName.value = latestEntry?.stationName ?? null
       } else {
         onlineDoneStationIds.value = new Set()
+        onlineRoundScore.value = 0
+        onlineCurrentStationName.value = null
       }
     }
-
-    const scoreRes = await getScore(memberId)
-    onlinePoint.value = scoreRes.success && scoreRes.score ? scoreRes.score.totalPoint : null
 
     onlineSummaryLoaded.value = true
   } catch {
@@ -243,7 +269,10 @@ async function handleResetForTesting() {
         v-if="!isOfflineMode"
         :round-status="onlineRoundStatus"
         :stations="onlineStations"
-        :point="onlinePoint"
+        :current-station-name="onlineCurrentStationName"
+        :point="onlineRoundScore"
+        :start-time="onlineRoundStartTime"
+        :end-time="onlineRoundEndTime"
         :loading="onlineSummaryLoading"
         :error="onlineSummaryError"
         @refresh="loadOnlineSummary"

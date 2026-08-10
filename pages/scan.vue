@@ -56,7 +56,7 @@ const STATION_CODE_MAP: Record<string, StationType> = {
 /** ฐานสุดท้ายของเส้นทาง — ผ่านฐานนี้แล้วให้ลอง Sync ขึ้น Google Sheet ทันที (ถ้ามีเน็ต) */
 const FINAL_STATION_ID: StationType = "milk";
 
-const { stations, isVisited, isComplete, toggleStation, initAdventure } =
+const { stations, isVisited, isComplete, toggleStation, initAdventure, resetJourney } =
   useAdventure();
 const {
   isOnline,
@@ -330,12 +330,21 @@ function continuePlayingAfterFinalStation(): void {
 /** ปุ่ม "จบเกม" ของ Popup ฐานนม — ปิด Round ปัจจุบันด้วย roundEnd() (RoundId เดิม,
  * reuse composables/useRound.ts) ก่อนออกจากหน้า แล้วค่อยทำ UI/action เดิมต่อ
  * (ปิดกล้องด้วย stopCamera() เดิม + เด้งกลับหน้าแรกด้วย navigateTo ปกติของ Nuxt)
- * ไม่แตะ Logic การสแกน/กล้อง/Map/Journey อื่นใดในไฟล์นี้เลยนอกจากบรรทัด roundEnd นี้ */
+ *
+ * [Fix] เพิ่ม resetJourney() (ของเดิมใน composables/useAdventure.ts ที่มีอยู่แล้ว
+ * แต่ไม่เคยถูกเรียกใช้ที่ไหนเลย) — ล้างสถานะ "ฐานที่ผ่านแล้ว/คะแนน" ฝั่งเครื่องนี้
+ * ทั้งหมด เพื่อให้เริ่มเล่น "รอบใหม่" ได้ทันที (ไม่ต้องรอกลับมาหน้านี้ใหม่) ไม่แตะ/
+ * ไม่ลบข้อมูล Round หรือ Journey เดิมใน Database เลยแม้แต่บรรทัดเดียว — Round เดิม
+ * ยังถูกปิดด้วย roundEnd() (RoundId เดิม) ตามปกติ ส่วน Round/Journey ใหม่ของรอบถัดไป
+ * (RoundId ใหม่ = "timesection" ใหม่ แยกจากรอบเก่า) จะถูกสร้างให้อัตโนมัติทันทีที่
+ * เข้าหน้า Home/Map/Scan หน้าใดหน้าหนึ่ง ผ่าน ensureRoundStarted() เดิม (ดู
+ * composables/useRequireProfile.ts) ไม่ต้องเพิ่ม logic ใหม่ตรงนี้เลย */
 async function endGameAfterFinalStation(): Promise<void> {
   finalPopupOpen.value = false;
   resetScanResult();
   if (!isOfflineMode.value && profile.value?.memberId) {
     await endCurrentRound(profile.value.memberId);
+    resetJourney();
   }
   await stopCamera();
   await navigateTo("/home");
