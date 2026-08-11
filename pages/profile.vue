@@ -265,7 +265,7 @@ async function handleResetForTesting() {
            เท่านั้น (ห้ามใช้ Offline data แทน Online data ตามสเปก) ข้อมูลหลักคือ
            Journey ของ Round ปัจจุบัน ดึงสด ๆ จาก server-gas ทุกครั้งที่หน้านี้
            mount/กลับมา active หรือกดปุ่มรีเฟรชในการ์ด -->
-      <OnlineSummaryCard
+      <!-- <OnlineSummaryCard
         v-if="!isOfflineMode"
         :round-status="onlineRoundStatus"
         :stations="onlineStations"
@@ -276,7 +276,7 @@ async function handleResetForTesting() {
         :loading="onlineSummaryLoading"
         :error="onlineSummaryError"
         @refresh="loadOnlineSummary"
-      />
+      /> -->
 
       <!-- Offline Mode (ใหม่, ข้อ 11): Card สรุปการเล่นแบบออฟไลน์ ใต้ Profile Card
            เดิม — แสดงเฉพาะตอนมีข้อมูลรอบ Offline Mode อยู่จริงใน LocalStorage

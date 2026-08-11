@@ -244,6 +244,13 @@ export interface CheckinPayload {
   stationName?: string
   point?: number
   clientId?: string
+  /** [Fix] roundId ที่ Frontend LocalStorage เป็นเจ้าของอยู่ตอน queue รายการนี้
+   * (ดู composables/useOfflineSync.ts -> PendingCheckin.roundId) — ต้องส่งมาเสมอ
+   * เพื่อให้ server-gas ผูก Journey entry เข้ากับ Round "ที่ถูกต้องตอนสแกนจริง"
+   * ไม่ใช่เดาเอาจาก Round ที่ Active ล่าสุด ณ ตอน sync (ดู resolveCurrentRoundId_ ใน
+   * server-gas/CheckinService.gs) — ป้องกันเคส sync ช้า/ค้างคิวข้าม Round แล้วฐาน
+   * ของรอบเก่าไปโผล่ในรอบใหม่ */
+  roundId?: string
 }
 
 interface MemberPayload extends IdentityValues, DemographicValues {

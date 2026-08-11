@@ -56,8 +56,14 @@ const STATION_CODE_MAP: Record<string, StationType> = {
 /** ฐานสุดท้ายของเส้นทาง — ผ่านฐานนี้แล้วให้ลอง Sync ขึ้น Google Sheet ทันที (ถ้ามีเน็ต) */
 const FINAL_STATION_ID: StationType = "milk";
 
-const { stations, isVisited, isComplete, toggleStation, initAdventure, resetJourney } =
-  useAdventure();
+const {
+  stations,
+  isVisited,
+  isComplete,
+  toggleStation,
+  initAdventure,
+  totalPoint,
+} = useAdventure();
 const {
   isOnline,
   hasPending,
@@ -70,12 +76,16 @@ const {
 // Offline Mode (ใหม่): ถ้า Session นี้ถูกล็อกเข้า Offline Mode ไว้แล้ว ห้ามแตะ
 // ระบบ Online/Sync เดิมข้างบนเลยสักฟังก์ชัน (queueCheckin/syncNow) — ใช้ log
 // ของตัวเองแยกต่างหากแทน (ดู composables/useOfflineMode.ts)
-const { isOfflineMode, logStationScan, endRound } = useOfflineMode();
+const { isOfflineMode, logStationScan, endRound, roundData } =
+  useOfflineMode();
+// [Fix] หน้าสรุปผลหลังจบเกม (ดู pages/round-summary.vue) — ใช้เก็บ "สำเนา"
+// เวลาที่เริ่ม/จบ + ฐานที่เล่น + คะแนนรวมของรอบนี้ ไว้ก่อน resetJourney() ล้างทิ้ง
+const { saveRoundSummary } = useRoundSummary();
 // Online Round (ใหม่): ใช้เฉพาะปุ่ม "จบเกม" ของ Popup ฐานนมด้านล่าง (endGameAfterFinalStation)
 // เพื่อปิด Round ปัจจุบันด้วย roundEnd() — reuse composables/useRound.ts ที่จัดการ
 // Round ทั้งหมดอยู่แล้ว (roundStart ถูกเรียกไปแล้วครั้งเดียวตอน useRequireProfile guard
 // ทำงาน ไม่เกี่ยวกับหน้านี้) ไม่แตะ Logic การสแกน/กล้อง/Map/Journey อื่นใดในไฟล์นี้เลย
-const { endCurrentRound } = useRound();
+const { endCurrentRound, ensureRoundStarted } = useRound();
 
 type CheckinFeedbackKind = "success" | "duplicate" | "invalid";
 const checkinFeedback = ref<{ kind: CheckinFeedbackKind; text: string } | null>(
@@ -253,6 +263,17 @@ async function completeStationVisit(stationId: StationType): Promise<void> {
     return;
   }
 
+  // [Fix — เปิด Round ตรงนี้เท่านั้น] ตามสเปก "Scan ฐานแรกเท่านั้นที่เปิด Round" —
+  // ต้องรอให้ยืนยันแล้วว่านี่คือฐานที่ยังไม่เคยผ่าน (ผ่านเงื่อนไข isVisited ด้านบน
+  // มาแล้ว) ก่อนค่อยเปิด Round เสมอ ไม่เปิดตอน Login/เข้าหน้า Home/Map เฉย ๆ อีก
+  // ต่อไป (ย้ายออกจาก composables/useRequireProfile.ts มาไว้ที่นี่แทน) —
+  // ensureRoundStarted() เองมี logic กันเรียกซ้ำอยู่แล้ว (ดู composables/useRound.ts)
+  // ฐานที่ 2-4 ของรอบเดียวกันเรียกซ้ำได้อย่างปลอดภัย จะไม่สร้าง Round ใหม่ซ้ำ —
+  // ไม่เรียกตอน Offline Mode (ไม่มี Round ฝั่ง Backend ให้เปิดอยู่แล้ว)
+  if (!isOfflineMode.value && profile.value?.memberId) {
+    await ensureRoundStarted(profile.value.memberId, profile.value.firstName);
+  }
+
   // บันทึกลง LocalStorage ก่อนเสมอ (Offline First) — ไม่ยิง Google Sheet ตรงนี้
   toggleStation(stationId);
 
@@ -272,6 +293,50 @@ async function completeStationVisit(stationId: StationType): Promise<void> {
     };
     if (isComplete.value) {
       endRound();
+      // [Fix] จบเกมแล้ว (ครบ 4 ฐาน) ฝั่ง Offline — เก็บสรุปผล (ห้ามมีคะแนน ตาม
+      // กติกา Offline Mode เดิม) แล้วปิดกล้อง/พาไปหน้า /round-summary เหมือนฝั่ง
+      // Online ทุกประการ (ดู endGameAfterFinalStation ด้านล่าง) จากนั้นรีเซ็ต
+      // สถานะฐานที่ผ่านแล้วในเครื่องกลับเป็น 0 ให้พร้อมเล่นรอบถัดไปทันที
+      //
+      // [Fix — root cause ของ "กด จบเกม แล้วไม่ไปหน้า /round-summary"] เดิม
+      // saveRoundSummary()/resetJourney() ไม่ได้ครอบ try/catch เลย — ถ้า throw
+      // (เช่น LocalStorage เต็ม/Private Browsing) จะทำให้ stopCamera()/navigateTo()
+      // ด้านล่าง "ไม่ถูกเรียกเลย" (unhandled rejection เงียบ ๆ ไม่มี UI แจ้ง) ครอบ
+      // try/finally ไว้ที่นี่: ไม่ว่าขั้นตอนเก็บสรุปผลจะสำเร็จหรือไม่ ก็ต้องปิดกล้อง
+      // + navigateTo('/round-summary') เสมอใน finally (saveRoundSummary() เองก็ถูก
+      // แก้ให้ไม่ throw แล้วเช่นกัน — ดู composables/useRoundSummary.ts — ที่นี่ครอบ
+      // อีกชั้นเผื่อ error อื่นที่ไม่คาดคิดจากโค้ดรอบข้าง)
+      try {
+        const playedStations = (roundData.value?.stations ?? [])
+          .slice()
+          .sort((a, b) => a.order - b.order)
+          .map((s) => ({ name: s.stationName, points: 0 }));
+        saveRoundSummary({
+          mode: "offline",
+          startTime: roundData.value?.startedAt
+            ? new Date(roundData.value.startedAt).toISOString()
+            : null,
+          endTime: new Date(
+            roundData.value?.endedAt ?? Date.now(),
+          ).toISOString(),
+          stations: playedStations,
+          totalPoint: null,
+        });
+        // [Fix — ตามสเปก "หลังจบเกมห้ามล้างข้อมูลก่อนหน้า /round-summary"]
+        // resetJourney()/startRound() รอบใหม่ "ย้ายออกไป" ที่ปุ่ม "ติดต่อเจ้าหน้าที่
+        // แล้ว / กลับสู่หน้าหลัก" ของหน้า /round-summary แทน (ดู
+        // pages/round-summary.vue -> confirmAndGoHome()) — ที่นี่ทำแค่เก็บสรุปผล
+        // (saveRoundSummary) แล้วพาไปหน้า /round-summary เท่านั้น ไม่ล้าง Current
+        // Round Frontend ใด ๆ ก่อนหน้านั้นอีกต่อไป
+      } catch (err) {
+        console.error(
+          "[completeStationVisit] failed to build offline round summary",
+          err,
+        );
+      } finally {
+        await stopCamera();
+        await navigateTo("/round-summary");
+      }
     }
     return;
   }
@@ -338,16 +403,109 @@ function continuePlayingAfterFinalStation(): void {
  * ยังถูกปิดด้วย roundEnd() (RoundId เดิม) ตามปกติ ส่วน Round/Journey ใหม่ของรอบถัดไป
  * (RoundId ใหม่ = "timesection" ใหม่ แยกจากรอบเก่า) จะถูกสร้างให้อัตโนมัติทันทีที่
  * เข้าหน้า Home/Map/Scan หน้าใดหน้าหนึ่ง ผ่าน ensureRoundStarted() เดิม (ดู
- * composables/useRequireProfile.ts) ไม่ต้องเพิ่ม logic ใหม่ตรงนี้เลย */
+ * composables/useRequireProfile.ts) ไม่ต้องเพิ่ม logic ใหม่ตรงนี้เลย
+ *
+ * [Fix] ก่อน resetJourney() ล้างสถานะทิ้ง — เก็บ "สำเนา" ของรอบนี้ไว้ก่อนเสมอ
+ * (เวลาเริ่ม/จบจริงจาก roundEnd(), รายชื่อฐานที่ผ่าน, คะแนนรวม) ผ่าน
+ * useRoundSummary().saveRoundSummary() แล้วพาไปหน้า /round-summary แทน /home
+ * เดิม (ปิดกล้องทันทีเหมือนเดิมด้วย stopCamera()) หน้านั้นจะเป็นคนแสดงผลสรุป +
+ * เตือนไม่ให้ออกจนกว่าจะติดต่อเจ้าหน้าที่ (ดู pages/round-summary.vue) — คะแนน
+ * ระหว่างเล่น (ก่อนจบเกม) ไม่โชว์ที่หน้า Home อีกต่อไปแล้ว (ดู pages/home.vue)
+ *
+ * [Fix — root cause ของ "กด จบเกม แล้วไม่ไปหน้า /round-summary"] เดิม
+ * saveRoundSummary()/endCurrentRound()/resetJourney() ไม่ได้ครอบ try/catch เลย
+ * สักจุด — ถ้าขั้นตอนไหน throw (พบว่า saveRoundSummary() เดิม throw ได้จริงจาก
+ * localStorage.setItem() ที่ไม่มี try/catch — ดู composables/useRoundSummary.ts —
+ * เช่นตอน Safari Private Browsing หรือพื้นที่เก็บข้อมูลเต็มบนเครื่องที่ใช้เล่นเกม
+ * กลางแจ้ง) ฟังก์ชัน async นี้จะหยุดทำงานเงียบ ๆ กลางคัน (unhandled rejection ไม่มี
+ * UI แจ้งเตือน) ทำให้ stopCamera()/navigateTo('/round-summary') "ไม่ถูกเรียกเลย"
+ * ทั้งที่ finalPopupOpen.value = false ไปแล้วตั้งแต่บรรทัดแรก (Popup เลยดูเหมือน
+ * ปิดไปเฉย ๆ ไม่เกิดอะไรต่อ) — แก้โดยครอบ try/finally: ไม่ว่าขั้นตอนเก็บสรุปผล/
+ * ปิด Round จะสำเร็จหรือไม่ ก็ต้องปิดกล้อง + navigateTo('/round-summary') เสมอใน
+ * finally (saveRoundSummary() เองก็แก้ให้ไม่ throw แล้วเช่นกัน ที่นี่ครอบอีกชั้น
+ * เผื่อ error อื่นที่ไม่คาดคิดจาก endCurrentRound()/resetJourney()) */
+const isEndingGame = ref(false);
 async function endGameAfterFinalStation(): Promise<void> {
+  // กันกด "จบเกม" ซ้ำเร็ว ๆ (ดับเบิลคลิก/แตะซ้อน) ยิง navigateTo ซ้อนกัน
+  if (isEndingGame.value) return;
+  isEndingGame.value = true;
+
   finalPopupOpen.value = false;
   resetScanResult();
-  if (!isOfflineMode.value && profile.value?.memberId) {
-    await endCurrentRound(profile.value.memberId);
-    resetJourney();
+
+  try {
+    const playedStations = stations.value
+      .filter((s) => isVisited(s.id))
+      .map((s) => ({ name: s.name, points: s.points ?? POINTS_PER_STATION }));
+    const roundTotalPoint = totalPoint.value;
+
+    let startTimeIso: string | null = null;
+    let endTimeIso = new Date().toISOString();
+
+    if (!isOfflineMode.value && profile.value?.memberId) {
+      // [Fix — root cause ของ "มือถือกลับ Home แล้วเป็น 1/4 ฐานนมยัง ✓"] เดิมฐาน
+      // ที่ผ่านระหว่างเล่น (queueCheckin) จะถูกลอง Sync ขึ้น Google Sheet แค่ครั้งเดียว
+      // ตอนสแกนผ่านฐานนมสำเร็จ (บรรทัด "await runSync()" ด้านบนใน completeStationVisit)
+      // ถ้าจังหวะนั้นเน็ตมือถือกระตุก/หลุดชั่วคราว (พบบ่อยกว่าฝั่งคอม/Wi-Fi) จะมีบางฐาน
+      // ค้างอยู่ใน queue (useOfflineSync -> pendingCheckins) โดยไม่มีการลองใหม่อีกจนกว่า
+      // จะถึงรอบ Retry อัตโนมัติ 45 วินาที (plugins/offline-sync.client.ts) — resetJourney()
+      // ด้านล่างล้างแค่ visitedIds/roundId ของรอบนี้ในเครื่อง แต่ "ไม่ได้แตะ queue ค้างนี้เลย"
+      // พอผู้เล่นกด "กลับ Home" แล้วรอบใหม่เริ่มไปแล้ว (Round ใหม่บน backend) ตัว Retry 45
+      // วินาทีค่อยส่งฐานที่ค้างขึ้นชีตสำเร็จทีหลัง — แต่ server (resolveCurrentRoundId_ ใน
+      // CheckinService.gs) ผูกฐานนั้นเข้ากับ "Round ที่ Active อยู่ ณ ตอนนั้น" เสมอ (ไม่รู้จัก
+      // Round เดิมที่ค้างแล้ว) เลยกลายเป็นฐานของรอบเก่าไปโผล่ในรอบใหม่แทน แล้ว
+      // refreshFromBackend() (ที่ syncNow() เรียกต่อท้ายเสมอ) ก็ merge กลับเข้า visitedIds
+      // ของรอบใหม่ให้ถูกต้องตามข้อมูล backend จริง (Merge ถูก Logic) แต่ข้อมูลตั้งต้นผิดตั้งแต่
+      // ชั้น Sync แล้ว — หน้า Home เลยเห็นฐานนม (หรือฐานอื่นที่ค้าง sync) ติ๊ก ✓ ค้างมาทั้งที่
+      // เพิ่งกด "จบเกม"/reset ไปหมาดๆ
+      //
+      // แก้ที่ต้นเหตุ: บังคับให้ลอง Sync queue ที่เหลือ "อีกครั้ง" ตรงนี้ (ก่อน endCurrentRound()
+      // ปิด Round) ขณะที่ Round เดิมยังคง Active อยู่บน backend เสมอ — ให้ฐานที่ค้างจาก
+      // ความกระตุกของเน็ตช่วงสแกนฐานนม มีโอกาสถูกผูกเข้ากับ Round เดิมที่ถูกต้องก่อนที่ Round
+      // จะปิดจริง ปิดช่องโหว่จังหวะ (race) ที่ทำให้ฐานเก่าไปโผล่ในรอบใหม่ได้เกือบทั้งหมด (เน็ต
+      // มือถือหลุดแค่ชั่วครู่ระหว่างสแกน มักจะกลับมาใช้ได้แล้วภายในไม่กี่วินาทีที่ผู้เล่นกด "จบเกม")
+      // ไม่ยิงซ้ำถ้าไม่มีอะไรค้างอยู่แล้ว (syncNow() เช็ค pendingCheckins ว่างแล้ว return
+      // ทันทีโดยไม่ทำอะไรต่อ) และไม่แตะ Logic คะแนน/การคำนวณใด ๆ ใน Google Sheet เลย — ใช้
+      // ฟังก์ชัน syncNow() เดิมที่มีอยู่แล้วเท่านั้น
+      if (isOnline.value) {
+        await runSync();
+      }
+
+      const endedRound = await endCurrentRound(profile.value.memberId);
+      if (endedRound) {
+        startTimeIso = endedRound.startTime || null;
+        endTimeIso = endedRound.endTime || endTimeIso;
+      }
+      // [Fix — ตามสเปก "หลังจบเกมห้ามล้างข้อมูลก่อนหน้า /round-summary"] resetJourney()
+      // "ย้ายออกไป" ที่ปุ่ม "ติดต่อเจ้าหน้าที่แล้ว / กลับสู่หน้าหลัก" ของหน้า
+      // /round-summary แทน (ดู confirmAndGoHome() ในไฟล์นั้น) — endCurrentRound()
+      // ด้านบนยังปิด Round ฝั่ง Backend ทันทีตอนกด "จบเกม" เหมือนเดิมทุกประการ
+      // (แค่ backend Round record ปิด ไม่ใช่ Current Round Frontend state) ส่วน
+      // visitedIds/currentRoundId ฝั่งเครื่องนี้ยังคงอยู่ครบจนกว่าจะกดยืนยันที่หน้า
+      // /round-summary — กันเคส "backend ปิด Round ไปแล้วแต่ Frontend ยังเห็นฐาน
+      // ผ่านครบ" ไม่ตรงกัน โดยยึดว่าหน้า /round-summary อ่านจาก roundSummary:last
+      // (สแนปช็อตที่เก็บไว้ด้านล่างนี้) เท่านั้น ไม่ได้อ่านจาก visitedIds สด ๆ อยู่แล้ว
+    }
+
+    // saveRoundSummary() ต้อง "สำเร็จก่อนเสมอ" ก่อนค่อย navigate ไปหน้า
+    // /round-summary (เก็บข้อมูลรอบนี้ให้ครบก่อนเปลี่ยนหน้าเสมอ)
+    saveRoundSummary({
+      mode: isOfflineMode.value ? "offline" : "online",
+      startTime: startTimeIso,
+      endTime: endTimeIso,
+      stations: playedStations,
+      totalPoint: isOfflineMode.value ? null : roundTotalPoint,
+    });
+  } catch (err) {
+    console.error(
+      "[endGameAfterFinalStation] failed to build round summary",
+      err,
+    );
+  } finally {
+    await stopCamera();
+    await navigateTo("/round-summary");
+    isEndingGame.value = false;
   }
-  await stopCamera();
-  await navigateTo("/home");
 }
 
 /** ปุ่ม/ฟอร์ม "กรอกรหัสฐาน" — รองรับกรณีสแกน QR ไม่ได้ (กล้องเสีย/QR ชำรุด) */
@@ -708,7 +866,12 @@ onBeforeUnmount(async () => {
             @click="continuePlayingAfterFinalStation"
             >เล่นต่อ</UButton
           >
-          <UButton block color="primary" @click="endGameAfterFinalStation"
+          <UButton
+            block
+            color="primary"
+            :loading="isEndingGame"
+            :disabled="isEndingGame"
+            @click="endGameAfterFinalStation"
             >จบเกม</UButton
           >
         </div>

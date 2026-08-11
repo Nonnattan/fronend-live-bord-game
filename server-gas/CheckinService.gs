@@ -70,7 +70,13 @@ function actionCheckin_(payload) {
   const journeySheet = getJourneySheet_()
   const userId = normalize_(payload.userId)
   const stationId = normalize_(payload.stationId)
-  const roundId = resolveCurrentRoundId_(userId, payload.firstName)
+  // [Fix] ถ้า client ส่ง roundId มาด้วย (เก็บมาจาก Current Round ใน LocalStorage
+  // ตอนสแกนจริง — ดู composables/useOfflineSync.ts) ให้ "เชื่อค่านี้เสมอ" ไม่เดา
+  // Round ปัจจุบันใหม่จาก resolveCurrentRoundId_() อีกต่อไป — ป้องกันเคส checkin
+  // ถูก sync ช้า (คิวค้าง/เน็ตหลุด) จนหลุดไปแปะกับ Round ใหม่ที่เปิดขึ้นมาหลังจากนั้น
+  // (resolveCurrentRoundId_() แค่ใช้เป็น fallback สำหรับ client เก่าที่ยังไม่ส่ง
+  // roundId มาเท่านั้น)
+  const roundId = normalize_(payload.roundId) || resolveCurrentRoundId_(userId, payload.firstName)
 
   if (hasVisitedStation_(journeySheet, userId, stationId, roundId)) {
     return { success: true, alreadyVisited: true }

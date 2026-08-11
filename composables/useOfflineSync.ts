@@ -42,6 +42,14 @@ export interface PendingCheckin {
   point: number
   /** เวลาที่ผ่านฐานสำเร็จ (ms epoch) — ไว้เรียงลำดับ Journey ตอน Sync */
   visitedAt: number
+  /** [Fix] roundId ที่ Current Round ใน LocalStorage เป็นเจ้าของอยู่ ณ ตอนที่สแกน
+   * ฐานนี้จริง (ดู composables/useRound.ts -> currentRoundId) — บันทึกไว้ตอน
+   * queue เสมอ แล้วส่งแนบไปกับ action 'checkin' ตอน sync ด้วย (ดู syncNow()
+   * ด้านล่าง) เพื่อไม่ให้ server-gas ต้องเดา Round ปัจจุบันเอาเองตอน sync
+   * (ซึ่งอาจกลายเป็น Round ใหม่ที่เพิ่งเปิดไปแล้วถ้า sync มาช้า) — null ถ้า queue
+   * ตอนยังไม่มี Round เปิดอยู่เลย (ไม่ควรเกิดขึ้นตาม flow ใหม่ที่ต้องเปิด Round
+   * ก่อนบันทึกฐานแรกเสมอ แต่กันไว้เผื่อ edge case) */
+  roundId: string | null
 }
 
 /** สร้าง UUID สำหรับ 1 รายการใน Queue — ใช้ crypto.randomUUID() ถ้ามี (เบราว์เซอร์ยุคใหม่/HTTPS)
@@ -124,9 +132,19 @@ export function useOfflineSync() {
    */
   function queueCheckin(station: Pick<AdventureStation, 'id' | 'name'>, point: number): void {
     if (isQueued(station.id)) return
+    // [Fix] จำ roundId ของ Current Round ที่กำลัง Active อยู่ ณ ตอนสแกนจริง ๆ ไว้คู่กับ
+    // รายการนี้เสมอ (ดูเหตุผลเต็ม ๆ ที่ PendingCheckin.roundId ด้านบน)
+    const { currentRoundId } = useRound()
     const next: PendingCheckin[] = [
       ...pendingCheckins.value,
-      { uuid: genUuid(), stationId: station.id, stationName: station.name, point, visitedAt: Date.now() },
+      {
+        uuid: genUuid(),
+        stationId: station.id,
+        stationName: station.name,
+        point,
+        visitedAt: Date.now(),
+        roundId: currentRoundId.value,
+      },
     ]
     persistQueue(next)
   }
@@ -239,6 +257,10 @@ export function useOfflineSync() {
             stationName: item.stationName,
             point: item.point,
             clientId: item.uuid,
+            // [Fix] ส่ง roundId ที่จำไว้ตอน queue เสมอ (undefined สำหรับรายการเก่าที่
+            // queue ไว้ก่อนอัปเดตนี้ - server-gas จะ fallback ไปเดา Round ปัจจุบันเอง
+            // เหมือน behavior เดิม เฉพาะรายการเก่านั้นเท่านั้น)
+            roundId: item.roundId ?? undefined,
           })
           if (res.success) {
             syncedCount += 1

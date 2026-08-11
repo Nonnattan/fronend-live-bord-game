@@ -8,9 +8,23 @@
  * ประกอบด้วย:
  * 1) MiniMap ของ Adventure Game Map (พื้นหลังภาพ PNG สูง ~250px ไม่ใช้
  *    Leaflet/OpenStreetMap/GPS) กดแล้วไปหน้า Map เต็มที่ /map
- * 2) Summary Card ด้านล่าง — เข้าฐานแล้ว X/Y + Point สะสม + รายการฐานทั้งหมด
+ * 2) Summary Card ด้านล่าง — เข้าฐานแล้ว X/Y + รายการฐานทั้งหมด
  *    ข้อมูล/สถานะทั้งหมดมาจาก useAdventure() (composables/useAdventure.ts)
  *    เพียงจุดเดียว ทำให้ในอนาคตสลับไปใช้ข้อมูลจริงได้โดยไม่ต้องแก้หน้านี้
+ *
+ * [Fix] Summary Card แสดง "คะแนน" กลับมาอีกครั้งคู่กับ "เข้าฐานแล้ว X/Y" — ใช้
+ * totalPoint จาก useAdventure() ตรง ๆ (ของเดิมมีอยู่แล้ว แค่ไม่เคยถูกดึงมาวาดใน
+ * template หน้านี้เท่านั้น ไม่ได้แก้ Logic การคำนวณใน useAdventure.ts เลย)
+ * [แก้ไข — แยก Initial/Master State] totalPoint = Initial/Master State (ดึงจาก
+ * Backend "ครั้งเดียวตอน Login" แช่แข็งไว้ตลอด session ไม่เปลี่ยนระหว่างเล่น — ดู
+ * useAdventure.ts::initInitialScore()) + คะแนนที่ทำได้ใน "รอบปัจจุบัน" เท่านั้น
+ * (visitedIds ในเครื่อง เช่น ฐาน 1 +10 -> Initial+10, ฐาน 2 +20 -> Initial+30) แล้ว
+ * กลับไปเท่ากับ Initial/Master State ให้เองทันทีที่ resetJourney() ล้าง visitedIds
+ * ตอนกด "จบเกม" (ดู pages/scan.vue::endGameAfterFinalStation +
+ * pages/round-summary.vue::confirmAndGoHome ซึ่งเป็นจุดที่เรียก resetJourney()
+ * จริง) — คะแนนของรอบที่เพิ่งจบยังคงดูได้ที่หน้าสรุปผล /round-summary ตามเดิม
+ * (อ่านจาก roundSummary:last ที่บันทึก "สำเนา" คะแนนรอบนั้นไว้ก่อน resetJourney()
+ * จะล้างทิ้งเสมอ — ดู composables/useRoundSummary.ts)
  */
 
 import MiniMap from "~/components/map/MiniMap.vue";
@@ -23,18 +37,29 @@ const {
   stations,
   totalStations,
   visitedCount,
-  totalPoint,
   visitedIds,
+  totalPoint,
   isVisited,
   initAdventure,
 } = useAdventure();
-// Offline Mode (ใหม่): ห้ามแสดงคะแนน — ใช้ซ่อน Point ใน Summary Card + MiniMap ด้านล่าง
-const { isOfflineMode } = useOfflineMode();
+// [Debug — ชั่วคราว] ใช้ยืนยันว่ามือถือ/คอมเห็น Round + สถานะฐานตรงกันจริงหลังจบรอบ
+// (ดู composables/useAdventure.ts::refreshFromBackend สำหรับ Fix ตัวจริง) — ลบออก
+// ได้เมื่อยืนยันบั๊ก "มือถือค้าง 1/4" หายแล้ว
+const { currentRoundId } = useRound();
 
 // ส่ง memberId เข้าไปด้วย (ถ้ามี) เพื่อดึงฐานที่ผ่านจริง + คะแนนสะสมจริงจาก
 // Google Sheet (getJourney/getScore) มาทับ LocalStorage — ดู useAdventure.ts
-onMounted(() => {
-  void initAdventure(profile.value?.memberId);
+onMounted(async () => {
+  await initAdventure(profile.value?.memberId);
+  if (import.meta.client) {
+    // eslint-disable-next-line no-console
+    console.log("[HOME ROUND STATE]", {
+      currentRoundId: currentRoundId.value,
+      visitedIds: visitedIds.value,
+      visitedCount: visitedCount.value,
+      totalPoint: totalPoint.value,
+    });
+  }
 });
 
 function goToMapPage() {
@@ -68,7 +93,14 @@ function goToMapPage() {
         </div>
       </div>
 
-      <!-- Summary Card: เข้าฐานแล้ว + Point สะสม -->
+      <!-- Summary Card: เข้าฐานแล้ว + คะแนน "ของรอบปัจจุบัน" เท่านั้น (totalPoint
+           จาก useAdventure() — ไม่ใช่คะแนนสะสมจาก Google Sheet/Members.Point)
+           ค่านี้ถูกคำนวณจากฐานที่ผ่านแล้วในรอบนี้เท่านั้นอยู่แล้ว (ดู totalPoint
+           computed ใน composables/useAdventure.ts) จึง reset กลับเป็น 0 ให้เอง
+           ทันทีที่ resetJourney() ล้าง visitedIds ตอนกด "จบเกม"/กลับ Home — คะแนน
+           ของรอบที่เพิ่งจบยังดูได้ที่หน้าสรุปผล /round-summary (อ่านจาก
+           roundSummary:last ที่บันทึกไว้ก่อน resetJourney() เสมอ ไม่เกี่ยวกับ
+           totalPoint ตัวนี้แล้ว) -->
       <section class="summary-card">
         <div class="summary-card__top">
           <div class="summary-card__stat">
@@ -79,16 +111,15 @@ function goToMapPage() {
               >
             </p>
           </div>
-          <template v-if="!isOfflineMode">
-            <div class="summary-card__divider" />
-            <div class="summary-card__stat">
-              <p class="summary-card__label">Point</p>
-              <p class="summary-card__value">
-                <span class="summary-card__value-num">{{ totalPoint }}</span>
-                <span class="summary-card__value-unit">Point</span>
-              </p>
-            </div>
-          </template>
+
+          <div class="summary-card__divider" />
+
+          <div class="summary-card__stat">
+            <p class="summary-card__label">คะแนน</p>
+            <p class="summary-card__value">
+              <span class="summary-card__value-num">{{ totalPoint }}</span>
+            </p>
+          </div>
         </div>
 
         <div class="station-grid">
@@ -109,15 +140,12 @@ function goToMapPage() {
               }}</span>
             </span>
             <span class="station-chip__name">{{ station.name }}</span>
-            <span v-if="station.points && !isOfflineMode" class="station-chip__points"
-              >+{{ station.points }}</span
-            >
           </div>
         </div>
       </section>
 
       <!-- Mini Adventure Map: แผนที่อ้างอิงตำแหน่งฐานย่อ ๆ ไม่มี Progress/สถานะผ่านฐาน
-           (ดูสรุปเข้าฐานแล้ว/Point ได้จาก Summary Card ด้านบนแทน) กดทั้ง Card
+           (ดูสรุปเข้าฐานแล้วได้จาก Summary Card ด้านบนแทน) กดทั้ง Card
            เพื่อไปหน้า Map เต็ม -->
       <MiniMap
         :stations="stations"

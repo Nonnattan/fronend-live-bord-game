@@ -76,7 +76,15 @@ export default defineNuxtConfig({
     // เป็น 'node-server' เหมือนเดิมทุกประการ ไม่กระทบ Flow ทดสอบเดิม
     preset: process.env.NITRO_PRESET || (process.env.CF_PAGES ? 'cloudflare-pages' : undefined),
     prerender: {
-      routes: ['/', '/offline', '/home', '/map', '/scan', '/profile', '/info', '/history', '/reservation'],
+      // [Fix] เพิ่ม '/round-summary' เข้าไปในลิสต์นี้ — เดิมขาดหน้านี้ไปทำให้ไม่มี
+      // การ Prerender เป็นไฟล์ HTML Shell ตั้งแต่ตอน Build เลย (ต่างจากทุกหน้าอื่น
+      // ในแอป) ผลคือ Service Worker ไม่มี Shell ของหน้านี้ให้ Precache (ดูคอมเมนต์
+      // เหตุผลของลิสต์นี้ด้านบน) — ถ้าผู้เล่นจบเกมตอนไม่มีอินเทอร์เน็ต (เคสที่พบบ่อย
+      // เพราะเกมนี้เล่นกลางแจ้งตามฟาร์ม สัญญาณมือถือไม่แน่นอน) แล้วเกิด Hard
+      // Navigation/Refresh หน้า /round-summary พอดี (เช่นเบราว์เซอร์บางตัว
+      // Suspend แล้ว Reload Tab เอง) จะไม่มี Cache ให้โหลดหน้าสรุปผลได้เลย ต้อง
+      // เพิ่มเข้าลิสต์นี้เพื่อให้ทำงานสอดคล้องกับทุกหน้าอื่นในแอป (Offline First)
+      routes: ['/', '/offline', '/home', '/map', '/scan', '/profile', '/info', '/history', '/reservation', '/round-summary'],
       failOnError: false,
       // Crawl ลิงก์จากหน้าที่ Prerender ไว้ต่อเองด้วย (กันตกหล่นถ้ามีหน้าใหม่
       // ถูกเพิ่มมาทีหลังแล้วลืมเติมใน routes ด้านบน) ไม่กระทบของเดิมเพราะทุก

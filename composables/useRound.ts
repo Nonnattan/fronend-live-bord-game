@@ -20,7 +20,14 @@
  *      ด้วย roundStart() (ซึ่งฝั่ง backend เองก็ idempotent ด้วย roundId อยู่แล้ว)
  * - มี in-flight lock กัน race condition ตอนหลายหน้า/หลาย component เรียกพร้อมกัน
  *   (เช่น Home + BottomNav mount พร้อมกัน) ไม่ให้ยิง roundStart()/getRound() ซ้อนกัน
+ *
+ * [Fix] endCurrentRound() คืนค่า RoundEntry (StartTime/EndTime จริงจาก server-gas)
+ * กลับไปให้ผู้เรียกใช้แทน void เดิม — ใช้โดย pages/scan.vue::endGameAfterFinalStation()
+ * เพื่อเก็บเวลาที่เริ่ม/จบรอบไปแสดงที่หน้า /round-summary (ดู
+ * composables/useRoundSummary.ts) ไม่กระทบ logic การปิด Round เดิมเลยแม้แต่บรรทัดเดียว
  */
+
+import type { RoundEntry } from '~/composables/useMemberApi'
 
 const ROUND_STORAGE_KEY = 'onlineRound:current'
 
@@ -134,12 +141,19 @@ export function useRound() {
    * เรียกเมื่อผู้เล่นกด "จบเกม" ที่ Popup ฐานนม (ฐานสุดท้าย) เท่านั้น — ปิด Round
    * เดิมด้วย roundId เดิม (บันทึก EndTime + เปลี่ยน Status เป็น 'Ended') กด "เล่นต่อ"
    * จะไม่เรียกฟังก์ชันนี้เลย (Round เดิมยังคง Started ต่อไป เล่นฐานต่อได้ตามสเปก)
+   *
+   * [Fix] คืนค่า RoundEntry ของรอบที่เพิ่งปิด (มี StartTime/EndTime จริง) กลับไปให้
+   * ผู้เรียกใช้ต่อ (null ถ้ายิงไม่สำเร็จ/ไม่มี Round อยู่) — ไม่กระทบพฤติกรรมเคลียร์
+   * ค่าฝั่ง client เดิมเลยสักบรรทัด
    */
-  async function endCurrentRound(userId: string): Promise<void> {
-    if (!import.meta.client || !currentRoundId.value || !userId) return
+  async function endCurrentRound(userId: string): Promise<RoundEntry | null> {
+    if (!import.meta.client || !currentRoundId.value || !userId) return null
     const { roundEnd } = useMemberApi()
     try {
-      await roundEnd(currentRoundId.value, userId)
+      const res = await roundEnd(currentRoundId.value, userId)
+      return res.success ? res.round ?? null : null
+    } catch {
+      return null
     } finally {
       // จบ Round แล้วไม่ว่าจะยิงสำเร็จหรือไม่ก็ตาม -> เคลียร์ค่าฝั่ง client เสมอ เพื่อให้
       // ensureRoundStarted() ครั้งถัดไป (รอบเล่นใหม่) เริ่ม Round ใหม่ให้อัตโนมัติ

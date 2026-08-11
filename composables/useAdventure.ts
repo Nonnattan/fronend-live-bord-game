@@ -26,9 +26,11 @@
  *   Google Sheet มา "merge" ทับ LocalStorage อีกที (backend ชนะเสมอถ้าดึงสำเร็จ
  *   ยกเว้นฐานที่เพิ่งสแกนในเครื่องแต่ยังไม่ทัน Sync ขึ้น Sheet — ฐานพวกนี้ยังคง
  *   ต้องติดสถานะ "ผ่านแล้ว" อยู่ ไม่ถูกเขี่ยทิ้งแม้ backend จะยังไม่มีก็ตาม)
- * - totalPoint ใช้คะแนนจริงจากชีต Score (TotalPoint) เป็นหลักถ้าดึงมาได้สำเร็จ
- *   ดึงไม่ได้ (ออฟไลน์/ยังไม่เคย sync เลย) -> fallback กลับไปคำนวณเองจาก
- *   จำนวนฐานที่ผ่าน × POINTS_PER_STATION เหมือนเดิม
+ * - [Fix] totalPoint คำนวณจาก "ฐานที่ผ่านแล้วในรอบปัจจุบัน" (visitedIds ในเครื่อง)
+ *   เพียงอย่างเดียวเสมอ (จำนวนฐานที่ผ่าน × คะแนนต่อฐานจริงของแต่ละฐาน) — ไม่ใช้
+ *   คะแนนสะสมข้ามรอบจากชีต Score (TotalPoint) มาคำนวณอีกต่อไป เพราะเป็นคนละ
+ *   ความหมายกัน (คะแนนสะสม ≠ คะแนนของรอบปัจจุบัน) ดู backendTotalPoint/totalPoint
+ *   ด้านล่างสำหรับรายละเอียดเต็ม ๆ ของบั๊กเดิมและเหตุผลที่แก้แบบนี้
  * - toggleStation()/queueCheckin() (เรียกจาก pages/scan.vue) ยังคงบันทึก
  *   LocalStorage ก่อนเสมอเหมือนเดิม (Offline First) แล้วค่อย Sync ขึ้น Sheet
  *   ทีหลังผ่าน useOfflineSync.ts — composable นี้แค่เป็นฝ่าย "อ่าน" ข้อมูลที่
@@ -36,6 +38,27 @@
  */
 
 const STORAGE_KEY = 'adventureVisitedStations'
+/** [Fix] เก็บ roundId ที่ visitedIds ในเครื่องนี้ "เป็นของ" ไว้คู่กัน (ดูเหตุผลเต็ม ๆ
+ * ที่ initAdventure()/refreshFromBackend() ด้านล่าง) — แก้บั๊ก "มือถือค้าง 1/4 แต่
+ * คอมเป็น 0/4": คนละเครื่องมี LocalStorage แยกกัน ถ้าจบ Round ที่เครื่อง A (คอม)
+ * เครื่อง B (มือถือ) จะไม่มีทางรู้เรื่องนี้เลยจนกว่าจะเช็คกับ backend เอง — ปัญหาเดิม
+ * คือ refreshFromBackend() เช็ค backend ถูกต้องอยู่แล้วว่า Round ปัจจุบันคือ Round
+ * ไหน แต่ตอน merge กลับ "รวม" (union) วิธีเก่าเข้ากับของที่ค้างในเครื่อง (เผื่อกรณี
+ * เพิ่งสแกนแต่ยังไม่ทัน sync) โดยไม่เคย "ทิ้ง" ของเก่าที่ไม่ใช่ Round ปัจจุบันเลยแม้แต่
+ * ครั้งเดียว ทำให้ฐานจาก Round ที่จบไปแล้วค้างอยู่ในเครื่องนั้นตลอดไป — คู่กับ Key นี้
+ * ทำให้รู้ได้ว่า visitedIds ที่ค้างในเครื่องเป็นของ Round ไหน เทียบกับ Round Active
+ * จริงจาก backend ได้ ถ้าไม่ตรงกัน (คนละ Round/ไม่มี Round Active เลย) ต้องล้างทิ้ง
+ * ก่อนเสมอ ไม่ merge ของเก่าเข้ามาอีก */
+const STORAGE_ROUND_KEY = 'adventureVisitedStations:roundId'
+
+/** [ใหม่] Initial/Master State ของผู้ใช้ — ดึงจาก Backend "ครั้งเดียวตอน Login"
+ * (ดู initInitialScore() ด้านล่าง) แล้ว "ห้ามเปลี่ยนระหว่าง session" อีกต่อไป —
+ * ต่างจาก STORAGE_KEY/STORAGE_ROUND_KEY ด้านบนที่เป็น "Current Round" (เปลี่ยน
+ * ตามการสแกนของรอบปัจจุบัน + reset กลับ [] ทุกจบรอบ) เก็บคู่กับ owner (userId)
+ * เพื่อกันเอาค่าของผู้ใช้คนอื่นที่เคย Login เครื่องเดียวกันมาปนกัน — คนละ userId
+ * ต้อง fetch ค่า Initial ของตัวเองใหม่ (ครั้งเดียว) เท่านั้น ไม่ใช่ทุกครั้งที่ Login */
+const INITIAL_SCORE_KEY = 'adventureInitialScore'
+const INITIAL_SCORE_OWNER_KEY = 'adventureInitialScore:userId'
 
 /** ประเภทฐานทั้ง 4 แบบตามสเปก — แต่ละแบบมี icon/สีของตัวเองสำหรับ Marker */
 export type StationType = 'corn' | 'cow' | 'soil' | 'milk'
@@ -157,10 +180,41 @@ export function useAdventure() {
   // Global reactive state (SSR-safe) — sync จาก LocalStorage ใน initAdventure()
   const visitedIds = useState<string[]>('adventure-visited-stations', () => [])
   const initialized = useState<boolean>('adventure-initialized', () => false)
-  // คะแนนสะสมจริงจากชีต "Score" (Google Sheet) — null = ยังไม่เคยดึงสำเร็จ
-  // (ออฟไลน์ หรือยังไม่เคย sync ฐานไหนขึ้น Sheet เลย) ให้ fallback ไปคำนวณเอง
+  // [Fix] roundId ที่ visitedIds ปัจจุบัน (ในหน่วยความจำ + LocalStorage เครื่องนี้)
+  // เป็นของ — null = ยังไม่เคยรู้/ไม่มี Round Active ผูกอยู่เลย (ดู STORAGE_ROUND_KEY
+  // ด้านบนสำหรับเหตุผลเต็ม ๆ)
+  const visitedRoundId = useState<string | null>('adventure-visited-round-id', () => null)
+  // คะแนนสะสมจริง "ข้ามทุกรอบ" จากชีต "Score" (Google Sheet) — null = ยังไม่เคยดึงสำเร็จ
+  // [Fix] เก็บไว้เผื่ออนาคตอยากโชว์ "คะแนนสะสมทั้งชีวิต" ที่หน้าอื่น (เช่น history.vue)
+  // แต่ "ห้ามใช้ตัวนี้คำนวณ totalPoint ของรอบปัจจุบันอีกต่อไป" (ดู totalPoint computed
+  // ด้านล่าง) เพราะเป็นคะแนนสะสมข้ามรอบ ไม่ใช่คะแนนของรอบที่กำลังเล่นอยู่
   const backendTotalPoint = useState<number | null>('adventure-backend-total-point', () => null)
   const isSyncingFromBackend = useState<boolean>('adventure-syncing-from-backend', () => false)
+  /** [ใหม่] Initial/Master State — คะแนนเริ่มต้นของผู้ใช้ ดึงจาก getScore() "ครั้งเดียว
+   * ตอน Login" เท่านั้น (ดู initInitialScore() ด้านล่าง) แล้วแช่แข็งไว้ตลอด session —
+   * ไม่ถูกเขียนทับซ้ำอีกเลยไม่ว่าจะ sync/scan กี่ครั้งก็ตาม (ต่างจาก backendTotalPoint
+   * ด้านบนที่ถูก refreshFromBackend() ดึงซ้ำทุกครั้งที่ sync — ตัวนั้นไม่ถูกใช้คำนวณ
+   * อะไรอยู่แล้ว ปล่อยไว้เฉย ๆ ไม่ได้แตะ) null = ยังไม่เคย fetch สำเร็จเลย (fallback
+   * เป็น 0 ตอนคำนวณ totalPoint ด้านล่าง) */
+  const initialScore = useState<number | null>('adventure-initial-score', () => null)
+  const initialScoreInitialized = useState<boolean>('adventure-initial-score-initialized', () => false)
+  /** [Fix — root cause ของ "adventureVisitedStations เป็น [\"milk\"] หลัง reset"]
+   * ตัวนับรุ่น (epoch) — resetJourney() บวกเลขนี้ทุกครั้งที่ล้างรอบ ส่วน
+   * refreshFromBackend() จะจำเลขนี้ไว้ตอนเริ่มทำงาน (startEpoch) แล้วเช็คซ้ำก่อน
+   * เขียน visitedIds/persist() ทุกจุด — เหตุผล: refreshFromBackend() ถูกเรียกจาก
+   * runSync() แบบ async ที่เริ่มทำงาน "ตอนสแกนผ่านฐานนม" (ก่อนกด "จบเกม") แต่กว่าจะ
+   * ได้ผลตอบกลับจาก getRound()/getJourney() (เครือข่ายมือถือช้า) ผู้เล่นอาจกด
+   * "จบเกม" เสร็จไปแล้ว (endCurrentRound() + resetJourney() ทำงานเร็วกว่าเพราะเป็น
+   * request คนละตัว) — พอ response ของ refreshFromBackend() ที่ "ยิงไปก่อน reset"
+   * แต่ "ตอบกลับมาหลัง reset" (stale response) มาถึง มันจะเห็น Round เดิมเป็น
+   * 'Started' อยู่ (เพราะ getRound() ของมันเองอาจ race แซง roundEnd() ที่ยังไม่ทัน
+   * commit) แล้ว merge ฐานที่เพิ่ง sync สำเร็จ (เช่น "นม") กลับเข้า visitedIds ทับ
+   * ค่าที่เพิ่ง resetJourney() ล้างไปแล้ว — แก้โดยให้ response ที่ "เก่ากว่า reset
+   * ล่าสุด" (epoch ไม่ตรงกับตอนเริ่ม) ถูกทิ้งไปเฉย ๆ ไม่เขียนทับ state ปัจจุบันอีก
+   * ไม่กระทบ Google Sheet เลย เพราะ checkin() (ที่บันทึกคะแนนขึ้นชีตจริง) เสร็จไป
+   * ก่อนหน้า refreshFromBackend() ในลำดับของ syncNow() อยู่แล้ว — แก้แค่ "การเขียน
+   * กลับเข้า visitedIds/localStorage ฝั่งเครื่องนี้" ที่มาช้าเกินไปเท่านั้น */
+  const resetEpoch = useState<number>('adventure-reset-epoch', () => 0)
 
   // รายชื่อฐาน — เริ่มต้นด้วยค่า mock/hardcode (พิกัด+ไอคอนคงที่) แล้วให้
   // refreshStationsFromBackend() มา "แปะทับ" เฉพาะ name/points/active/
@@ -177,18 +231,70 @@ export function useAdventure() {
   const totalStations = computed(() => stations.value.length)
 
   const visitedCount = computed(() => visitedIds.value.length)
+  /**
+   * [Fix — root cause ของ "คะแนนรอบเก่ากลับมา / Summary โชว์คะแนนสะสมแทนคะแนนรอบ"]
+   * เดิม totalPoint ใช้ backendTotalPoint (คะแนนสะสมทั้งหมดจากชีต "Score" —
+   * ดึงมาใน refreshFromBackend() ด้านล่าง) เป็นหลักถ้ามีค่า — แต่ refreshFromBackend()
+   * ถูกเรียกโดย syncNow() (composables/useOfflineSync.ts) ทุกครั้งที่ผ่านฐานสุดท้าย
+   * (ฐานนม) ทันที "ก่อน" ผู้เล่นกดปุ่ม "จบเกม" เสมอ (ดู pages/scan.vue
+   * ::completeStationVisit -> await runSync() ตอน stationId === FINAL_STATION_ID)
+   * ทำให้ backendTotalPoint ถูกเซ็ตเป็น "คะแนนสะสมข้ามรอบ" (เช่น 190 = 120 เดิม + 70
+   * รอบนี้) ไปแล้วตั้งแต่ก่อน endGameAfterFinalStation() จะอ่าน totalPoint.value ไป
+   * บันทึกลง roundSummary — หน้า /round-summary เลยโชว์ 190 แทนที่จะเป็น 70 (คะแนน
+   * ของรอบนี้อย่างเดียว) และถ้า auto-sync พื้นหลัง (plugins/offline-sync.client.ts)
+   * ยิงซ้ำระหว่างเล่นรอบถัดไป ก่อน resetJourney() จะทัน ก็ทำให้คะแนนรอบใหม่เพี้ยนได้
+   * เช่นกัน ("ไม่ใช่ 80" ตามสเปกข้อ 11)
+   *
+   * แก้โดยให้ totalPoint คำนวณจาก "ฐานที่ผ่านแล้วในรอบปัจจุบัน" (visitedIds ในเครื่อง
+   * ซึ่งถูก resetJourney() ล้างเป็น [] ทุกครั้งที่จบรอบ — ดู resetJourney() ด้านล่าง)
+   * เพียงอย่างเดียวเสมอ ไม่พึ่ง backendTotalPoint อีกต่อไป — คะแนนสะสมจริงใน Google
+   * Sheet (ชีต Score) ยังคงถูกต้องครบถ้วนเหมือนเดิมทุกประการ (ไม่แตะ ScoreService.gs/
+   * roundStart/roundEnd/checkin ใด ๆ เลย) เปลี่ยนแค่ "ตัวแปรที่ใช้แสดงผลฝั่ง Frontend"
+   * จุดเดียวเท่านั้นตามสเปก
+   */
+  /**
+   * [แก้ไข — แยก Initial/Master State ออกจาก Current Round State]
+   * Current Round Score (ค่าที่แสดงผลจริงทั้งแอป) = Initial State (คงที่ตลอด
+   * session ดึงครั้งเดียวตอน Login — ดู initialScore ด้านบน) + คะแนนที่ทำได้ใน
+   * "รอบปัจจุบัน" เท่านั้น (จากฐานที่ผ่านแล้วใน visitedIds ในเครื่อง) — ตัวหลังนี้
+   * เหมือนเดิมทุกประการกับ [Fix] เดิมที่เคยแก้ไว้ (ไม่พึ่ง backendTotalPoint) แค่
+   * บวก Initial State เข้าไปเป็น "จุดเริ่มต้น" ของทุกรอบแทนที่จะเริ่มจาก 0 เสมอ
+   * ตามสเปกใหม่ (Login ได้ Initial = 30 -> เริ่มเล่นรอบใหม่ Current = 30 เสมอ ไม่ว่า
+   * จะเป็นรอบที่เท่าไหร่ก็ตาม เพราะ visitedIds ถูก resetJourney() ล้างเป็น [] ทุก
+   * จบรอบ — initialScore เองไม่ถูกแตะเลยจากจุดนั้น) ไม่กระทบ Journey/Round/Score
+   * ที่บันทึกขึ้น Google Sheet จริงแม้แต่บรรทัดเดียว (คนละคนละเรื่องกับตัวแปรนี้
+   * ซึ่งเป็นแค่ตัวเลขแสดงผลฝั่ง Frontend เท่านั้น)
+   */
   const totalPoint = computed(() => {
-    if (backendTotalPoint.value !== null) return backendTotalPoint.value
-    // Fallback (ออฟไลน์/ยังไม่เคย sync เลย): รวมคะแนนต่อฐานจริงของแต่ละฐานที่ผ่านแล้ว
-    return visitedIds.value.reduce((sum, id) => {
+    const roundEarned = visitedIds.value.reduce((sum, id) => {
       const station = stationsState.value.find((s) => s.id === id)
       return sum + (station?.points ?? POINTS_PER_STATION)
     }, 0)
+    return (initialScore.value ?? 0) + roundEarned
   })
   const isComplete = computed(() => visitedCount.value >= totalStations.value)
 
   function isVisited(stationId: string): boolean {
     return visitedIds.value.includes(stationId)
+  }
+
+  /** [ใหม่] อ่าน Initial/Master Score ที่เคย fetch สำเร็จของ userId นี้ไว้จากครั้งก่อน
+   * (เครื่อง/เบราว์เซอร์นี้เคย Login คนนี้มาก่อนแล้ว) — คนละ userId (หรือไม่มีเลย)
+   * คืนค่า null เพื่อให้ initInitialScore() รู้ว่าต้อง fetch ใหม่ */
+  function getStoredInitialScore(userId: string): number | null {
+    if (!import.meta.client) return null
+    const owner = localStorage.getItem(INITIAL_SCORE_OWNER_KEY)
+    if (owner !== userId) return null
+    const raw = localStorage.getItem(INITIAL_SCORE_KEY)
+    if (raw === null) return null
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  function persistInitialScore(userId: string, score: number): void {
+    if (!import.meta.client) return
+    localStorage.setItem(INITIAL_SCORE_KEY, String(score))
+    localStorage.setItem(INITIAL_SCORE_OWNER_KEY, userId)
   }
 
   function getStoredVisited(): string[] | null {
@@ -204,9 +310,21 @@ export function useAdventure() {
     }
   }
 
-  function persist(next: string[]): void {
+  /** [Fix] อ่าน roundId ที่ visitedIds ในเครื่องนี้ผูกอยู่ (คู่กับ STORAGE_ROUND_KEY) */
+  function getStoredRoundId(): string | null {
+    if (!import.meta.client) return null
+    return localStorage.getItem(STORAGE_ROUND_KEY)
+  }
+
+  /** [Fix] เขียน visitedIds คู่กับ roundId ที่เป็นเจ้าของเสมอ (roundId ไม่ระบุ =
+   * ไม่เปลี่ยนแท็ก Round เดิม เช่น toggleStation() ระหว่างเล่นรอบเดียวกัน) */
+  function persist(next: string[], roundId?: string | null): void {
     if (import.meta.client) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+      if (roundId !== undefined) {
+        if (roundId) localStorage.setItem(STORAGE_ROUND_KEY, roundId)
+        else localStorage.removeItem(STORAGE_ROUND_KEY)
+      }
     }
   }
 
@@ -221,14 +339,71 @@ export function useAdventure() {
    * ดึงจาก backend ไม่สำเร็จ (ออฟไลน์/API ล่ม) -> เงียบไว้ ใช้ค่า LocalStorage
    * ต่อไปได้เลย ไม่กระทบการใช้งานหน้าปัจจุบัน (เหมือน pattern เดียวกับ
    * useRequireProfile.ts)
+   *
+   * [Fix] `if (initialized.value) return` เดิมกันแค่ "เรียกซ้ำในเซสชันเดียวกัน"
+   * (เช่น Home mount ซ้ำ) เท่านั้น ไม่ได้เป็นสาเหตุของบั๊กข้ามอุปกรณ์ (initialized
+   * เป็นแค่ useState ในหน่วยความจำของแต่ละเครื่อง/แต่ละแท็บ รีเซ็ตเป็น false ทุกครั้ง
+   * ที่โหลดหน้าใหม่อยู่แล้ว) — ของเดิม "ไม่เคยเช็ค" ว่า Round ที่ค้างอยู่ใน LocalStorage
+   * เครื่องนี้ตรงกับ Round Active จริงจาก backend หรือไม่เลยต่างหาก จึง sync
+   * visitedRoundId (แท็ก Round เจ้าของข้อมูลในเครื่องนี้) เข้ามาด้วยตรงนี้ ให้
+   * refreshFromBackend() เอาไปเทียบกับ Round Active จริงได้ทันทีที่เรียก
    */
+  /**
+   * [ใหม่] ดึง Initial/Master State (คะแนนเริ่มต้น) จาก Backend "ครั้งเดียวตอน Login"
+   * ตามสเปก — เรียกจาก initAdventure() ด้านล่างเท่านั้น (ไม่เรียกจาก refreshFromBackend()/
+   * syncNow() ที่ทำงานซ้ำได้หลายครั้งระหว่างเล่น เพื่อไม่ให้ค่านี้ถูกเขียนทับซ้ำ)
+   *
+   * ลำดับตรวจสอบ:
+   * 1) มีค่าอยู่แล้วใน memory (session นี้เคย fetch ไปแล้ว) -> ข้ามเลย ไม่ fetch ซ้ำ
+   * 2) มีค่าเก่าใน LocalStorage ของ userId เดียวกัน (เคย Login เครื่องนี้มาก่อนแล้ว
+   *    ไม่ว่าจะ session ไหน) -> ใช้ค่าเดิมต่อเลย ไม่ fetch ซ้ำ (สำคัญ: กันไม่ให้ค่า
+   *    Initial ขยับตามคะแนนสะสมที่เพิ่มขึ้นจากการเล่นรอบก่อน ๆ เพราะ getScore()
+   *    ที่ทำงานหลัง Login ครั้งถัดไปจะรวมคะแนนที่เล่นไปแล้วด้วยเสมอ — ต้องใช้ค่าที่
+   *    fetch ไว้ตั้งแต่ "ครั้งแรกสุด" เท่านั้นตลอดไป)
+   * 3) ไม่มีทั้ง 2 ข้อบน (ผู้ใช้ใหม่/เครื่องใหม่) และมีเน็ต -> fetch getScore(userId)
+   *    ครั้งเดียว เก็บผลลัพธ์ (0 ถ้ายังไม่เคยมีคะแนนเลย) ลง memory + LocalStorage
+   * ออฟไลน์/ดึงไม่สำเร็จตอนยังไม่มีค่าเก่าเลย -> ปล่อย null ไว้ก่อน (totalPoint
+   * computed ด้านบน fallback เป็น 0 ให้อัตโนมัติ) initInitialScore() จะลองใหม่เอง
+   * ครั้งถัดไปที่ initAdventure() ถูกเรียก (เช่น กลับมามีเน็ตแล้ว reload หน้า)
+   */
+  async function initInitialScore(userId?: string): Promise<void> {
+    if (!import.meta.client || !userId) return
+    if (initialScoreInitialized.value) return
+
+    const stored = getStoredInitialScore(userId)
+    if (stored !== null) {
+      initialScore.value = stored
+      initialScoreInitialized.value = true
+      return
+    }
+
+    if (isBrowserOffline()) return
+
+    try {
+      const { getScore } = useMemberApi()
+      const res = await getScore(userId)
+      const score = res?.success ? res.score?.totalPoint ?? 0 : null
+      if (score === null) return // ดึงไม่สำเร็จ - ลองใหม่ครั้งถัดไปที่ initAdventure() ถูกเรียก
+      initialScore.value = score
+      initialScoreInitialized.value = true
+      persistInitialScore(userId, score)
+    } catch {
+      // เงียบไว้ — ลองใหม่ครั้งถัดไปที่ initAdventure() ถูกเรียก
+    }
+  }
+
   async function initAdventure(userId?: string): Promise<void> {
     if (initialized.value) return
     const stored = getStoredVisited()
     visitedIds.value = stored ?? DEFAULT_VISITED
+    visitedRoundId.value = getStoredRoundId()
     initialized.value = true
 
-    await Promise.all([refreshFromBackend(userId), refreshStationsFromBackend()])
+    await Promise.all([
+      refreshFromBackend(userId),
+      refreshStationsFromBackend(),
+      initInitialScore(userId),
+    ])
   }
 
   /**
@@ -303,41 +478,90 @@ export function useAdventure() {
    * มา merge ทับ state ปัจจุบัน — แยกออกมาจาก initAdventure() เพื่อให้เรียกซ้ำ
    * ได้อีกครั้งหลัง Sync สำเร็จ (ดู useOfflineSync.ts -> syncNow()) โดยไม่ติด
    * เงื่อนไข "initialized ครั้งเดียว" ของ initAdventure()
+   *
+   * [Fix — root cause ของ "มือถือค้าง 1/4 แต่คอมเป็น 0/4"] LocalStorage แยกกันคนละ
+   * เครื่อง — เครื่องที่กด "จบเกม" (เช่นคอม) จะ resetJourney() ล้าง visitedIds ของ
+   * ตัวเองถูกต้อง แต่เครื่องอื่น (มือถือ) ที่ไม่ได้กดจบเกม ไม่มีทางรู้เรื่องนี้เลยจนกว่า
+   * จะเปิดแอปมาเช็คกับ backend เอง — เดิมโค้ดตรงนี้เช็ค backend ถูกต้องอยู่แล้วว่า
+   * Round ปัจจุบันคือ Round ไหน (currentRoundId ด้านล่าง) แต่ตอน merge journey กลับ
+   * ใช้วิธี "union" (เอาของเก่าในเครื่อง + ของจาก backend มารวมกันเสมอ) โดยไม่เคย
+   * เทียบว่าของเก่าที่ค้างอยู่ในเครื่องนั้น "เป็นของ Round ที่ยัง Active จริงหรือไม่"
+   * เลยสักครั้ง ทำให้ฐานจาก Round ที่จบไปแล้ว (จบโดยเครื่องอื่น) ค้างอยู่ในเครื่องนี้
+   * ตลอดไป ไม่มีทางถูกล้างออกเอง — แก้โดยเทียบ currentRoundId (Round Active จริงจาก
+   * backend) กับ visitedRoundId (Round ที่ visitedIds ในเครื่องนี้เป็นเจ้าของอยู่ตอนนี้
+   * — ดู STORAGE_ROUND_KEY ด้านบน) ก่อนเสมอ: ไม่ตรงกัน (คนละ Round หรือไม่มี Round
+   * Active เลย) -> ล้าง visitedIds ในเครื่องนี้ทิ้งก่อน (ไม่ merge ของเก่าเข้ามาอีก)
+   * แล้วค่อย merge journey ที่ backend ยืนยันแล้วของ Round Active จริงเข้าไปแทน (รองรับ
+   * เคสอีกเครื่องสแกนฐานของ Round ใหม่ไปก่อนหน้านี้แล้วด้วย) ไม่มีการลบ/แก้ Journey/
+   * Round ใน Database ใด ๆ ทั้งสิ้น แก้แค่ฝั่งอ่าน/แสดงผลของเครื่องนี้เท่านั้น
    */
   async function refreshFromBackend(userId?: string): Promise<void> {
     if (!import.meta.client || !userId) return
     if (isBrowserOffline()) return
 
+    // [Fix] จำเลข epoch ตอนเริ่มเรียกไว้ก่อนเสมอ — ถ้า resetJourney() ทำงานแทรก
+    // ระหว่างที่ฟังก์ชันนี้กำลังรอ network (epoch เปลี่ยนไปจากตอนเริ่ม) แปลว่าผลลัพธ์
+    // ที่กำลังจะได้กลาย "เก่าเกินไป" แล้ว (เขียนทับรอบใหม่ที่เพิ่ง reset ไม่ได้อีกต่อไป)
+    // ดูคำอธิบายเต็ม ๆ ที่ resetEpoch ด้านบน
+    const startEpoch = resetEpoch.value
+
     isSyncingFromBackend.value = true
     try {
       const { getRound, getJourney, getScore } = useMemberApi()
 
-      // [Fix] ดึง Round ปัจจุบัน (สด ๆ จาก backend เหมือน pages/profile.vue ทำอยู่
-      // แล้ว) มาก่อนเสมอ เพื่อใช้กรอง Journey ให้เหลือเฉพาะ "รอบปัจจุบัน" เท่านั้น
-      // ก่อนหน้านี้ getJourney(userId) คืนประวัติฐาน "ทุก Round ที่เคยเล่นมาทั้งหมด"
-      // มา merge ตรง ๆ ทำให้หลังจบเกม+เริ่มรอบใหม่ (RoundId ใหม่) ฐานทั้ง 4 จะติด
-      // สถานะ "ผ่านแล้ว" ค้างมาจากรอบก่อนทันที สแกนฐานในรอบใหม่ไม่ได้เลยสักฐาน —
-      // ไม่มีการลบ/แก้ Journey/Round เก่าใน Database ใด ๆ ทั้งสิ้น แค่กรองฝั่งอ่านเท่านั้น
+      // ดึง Round ปัจจุบัน (สด ๆ จาก backend เหมือน pages/profile.vue ทำอยู่แล้ว)
+      // มาก่อนเสมอ เพื่อใช้กรอง Journey ให้เหลือเฉพาะ "รอบปัจจุบัน" เท่านั้น ก่อนหน้านี้
+      // getJourney(userId) คืนประวัติฐาน "ทุก Round ที่เคยเล่นมาทั้งหมด" มา merge ตรง ๆ
+      // ทำให้หลังจบเกม+เริ่มรอบใหม่ (RoundId ใหม่) ฐานทั้ง 4 จะติดสถานะ "ผ่านแล้ว"
+      // ค้างมาจากรอบก่อนทันที สแกนฐานในรอบใหม่ไม่ได้เลยสักฐาน — ไม่มีการลบ/แก้ Journey/
+      // Round เก่าใน Database ใด ๆ ทั้งสิ้น แค่กรองฝั่งอ่านเท่านั้น
       const roundRes = await getRound(userId).catch(() => null)
+
+      // [Fix] response ของ getRound() ใบนี้อาจ "ช้าเกินไป" แล้วก็ได้ (ผู้เล่นกด
+      // "จบเกม" -> resetJourney() บวก epoch ไปแล้วระหว่างที่ await อยู่) — ถ้า epoch
+      // เปลี่ยนไปจากตอนเริ่มฟังก์ชัน ห้ามเขียน visitedIds/persist() ทับ state ที่เพิ่ง
+      // reset ใหม่เด็ดขาด ปล่อยผ่านเงียบ ๆ ไปเลย (ดู resetEpoch ด้านบนสำหรับเหตุผลเต็ม ๆ)
+      if (resetEpoch.value !== startEpoch) return
+
       const currentRoundId =
         roundRes?.success && roundRes.round?.status === 'Started' ? roundRes.round.roundId : null
+
+      // [Fix] เทียบ Round Active จริง (currentRoundId) กับ Round ที่ visitedIds ใน
+      // เครื่องนี้เป็นเจ้าของอยู่ตอนนี้ (visitedRoundId) — ไม่ตรงกัน (รวมถึงกรณีไม่มี
+      // Round Active เลย เช่น เพิ่งจบเกม ยังไม่ทันเริ่มรอบใหม่) แปลว่าของในเครื่องนี้
+      // เป็นของ Round เก่าที่ไม่ใช่รอบปัจจุบันแล้ว ต้องล้างทิ้งก่อนเสมอ
+      if (currentRoundId !== visitedRoundId.value) {
+        visitedIds.value = []
+        visitedRoundId.value = currentRoundId
+        persist([], currentRoundId)
+      }
 
       const [journeyRes, scoreRes] = await Promise.all([
         getJourney(userId).catch(() => null),
         getScore(userId).catch(() => null),
       ])
 
+      // [Fix] เช็คซ้ำอีกรอบหลัง await ก้อนที่ 2 (getJourney/getScore) — ผู้เล่นอาจกด
+      // "จบเกม" แทรกเข้ามาระหว่างนี้พอดีก็ได้เช่นกัน (สอง await นี้ห่างกันพอสมควรบน
+      // เครือข่ายมือถือ) ต้องกันการเขียนทับซ้ำอีกชั้นก่อนถึง merge ด้านล่าง
+      if (resetEpoch.value !== startEpoch) return
+
       if (journeyRes?.success && journeyRes.journey) {
         // ไม่มี Round ที่ยัง Started อยู่เลย (เช่นเพิ่งกด "จบเกม" ไป ยังไม่ทัน
         // สร้าง Round ใหม่) -> ไม่ merge ฐานใด ๆ จาก backend เพิ่ม (currentRoundId
         // เป็น null จะกรองได้ array ว่างเสมอ เพราะ entry.roundId ไม่มีทาง === null)
         // ป้องกัน fallback แบบเดิมที่เอาประวัติทุก Round มา merge รวมกัน
-        const scopedJourney = journeyRes.journey.filter((entry) => entry.roundId === currentRoundId)
+        const scopedJourney = currentRoundId
+          ? journeyRes.journey.filter((entry) => entry.roundId === currentRoundId)
+          : []
         const backendVisited = scopedJourney.map((entry) => entry.stationId)
-        // merge กับของเดิมในเครื่อง กันเคส "เพิ่งสแกนฐานใหม่แต่ queue ยังไม่ทัน sync"
+        // merge กับของเดิมในเครื่อง (ถ้าเพิ่งล้างไปด้านบนก็จะเป็น [] อยู่แล้ว) กันเคส
+        // "เพิ่งสแกนฐานใหม่ของ Round เดียวกันแต่ queue ยังไม่ทัน sync" ปลอดภัยแล้วเพราะ
+        // ผ่านการเช็ค currentRoundId === visitedRoundId ด้านบนมาก่อนแล้วเท่านั้น
         const merged = Array.from(new Set([...visitedIds.value, ...backendVisited]))
         visitedIds.value = merged
-        persist(merged)
+        visitedRoundId.value = currentRoundId
+        persist(merged, currentRoundId)
       }
 
       if (scoreRes?.success && scoreRes.score) {
@@ -366,11 +590,47 @@ export function useAdventure() {
    * เพื่อเคลียร์คะแนนที่ cache ไว้จากรอบก่อน ให้รอบใหม่คำนวณคะแนนใหม่ทั้งหมด
    * ไม่มีการลบ/แก้ข้อมูลใน Database ใด ๆ ทั้งสิ้น — ล้างแค่ LocalStorage/State ฝั่ง
    * เครื่องนี้เท่านั้น (Round/Journey/Score เก่าในชีตยังอยู่ครบเหมือนเดิม)
+   *
+   * [Fix] ล้าง visitedRoundId (แท็ก Round เจ้าของ visitedIds ในเครื่องนี้ — ดู
+   * STORAGE_ROUND_KEY ด้านบน) ด้วย เพราะ Round ที่เพิ่งจบไปนี้ไม่ใช่ Round Active
+   * แล้ว ให้ refreshFromBackend() ครั้งถัดไป (ตอนเริ่มรอบใหม่) รู้ว่าต้อง merge
+   * journey ของ Round ใหม่จริง ๆ เท่านั้น ไม่ใช่ยึดแท็ก Round เก่าไว้เฉย ๆ
+   *
+   * [Debug — ชั่วคราว] log [ROUND RESET] เพื่อยืนยันว่าเครื่องนี้ reset จริงตอนกด
+   * จบเกม (เทียบ previousVisited/previousScore ก่อน reset กับ resetVisited/
+   * resetScore หลัง reset) — ลบออกได้เมื่อยืนยันบั๊กมือถือหายแล้ว
+   *
+   * [Fix — root cause ของ "adventureVisitedStations เป็น [\"milk\"] หลัง reset"]
+   * บวก resetEpoch ทุกครั้งที่ reset — เพื่อบอก refreshFromBackend() ที่อาจกำลัง
+   * รอ network ค้างอยู่ (ยิงไปตั้งแต่ตอนสแกนผ่านฐานนม ก่อนกด "จบเกม") ว่า response
+   * ที่กำลังจะได้กลับมานั้น "เก่าเกินไป" แล้ว ห้ามเอามาเขียนทับ visitedIds ของรอบใหม่
+   * ที่เพิ่ง reset นี้อีก (ดูคำอธิบายเต็ม ๆ ที่ resetEpoch ด้านบนของไฟล์)
    */
   function resetJourney(): void {
+    const previousVisited = visitedIds.value
+    const previousScore = totalPoint.value
+    const previousRoundId = visitedRoundId.value
+
+    resetEpoch.value += 1
     visitedIds.value = []
-    persist([])
+    visitedRoundId.value = null
+    persist([], null)
     backendTotalPoint.value = null
+    // [ใหม่] ตั้งใจ "ไม่แตะ" initialScore/initialScoreInitialized ที่นี่เด็ดขาด —
+    // ตามสเปก "ไม่ต้อง reset Initial State" หลังจบรอบ Current Round Score (totalPoint
+    // computed ด้านบน) จะกลับไปเท่ากับ initialScore.value โดยอัตโนมัติทันทีที่
+    // visitedIds ว่างเปล่า ([Fix] ไม่ต้องเพิ่ม logic รีเซ็ตอะไรเพิ่มตรงนี้เลย)
+
+    if (import.meta.client) {
+      // eslint-disable-next-line no-console
+      console.log('[ROUND RESET]', {
+        roundId: previousRoundId,
+        previousVisited,
+        previousScore,
+        resetVisited: visitedIds.value,
+        resetScore: 0,
+      })
+    }
   }
 
   return {
@@ -379,6 +639,7 @@ export function useAdventure() {
     visitedIds: readonly(visitedIds),
     visitedCount,
     totalPoint,
+    initialScore: readonly(initialScore),
     isComplete,
     isSyncingFromBackend: readonly(isSyncingFromBackend),
     isVisited,
