@@ -779,9 +779,15 @@ function handleRequest_(payload) {
         return jsonOutput_(actionUpdateSideQuest_(payload));
       case "deleteSideQuest":
         return jsonOutput_(actionDeleteSideQuest_(payload));
+      // ไฟล์ใหม่: action 'submitSurvey' — บันทึกแบบประเมินหลังจบเกม (ดู
+      // actionSubmitSurvey_ ใน SurveyService.gs) ข้อ 1: "ท่านชอบด่านไหนมากที่สุด"
+      // ให้คะแนน 1-5 — เรียกจาก pages/scan.vue ตอนกดยืนยันแบบประเมินก่อนออกจาก
+      // Popup ฐานนม/ฐานสุดท้าย
+      case "submitSurvey":
+        return jsonOutput_(actionSubmitSurvey_(payload));
       default:
         return errorResponse_(
-          "action ไม่ถูกต้องหรือไม่ได้ระบุ ต้องเป็นหนึ่งใน: ping, checkMember, register, login, loginByLine, updateMember, getMember, checkin, getJourney, getScore, getLeaderboard, roundStart, roundEnd, getRound, listStations, createStation, updateStation, deleteStation, verifyStationQr, listSideQuests, createSideQuest, updateSideQuest, deleteSideQuest",
+          "action ไม่ถูกต้องหรือไม่ได้ระบุ ต้องเป็นหนึ่งใน: ping, checkMember, register, login, loginByLine, updateMember, getMember, checkin, getJourney, getScore, getLeaderboard, roundStart, roundEnd, getRound, listStations, createStation, updateStation, deleteStation, verifyStationQr, listSideQuests, createSideQuest, updateSideQuest, deleteSideQuest, submitSurvey",
         );
     }
   } catch (err) {

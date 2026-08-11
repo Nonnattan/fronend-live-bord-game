@@ -85,7 +85,10 @@ const { saveRoundSummary } = useRoundSummary();
 // เพื่อปิด Round ปัจจุบันด้วย roundEnd() — reuse composables/useRound.ts ที่จัดการ
 // Round ทั้งหมดอยู่แล้ว (roundStart ถูกเรียกไปแล้วครั้งเดียวตอน useRequireProfile guard
 // ทำงาน ไม่เกี่ยวกับหน้านี้) ไม่แตะ Logic การสแกน/กล้อง/Map/Journey อื่นใดในไฟล์นี้เลย
-const { endCurrentRound, ensureRoundStarted } = useRound();
+const { endCurrentRound, ensureRoundStarted, currentRoundId } = useRound();
+// แบบประเมินหลังจบเกม (ใหม่) — ใช้ submitSurvey() เดิมที่เพิ่งเพิ่มใน
+// composables/useMemberApi.ts (action 'submitSurvey' -> server-gas/SurveyService.gs)
+const { submitSurvey } = useMemberApi();
 
 type CheckinFeedbackKind = "success" | "duplicate" | "invalid";
 const checkinFeedback = ref<{ kind: CheckinFeedbackKind; text: string } | null>(
@@ -103,10 +106,68 @@ const successPopupOpen = ref(false);
 // Popup พิเศษฐานสุดท้าย (นม) — "ยินดีด้วย! คุณมาถึงฐานนมแล้ว" + ปุ่มเล่นต่อ/จบเกม
 const finalPopupOpen = ref(false);
 const scannedStation = ref<{ name: string; points: number } | null>(null);
+
+/**
+ * แบบประเมินก่อนจบเกม (ใหม่, ข้อ 1 ก่อน — เผื่อเพิ่มข้อถัดไปทีหลัง):
+ * "ท่านชอบด่านไหนมากที่สุด" ให้คะแนน 1-5 (5=มากที่สุด ... 1=น้อยที่สุด) — บังคับ
+ * ตอบก่อนออกจากหน้านี้เท่านั้น (ปุ่ม "จบเกม" ที่ Popup ฐานนมด้านล่างจะเปิด Popup
+ * นี้แทนที่จะเรียก endGameAfterFinalStation() ตรง ๆ) บันทึกลง Google Sheet ผ่าน
+ * submitSurvey() (ชีต "Survey" ฝั่ง server-gas) ก่อนค่อยจบเกมจริงตามปกติ
+ *
+ * เฉพาะฝั่ง Online เท่านั้น (Offline Mode ไม่มีอินเทอร์เน็ตให้บันทึกขึ้นชีตอยู่แล้ว
+ * — ปุ่ม "จบเกม" ฝั่ง Offline ยังคงจบเกมทันทีเหมือนเดิมทุกประการ ไม่ผ่าน Popup นี้)
+ */
+const surveyPopupOpen = ref(false);
+const selectedRating = ref<number | null>(null);
+const surveySubmitting = ref(false);
+const surveyError = ref("");
+const SURVEY_RATING_OPTIONS: { value: number; label: string }[] = [
+  { value: 4, label: "นม" },
+  { value: 3, label: "วัว" },
+  { value: 2, label: "ดิน" },
+  { value: 1, label: "ข้าวโพด" },
+];
 /** true ระหว่างที่มี Popup ผลลัพธ์ค้างอยู่ — ใช้กันการสแกน/กรอกรหัสซ้ำซ้อน */
 const isResultPopupOpen = computed(
   () => successPopupOpen.value || finalPopupOpen.value,
 );
+
+/**
+ * [Fix] บั๊ก "Popup แบบประเมินขึ้นมาแล้วยังกดออกจากหน้านี้ได้" — เดิม UModal
+ * ของแบบประเมิน (surveyPopupOpen) ตั้ง :dismissible="false" + :close="false"
+ * ไว้แล้วก็จริง แต่ 2 ค่านี้กัน "ปิด Modal เอง" ได้แค่ทาง Backdrop/ESC เท่านั้น —
+ * ไม่ได้กันการ "เปลี่ยนหน้า" ทั้งหน้า เพราะ pages/scan.vue ใช้ layout: 'app'
+ * (มี BottomNav ติดจอเสมอ ดู layouts/app.vue + components/BottomNav.vue) ที่มี
+ * NuxtLink ไปหน้าอื่น (หน้าแรก/แผนที่/โปรไฟล์/Info) ซ้อนอยู่นอก Modal ตลอด —
+ * ผู้เล่นกดเมนูด้านล่างระหว่าง Popup แบบประเมินเปิดอยู่ได้ตามปกติ ทำให้หลุดออก
+ * จากหน้านี้ไปได้ทั้งที่ยังไม่ได้ประเมิน (Modal ก็หายไปพร้อมกับหน้าเลย)
+ *
+ * แก้โดย reuse pattern เดียวกับ pages/round-summary.vue (onBeforeRouteLeave +
+ * beforeunload) ดักการเปลี่ยนหน้าในแอป (BottomNav/ปุ่ม Back) และปิด/รีเฟรชแท็บ
+ * ไว้ตราบใดที่ surveyPopupOpen ยังเป็น true อยู่ — "บล็อกจริง" (ไม่ใช่แค่เตือนแล้ว
+ * ให้ออกได้) ตามสเปก "ไม่สามารถกดออกจากหน้านี้ได้จนกว่าจะประเมิน" ส่วน Popup
+ * ผลลัพธ์อื่น ๆ (เข้าฐานสำเร็จ/ถึงฐานนม) กันไว้เผื่อเช่นกัน กันเคสเดียวกันที่ผู้เล่น
+ * หลุดออกจากหน้ากลางคันตอนกำลังจะบันทึกผลสแกน (ไม่แตะ Logic การสแกน/แสดงผล/
+ * ปุ่มภายใน Popup เดิมเลยแม้แต่บรรทัดเดียว)
+ */
+const isBlockingPopupOpen = computed(
+  () => surveyPopupOpen.value || isResultPopupOpen.value,
+);
+
+onBeforeRouteLeave(() => {
+  if (!surveyPopupOpen.value) return true;
+  if (import.meta.client) {
+    // eslint-disable-next-line no-alert
+    window.alert("กรุณาตอบแบบประเมินก่อนออกจากหน้านี้ครับ");
+  }
+  return false;
+});
+
+function handleScanPageBeforeUnload(event: BeforeUnloadEvent): void {
+  if (!isBlockingPopupOpen.value) return;
+  event.preventDefault();
+  event.returnValue = "";
+}
 
 /** แปลงรหัส/ข้อความที่สแกน/กรอกมาให้เป็น stationId ที่ระบบรู้จัก หรือ null ถ้าไม่รู้จัก
  * (เช็คเทียบกับ stations.value เพราะตอนนี้เป็น computed — กรองฐานที่ Admin
@@ -269,21 +330,52 @@ async function completeStationVisit(stationId: StationType): Promise<void> {
   // ต่อไป (ย้ายออกจาก composables/useRequireProfile.ts มาไว้ที่นี่แทน) —
   // ensureRoundStarted() เองมี logic กันเรียกซ้ำอยู่แล้ว (ดู composables/useRound.ts)
   // ฐานที่ 2-4 ของรอบเดียวกันเรียกซ้ำได้อย่างปลอดภัย จะไม่สร้าง Round ใหม่ซ้ำ —
-  // ไม่เรียกตอน Offline Mode (ไม่มี Round ฝั่ง Backend ให้เปิดอยู่แล้ว)
+  // ไม่เรียกตอน Offline Mode (ไม่มี Round ฝั่ง Backend ให้เปิดอยู่แล้ว) — เรียกก่อน
+  // เสมอไม่ว่าจะเป็นฐาน 1-3 หรือฐาน 4 (แค่ "เปิด Round" เท่านั้น ไม่ใช่การ Commit/
+  // จบเกม จึงไม่ขัดกับสเปก "ฐาน 4 เป็นจุดตัดสินใจ ห้าม Auto End" ด้านล่าง)
   if (!isOfflineMode.value && profile.value?.memberId) {
     await ensureRoundStarted(profile.value.memberId, profile.value.firstName);
   }
 
+  /**
+   * [Fix — Root Cause] ฐาน 4 (นม/FINAL_STATION_ID) คือ "จุดตัดสินใจ" ไม่ใช่จุดจบ
+   * เกมอัตโนมัติ — เดิมโค้ด Commit (toggleStation/queueCheckin/logStationScan)
+   * "ทันที" ตอนสแกน ก่อนเปิด Popup ถามด้วยซ้ำ ทำให้กด "เล่นต่อ" แล้ว ✓/คะแนน/
+   * Google Sheet record ยังค้างอยู่ (ไม่มีการ Rollback ใด ๆ) และสแกนฐาน 4 ซ้ำไม่ได้
+   * อีกเลยเพราะ isVisited() เป็น true ไปแล้ว (เจอ "duplicate" ทันที ไม่มีทาง Popup
+   * ขึ้นใหม่) — ฝั่ง Offline เดิมแย่กว่านั้นคือไม่มี Popup ถามเลย ใช้ isComplete()
+   * (ครบ 4 ฐาน) เป็นเงื่อนไข Auto End ตรง ๆ ซึ่งขัดสเปกเรื่อง "ห้ามใช้ isComplete/
+   * ครบจำนวนฐานเป็นเงื่อนไขจบเกม" โดยตรง
+   *
+   * แก้โดยแยก Branch ฐาน 4 ออกมาต่างหาก: "ห้าม" toggleStation/queueCheckin/
+   * logStationScan/endRound/saveRoundSummary/navigate ใด ๆ ทั้งสิ้นตรงนี้ — แค่เก็บ
+   * ชื่อ/คะแนนฐานไว้แสดงผล แล้วเปิด Popup ถาม "ต้องการจบเกมหรือไม่?" เท่านั้น (เหมือน
+   * กันทั้ง Online/Offline) การ Commit จริง (ตาม stationId === FINAL_STATION_ID)
+   * ถูกย้ายไปที่ commitFinalStationVisit() ด้านล่าง เรียกเฉพาะตอนผู้เล่นกด "จบเกม"
+   * แล้วเงื่อนไขที่เหลือผ่านครบเท่านั้น (Online: หลัง Survey Submit สำเร็จ ดู
+   * confirmSurveyAndEndGame() / Offline: ทันทีที่กด เพราะไม่มี Survey ให้บันทึกขึ้น
+   * ชีตอยู่แล้ว ดู endGameOfflineAfterFinalStation() ด้านล่าง) กด "เล่นต่อ" จึงไม่มี
+   * อะไรให้ Rollback เลยตั้งแต่แรก (ดู continuePlayingAfterFinalStation() — ของเดิม
+   * ไม่ต้องแก้) และสแกนฐาน 4 ซ้ำได้ Popup ใหม่เสมอเพราะ isVisited(milk) ยังเป็น
+   * false อยู่จนกว่าจะ Commit จริง
+   */
+  if (stationId === FINAL_STATION_ID) {
+    scannedStation.value = { name: station.name, points: stationPoint };
+    finalPopupOpen.value = true;
+    return;
+  }
+
+  // ฐาน 1-3: Logic เดิมทั้งหมด ไม่มีการแก้ไข (Commit ทันทีเหมือนเดิมทุกประการ)
   // บันทึกลง LocalStorage ก่อนเสมอ (Offline First) — ไม่ยิง Google Sheet ตรงนี้
   toggleStation(stationId);
 
   // -------------------------------------------------------------------
   // Offline Mode (ใหม่): ห้ามแตะระบบ Online/Sync เดิมเลย (queueCheckin/
   // runSync) — บันทึก stationId/stationName/scanTime/ลำดับฐาน ลง Log ของ
-  // ตัวเองแทน (ข้อ 8) และ "ห้ามแสดงคะแนน" ในข้อความ feedback (ข้อ 9) —
-  // เมื่อผ่านครบทุกฐานแล้ว (isComplete) ให้บันทึก round_datetime.end (ข้อ 10)
-  // Popup ใหม่ (เข้าฐานสำเร็จ/ถึงฐานนม) ใช้เฉพาะฝั่ง Online เท่านั้น จึงไม่
-  // เปิด Popup ใน Branch นี้เลย — ไม่แตะพฤติกรรม Offline Mode เดิมแม้แต่บรรทัดเดียว
+  // ตัวเองแทน (ข้อ 8) และ "ห้ามแสดงคะแนน" ในข้อความ feedback (ข้อ 9) — จุดจบเกม
+  // ของฐาน 4 ("นม") ไม่ใช้ isComplete() ที่นี่อีกต่อไป (ย้ายไป Branch ฐาน 4
+  // ด้านบนทั้งหมดแล้ว) — Branch นี้เหลือแค่ฐาน 1-3 เท่านั้น ไม่แตะพฤติกรรม Offline
+  // Mode เดิมของฐาน 1-3 แม้แต่บรรทัดเดียว
   // -------------------------------------------------------------------
   if (isOfflineMode.value) {
     logStationScan(stationId, station.name);
@@ -291,53 +383,6 @@ async function completeStationVisit(stationId: StationType): Promise<void> {
       kind: "success",
       text: `ผ่าน${station.name}สำเร็จ (บันทึกในเครื่องแล้ว)`,
     };
-    if (isComplete.value) {
-      endRound();
-      // [Fix] จบเกมแล้ว (ครบ 4 ฐาน) ฝั่ง Offline — เก็บสรุปผล (ห้ามมีคะแนน ตาม
-      // กติกา Offline Mode เดิม) แล้วปิดกล้อง/พาไปหน้า /round-summary เหมือนฝั่ง
-      // Online ทุกประการ (ดู endGameAfterFinalStation ด้านล่าง) จากนั้นรีเซ็ต
-      // สถานะฐานที่ผ่านแล้วในเครื่องกลับเป็น 0 ให้พร้อมเล่นรอบถัดไปทันที
-      //
-      // [Fix — root cause ของ "กด จบเกม แล้วไม่ไปหน้า /round-summary"] เดิม
-      // saveRoundSummary()/resetJourney() ไม่ได้ครอบ try/catch เลย — ถ้า throw
-      // (เช่น LocalStorage เต็ม/Private Browsing) จะทำให้ stopCamera()/navigateTo()
-      // ด้านล่าง "ไม่ถูกเรียกเลย" (unhandled rejection เงียบ ๆ ไม่มี UI แจ้ง) ครอบ
-      // try/finally ไว้ที่นี่: ไม่ว่าขั้นตอนเก็บสรุปผลจะสำเร็จหรือไม่ ก็ต้องปิดกล้อง
-      // + navigateTo('/round-summary') เสมอใน finally (saveRoundSummary() เองก็ถูก
-      // แก้ให้ไม่ throw แล้วเช่นกัน — ดู composables/useRoundSummary.ts — ที่นี่ครอบ
-      // อีกชั้นเผื่อ error อื่นที่ไม่คาดคิดจากโค้ดรอบข้าง)
-      try {
-        const playedStations = (roundData.value?.stations ?? [])
-          .slice()
-          .sort((a, b) => a.order - b.order)
-          .map((s) => ({ name: s.stationName, points: 0 }));
-        saveRoundSummary({
-          mode: "offline",
-          startTime: roundData.value?.startedAt
-            ? new Date(roundData.value.startedAt).toISOString()
-            : null,
-          endTime: new Date(
-            roundData.value?.endedAt ?? Date.now(),
-          ).toISOString(),
-          stations: playedStations,
-          totalPoint: null,
-        });
-        // [Fix — ตามสเปก "หลังจบเกมห้ามล้างข้อมูลก่อนหน้า /round-summary"]
-        // resetJourney()/startRound() รอบใหม่ "ย้ายออกไป" ที่ปุ่ม "ติดต่อเจ้าหน้าที่
-        // แล้ว / กลับสู่หน้าหลัก" ของหน้า /round-summary แทน (ดู
-        // pages/round-summary.vue -> confirmAndGoHome()) — ที่นี่ทำแค่เก็บสรุปผล
-        // (saveRoundSummary) แล้วพาไปหน้า /round-summary เท่านั้น ไม่ล้าง Current
-        // Round Frontend ใด ๆ ก่อนหน้านั้นอีกต่อไป
-      } catch (err) {
-        console.error(
-          "[completeStationVisit] failed to build offline round summary",
-          err,
-        );
-      } finally {
-        await stopCamera();
-        await navigateTo("/round-summary");
-      }
-    }
     return;
   }
 
@@ -347,19 +392,43 @@ async function completeStationVisit(stationId: StationType): Promise<void> {
     text: `ผ่าน${station.name}สำเร็จ +${stationPoint} Point (บันทึกในเครื่องแล้ว)`,
   };
 
-  // แสดง Popup ผลลัพธ์ — ฐาน 1-3 ใช้ Success Popup ปกติ ("เข้าฐานสำเร็จ!"),
-  // ฐานสุดท้าย (นม) ใช้ Popup พิเศษ ("ยินดีด้วย! คุณมาถึงฐานนมแล้ว" + เล่นต่อ/จบเกม)
+  // แสดง Popup ผลลัพธ์ — ฐาน 1-3 ใช้ Success Popup ปกติ ("เข้าฐานสำเร็จ!") เท่านั้น
+  // (ฐานสุดท้าย/นม ไม่มีทางมาถึงบรรทัดนี้อีกต่อไป — return ไปที่ Branch ด้านบนแล้ว)
   scannedStation.value = { name: station.name, points: stationPoint };
-  if (stationId === FINAL_STATION_ID) {
-    finalPopupOpen.value = true;
-  } else {
-    successPopupOpen.value = true;
+  successPopupOpen.value = true;
+}
+
+/**
+ * [Fix] Commit ฐาน 4 (นม) "จริง" — เรียกเฉพาะตอนผู้เล่นตัดสินใจกด "จบเกม" แล้ว
+ * เงื่อนไขที่เหลือผ่านครบเท่านั้น (Offline: เรียกทันทีจาก endGameOfflineAfterFinalStation()
+ * / Online: เรียกหลัง Survey Submit สำเร็จจาก confirmSurveyAndEndGame() เท่านั้น —
+ * ห้ามเรียกจุดอื่นเด็ดขาด) ทำหน้าที่เดียวกับ Commit ฐาน 1-3 เดิมทุกประการ (toggleStation
+ * ก่อนเสมอ + offline -> logStationScan / online -> queueCheckin + runSync) แค่แยก
+ * ออกมาเป็นฟังก์ชันเพื่อ "หน่วงเวลา" การ Commit ไว้จนกว่าจะผ่าน Popup ตัดสินใจ (และ
+ * Survey ฝั่ง Online) มาก่อนเท่านั้น ไม่มี Logic ใหม่ที่ต่างจากฐาน 1-3 เดิมเลย
+ */
+async function commitFinalStationVisit(): Promise<void> {
+  const station = stations.value.find((s) => s.id === FINAL_STATION_ID)!;
+  const stationPoint = station.points ?? POINTS_PER_STATION;
+
+  toggleStation(FINAL_STATION_ID);
+
+  if (isOfflineMode.value) {
+    logStationScan(FINAL_STATION_ID, station.name);
+    checkinFeedback.value = {
+      kind: "success",
+      text: `ผ่าน${station.name}สำเร็จ (บันทึกในเครื่องแล้ว)`,
+    };
+    return;
   }
 
-  // Sync ขึ้น Google Sheet เฉพาะตอนผ่านฐานสุดท้าย ("นม") และต้องมีเน็ตเท่านั้น
-  if (stationId === FINAL_STATION_ID) {
-    await runSync();
-  }
+  queueCheckin(station, stationPoint);
+  checkinFeedback.value = {
+    kind: "success",
+    text: `ผ่าน${station.name}สำเร็จ +${stationPoint} Point (บันทึกในเครื่องแล้ว)`,
+  };
+  // Sync ขึ้น Google Sheet ทันทีหลัง Commit ฐานสุดท้าย ("นม") เหมือนเดิมทุกประการ
+  await runSync();
 }
 
 /** ปุ่ม "Sync ข้อมูลตอนนี้" — ผู้ใช้กดเองเมื่อไหร่ก็ได้ถ้ามีเน็ต */
@@ -390,6 +459,142 @@ function closeSuccessPopup(): void {
 function continuePlayingAfterFinalStation(): void {
   finalPopupOpen.value = false;
   resetScanResult();
+}
+
+/**
+ * ปุ่ม "จบเกม" ของ Popup ฐานนม (Popup ตัดสินใจ) — Online: เปิด Popup แบบประเมิน
+ * (บังคับตอบ) เท่านั้น "ยังไม่ Commit ฐาน 4 ใด ๆ ทั้งสิ้น" (ย้าย toggleStation/
+ * queueCheckin ออกไปที่ commitFinalStationVisit() แล้ว เรียกเฉพาะหลัง Survey
+ * Submit สำเร็จใน confirmSurveyAndEndGame() เท่านั้น) — Offline: ไม่มี Survey ให้
+ * บันทึกขึ้น Google Sheet (ไม่มีอินเทอร์เน็ตอยู่แล้ว) จึง Commit + จบเกมทันทีผ่าน
+ * endGameOfflineAfterFinalStation() ด้านล่าง (Flow เดียวกับ Online ทุกขั้นตอน
+ * ยกเว้นไม่มี Survey — Scan ฐาน 4 -> Popup -> จบเกม -> Commit -> Mark visited ->
+ * End Round -> Save Summary -> /round-summary)
+ *
+ * [Fix — root cause ของ "กดจบเกมแล้วเงียบไปเลย ไม่เห็น Popup แบบประเมิน ไม่ไป
+ * /round-summary ด้วย"] เดิมปิด Popup ฐานนม (finalPopupOpen = false) แล้วเปิด
+ * Popup แบบประเมิน (surveyPopupOpen = true) "ในติ๊กเดียวกัน" — UModal ทั้ง 2 ตัว
+ * แชร์กลไก Teleport/Focus-trap เดียวกันของ Nuxt UI พอปิด-เปิดพร้อมกันแบบนี้บาง
+ * จังหวะตัวที่เพิ่งเปิดจะถูกกลไกปิด Modal ตัวเดิมที่กำลัง unmount แทรกแซงจน "ปิด
+ * ตามไปด้วยทันที" (เห็นเหมือนกดจบเกมแล้วไม่มีอะไรเกิดขึ้นเลย ทั้งที่ Logic ฝั่ง
+ * Component ทำงานถูกต้องทุกจุด) — แก้โดยรอ nextTick() ให้ Popup ฐานนมปิด/เคลียร์
+ * DOM เสร็จสมบูรณ์ก่อน ค่อยเปิด Popup แบบประเมินอีกที กันการชนกันนี้
+ */
+async function handleEndGameButtonClick(): Promise<void> {
+  if (isOfflineMode.value) {
+    await endGameOfflineAfterFinalStation();
+    return;
+  }
+  finalPopupOpen.value = false;
+  surveyError.value = "";
+  selectedRating.value = null;
+  await nextTick();
+  surveyPopupOpen.value = true;
+}
+
+/**
+ * [Fix] จบเกมฝั่ง Offline หลังกด "จบเกม" ที่ Popup ตัดสินใจฐานนม — ไม่มี Survey
+ * (ไม่มีอินเทอร์เน็ตให้บันทึกขึ้น Google Sheet อยู่แล้ว) จึง Commit ฐาน 4 ทันที
+ * (commitFinalStationVisit() — toggleStation + logStationScan เดิมทุกประการ)
+ * ตามด้วย endRound()/saveRoundSummary()/navigate เดิมที่เคยอยู่ใน isComplete()
+ * Branch ของ completeStationVisit() (ย้ายมาไว้ที่นี่ทั้งดุ้น ไม่มี Logic ใหม่ที่
+ * ต่างจากเดิม แค่เปลี่ยนจุดเรียกจาก "Auto เมื่อ isComplete" เป็น "เรียกตอนกด
+ * จบเกมเท่านั้น" ตามสเปก) ครอบ try/finally เหมือนเดิม กันเคส saveRoundSummary()
+ * throw (LocalStorage เต็ม/Private Browsing) ไม่ให้ stopCamera()/navigateTo()
+ * ไม่ถูกเรียก
+ */
+const isEndingGameOffline = ref(false);
+async function endGameOfflineAfterFinalStation(): Promise<void> {
+  if (isEndingGameOffline.value) return;
+  isEndingGameOffline.value = true;
+
+  finalPopupOpen.value = false;
+  resetScanResult();
+
+  try {
+    await commitFinalStationVisit();
+    endRound();
+
+    const playedStations = (roundData.value?.stations ?? [])
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .map((s) => ({ name: s.stationName, points: 0 }));
+    saveRoundSummary({
+      mode: "offline",
+      startTime: roundData.value?.startedAt
+        ? new Date(roundData.value.startedAt).toISOString()
+        : null,
+      endTime: new Date(
+        roundData.value?.endedAt ?? Date.now(),
+      ).toISOString(),
+      stations: playedStations,
+      totalPoint: null,
+    });
+  } catch (err) {
+    console.error(
+      "[endGameOfflineAfterFinalStation] failed to build offline round summary",
+      err,
+    );
+  } finally {
+    await stopCamera();
+    await navigateTo("/round-summary");
+    isEndingGameOffline.value = false;
+  }
+}
+
+/**
+ * ปุ่ม "ยืนยัน" ของ Popup แบบประเมิน — บันทึกคำตอบ (submitSurvey ผูกกับ roundId
+ * ปัจจุบันที่ยังไม่ปิด) แล้วค่อย Commit ฐาน 4 จริง (commitFinalStationVisit())
+ * ก่อนเรียก endGameAfterFinalStation() เดิมต่อทันที
+ *
+ * [Fix — เปลี่ยนพฤติกรรมตามสเปกใหม่] เดิมถ้า submitSurvey() พัง จะ "ไม่บล็อก"
+ * การจบเกม (log error เฉย ๆ แล้วปล่อยจบเกมต่อตามปกติ) — ตอนนี้ตามสเปก "ถ้า Survey
+ * Submit ไม่สำเร็จ: ห้าม Commit ฐาน 4, ห้ามเพิ่มคะแนน, ห้าม End Round, ห้ามออกจาก
+ * Survey, ให้ลองใหม่ได้" จึงต้อง "บล็อก" แทน: เจอ error -> ตั้ง surveyError ไว้
+ * แสดงผล แล้ว return ทันที (ไม่ปิด surveyPopupOpen, ไม่ commit, ไม่เรียก
+ * endGameAfterFinalStation()) ปล่อยให้ผู้เล่นกด "ยืนยัน" ซ้ำได้ (selectedRating
+ * ยังเลือกค้างไว้เหมือนเดิม) — Commit ฐาน 4 (toggleStation/queueCheckin/Google
+ * Sheet/เพิ่มคะแนน) เกิดขึ้น "หลัง" Survey Submit สำเร็จเท่านั้น ตรงตามลำดับ Flow
+ * ที่ต้องการ: Scan ฐาน 4 -> Popup -> จบเกม -> Survey -> Submit สำเร็จ -> Commit
+ * ฐาน 4 -> Google Sheet -> เพิ่มคะแนน -> Mark visited/✓ -> End Round -> Save
+ * Summary -> /round-summary (endGameAfterFinalStation() เดิมด้านล่างจัดการตั้งแต่
+ * "End Round" เป็นต้นไปอยู่แล้ว ไม่มีการแก้ไข Logic ส่วนนั้นเลย)
+ */
+async function confirmSurveyAndEndGame(): Promise<void> {
+  if (!selectedRating.value || surveySubmitting.value) return;
+  surveySubmitting.value = true;
+  surveyError.value = "";
+  try {
+    if (
+      !isOfflineMode.value &&
+      profile.value?.memberId &&
+      currentRoundId.value
+    ) {
+      try {
+        await submitSurvey({
+          roundId: currentRoundId.value,
+          userId: profile.value.memberId,
+          firstName: profile.value.firstName,
+          favoriteStationRating: selectedRating.value,
+        });
+      } catch (err) {
+        console.error(
+          "[confirmSurveyAndEndGame] submitSurvey failed",
+          err,
+        );
+        surveyError.value =
+          "บันทึกแบบประเมินไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง";
+        return;
+      }
+    }
+
+    surveyPopupOpen.value = false;
+    selectedRating.value = null;
+    await commitFinalStationVisit();
+    await endGameAfterFinalStation();
+  } finally {
+    surveySubmitting.value = false;
+  }
 }
 
 /** ปุ่ม "จบเกม" ของ Popup ฐานนม — ปิด Round ปัจจุบันด้วย roundEnd() (RoundId เดิม,
@@ -629,9 +834,13 @@ onMounted(async () => {
 
   // เปิดกล้องอัตโนมัติทันทีที่เข้าหน้านี้
   await startCamera(cameras.value[activeCameraIndex.value]?.id);
+
+  window.addEventListener("beforeunload", handleScanPageBeforeUnload);
 });
 
 onBeforeUnmount(async () => {
+  window.removeEventListener("beforeunload", handleScanPageBeforeUnload);
+
   if (html5Qrcode && scanState.value === "running") {
     try {
       await html5Qrcode.stop();
@@ -869,12 +1078,54 @@ onBeforeUnmount(async () => {
           <UButton
             block
             color="primary"
-            :loading="isEndingGame"
-            :disabled="isEndingGame"
-            @click="endGameAfterFinalStation"
+            :loading="isEndingGame || isEndingGameOffline"
+            :disabled="isEndingGame || isEndingGameOffline"
+            @click="handleEndGameButtonClick"
             >จบเกม</UButton
           >
         </div>
+      </template>
+    </UModal>
+
+    <!-- Popup แบบประเมิน (ใหม่) — บังคับตอบก่อนออกจากเกม (Online เท่านั้น) เปิดแทน
+         การเรียก endGameAfterFinalStation() ตรง ๆ ตอนกด "จบเกม" ที่ Popup ฐานนม -->
+    <UModal
+      v-model:open="surveyPopupOpen"
+      title="แบบประเมิน"
+      :dismissible="false"
+      :close="false"
+    >
+      <template #body>
+        <div class="survey-popup">
+          <p class="survey-popup__question">ท่านชอบด่านไหนมากที่สุด</p>
+          <div class="survey-popup__scale">
+            <button
+              v-for="option in SURVEY_RATING_OPTIONS"
+              :key="option.value"
+              type="button"
+              class="survey-popup__option"
+              :class="{
+                'survey-popup__option--selected': selectedRating === option.value,
+              }"
+              @click="selectedRating = option.value"
+            >
+              <span class="survey-popup__option-value">{{ option.value }}</span>
+              <span class="survey-popup__option-label">{{ option.label }}</span>
+            </button>
+          </div>
+          <p v-if="surveyError" class="survey-popup__error">{{ surveyError }}</p>
+        </div>
+      </template>
+      <template #footer>
+        <UButton
+          block
+          color="primary"
+          :loading="surveySubmitting"
+          :disabled="!selectedRating || surveySubmitting"
+          @click="confirmSurveyAndEndGame"
+        >
+          ยืนยัน
+        </UButton>
       </template>
     </UModal>
   </div>
@@ -1157,5 +1408,63 @@ onBeforeUnmount(async () => {
   display: flex;
   gap: 0.6rem;
   width: 100%;
+}
+
+.survey-popup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.9rem;
+  padding: 0.5rem 0 0.5rem;
+}
+
+.survey-popup__question {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--farm-text-dark);
+  margin: 0;
+}
+
+.survey-popup__scale {
+  display: flex;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.survey-popup__option {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.6rem 0.25rem;
+  border-radius: 0.75rem;
+  background: var(--farm-cream);
+  border: 2px solid var(--farm-wood);
+  color: var(--farm-text-dark);
+  cursor: pointer;
+}
+
+.survey-popup__option--selected {
+  border-color: var(--farm-accent-dark);
+  background: var(--farm-accent);
+  color: var(--farm-cream);
+}
+
+.survey-popup__option-value {
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.survey-popup__option-label {
+  font-size: 0.62rem;
+  line-height: 1.2;
+}
+
+.survey-popup__error {
+  font-size: 0.78rem;
+  color: #b3441f;
+  margin: 0;
 }
 </style>

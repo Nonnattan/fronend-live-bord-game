@@ -174,6 +174,35 @@ interface GetRoundResponse {
   error?: string
 }
 
+/** คำตอบแบบประเมินหลังจบเกม (ชีต "Survey" ฝั่ง server-gas — ดู server-gas/SurveyService.gs)
+ * ตอนนี้มี 1 ข้อ: favoriteStationRating (1-5, 5=มากที่สุด ... 1=น้อยที่สุด) —
+ * ออกแบบให้เพิ่มข้อถัดไปได้ในอนาคตโดยไม่กระทบข้อเดิม */
+export interface SurveyEntry {
+  surveyId: string
+  roundId: string
+  userId: string
+  firstName: string
+  favoriteStationRating: number
+  submittedAt: string
+}
+
+/** Payload ที่ส่งไปกับ action 'submitSurvey' — roundId ต้องเป็นรอบที่ยังไม่ปิด
+ * (หรือเพิ่งปิด) ของผู้เล่นคนนี้เท่านั้น (ดู pages/scan.vue -> endGameAfterFinalStation) */
+export interface SubmitSurveyPayload {
+  roundId: string
+  userId: string
+  firstName?: string
+  /** 1-5 เท่านั้น (5=มากที่สุด, 4=มาก, 3=ปานกลาง, 2=น้อย, 1=น้อยที่สุด) */
+  favoriteStationRating: number
+}
+
+interface SubmitSurveyResponse {
+  success: boolean
+  alreadySubmitted?: boolean
+  survey?: SurveyEntry
+  error?: string
+}
+
 /** 1 ฐานของเกม (ชีต "Stations" ฝั่ง server-gas) — จัดการรายชื่อ/คะแนน/เปิดปิดฐาน
  * ได้จากหน้า Admin โดยไม่ต้องแก้โค้ด/deploy frontend ใหม่ (ดู server-gas/StationsService.gs)
  * หมายเหตุ: ยังไม่มีพิกัด lat/lng หรือ "ประเภทฐาน" (ไอคอน/สี) ในชีตนี้ — ตำแหน่ง/
@@ -447,6 +476,14 @@ export function useMemberApi() {
     return callApi<GetRoundResponse>('getRound', { userId })
   }
 
+  /** action 'submitSurvey' — บันทึกแบบประเมินหลังจบเกม (ดู server-gas/SurveyService.gs)
+   * เรียกจาก pages/scan.vue ตอนกดยืนยันแบบประเมิน ก่อนออกจาก Popup ฐานนม/ฐานสุดท้าย
+   * roundId เดิมส่งมาซ้ำ (เช่น กดยืนยันซ้ำ/เน็ตหลุดแล้ว retry) -> backend อัปเดต
+   * คำตอบเดิมให้ ไม่สร้างแถวซ้ำ (idempotent เหมือน roundStart/roundEnd) */
+  function submitSurvey(payload: SubmitSurveyPayload): Promise<SubmitSurveyResponse> {
+    return callApi<SubmitSurveyResponse>('submitSurvey', { ...payload })
+  }
+
   /** action 'listStations' — ดึงรายชื่อฐานทั้งหมด (เรียงตาม Order) จากชีต "Stations"
    * ที่จัดการผ่านหน้า Admin — ใช้แทนรายชื่อฐาน mock ที่ hardcode ไว้ในอนาคตได้
    * (กรอง active:false ออกเองฝั่งผู้เรียก ถ้าต้องการโชว์เฉพาะฐานที่เปิดใช้งาน) */
@@ -481,6 +518,7 @@ export function useMemberApi() {
     roundStart,
     roundEnd,
     getRound,
+    submitSurvey,
     listStations,
     verifyStationQr,
     listSideQuests,
