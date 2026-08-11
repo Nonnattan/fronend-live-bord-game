@@ -165,6 +165,31 @@ export function useProfile() {
     profile.value = merged
   }
 
+  /**
+   * อัปเดตเฉพาะ "ข้อมูลที่ผู้ใช้แก้ไขเองในหน้า Profile" (ชื่อ/นามสกุล/เบอร์โทร/เพศ/ช่วงปีเกิด)
+   * ทับลงในโปรไฟล์ปัจจุบัน — ใช้หลังเรียก useMemberApi().updateMember() สำเร็จแล้ว
+   * เท่านั้น (member คือแถวเดิมที่ Google Sheet ยืนยันกลับมาหลังอัปเดต ไม่ใช่แถวใหม่)
+   * ไม่กระทบ field อื่นเลย (uid, memberId, point, totalVisit, loginType ฯลฯ)
+   * เพื่อไม่ให้กระทบระบบ Login/Member/Round/Journey เดิม — เขียนกลับ LocalStorage +
+   * useState ทันทีเพื่อให้หน้า Home/Profile เห็นค่าใหม่ทันทีโดยไม่ต้อง reload
+   */
+  function updateEditableFields(member: MemberRecord): void {
+    if (!profile.value) return
+    const gender = (member.gender || profile.value.gender) as UserProfile['gender']
+    const merged: UserProfile = {
+      ...profile.value,
+      firstName: member.firstName || profile.value.firstName,
+      lastName: member.lastName || profile.value.lastName,
+      phone: member.phone || profile.value.phone,
+      gender,
+      birthYearRange: member.birthYear || profile.value.birthYearRange,
+    }
+    if (import.meta.client) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(merged))
+    }
+    profile.value = merged
+  }
+
   /** ล้างโปรไฟล์ออกจาก LocalStorage (ไว้ใช้ตอนทดสอบ / reset) */
   function resetProfile(): void {
     if (import.meta.client) {
@@ -182,6 +207,7 @@ export function useProfile() {
     saveProfile,
     loginFromMember,
     refreshFromMember,
+    updateEditableFields,
     resetProfile,
   }
 }

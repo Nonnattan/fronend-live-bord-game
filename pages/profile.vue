@@ -7,13 +7,131 @@
  */
 
 import { STATION_TYPE_META, type StationType } from '~/composables/useAdventure'
+import type { Gender } from '~/types/profile'
 
 definePageMeta({ layout: 'app' })
 
 const { profile, isReady } = useRequireProfile()
 const { isAnonymous, loginWithLine, resetAuth, logoutLine } = useAuth()
-const { resetProfile } = useProfile()
+const { resetProfile, updateEditableFields } = useProfile()
+const { updateMember } = useMemberApi()
 const { stations } = useAdventure()
+
+/**
+ * แก้ไขข้อมูลโปรไฟล์ (ข้อ Profile ใหม่): ชื่อ/นามสกุล/เบอร์โทร/เพศ/ช่วงปีเกิด — 5 รายการ
+ * (ไม่แตะ UID/Point/Round/Journey เลย)
+ * ใช้ "โหมดแก้ไข" เดียวคุมทั้ง 5 ฟิลด์พร้อมกัน (กดดินสอที่ชื่อ -> ชื่อ/นามสกุล/เบอร์โทร
+ * กลายเป็น input, เพศ/ช่วงปีเกิดกลายเป็น Dropdown) แล้วกดปุ่ม "บันทึก"/"ยกเลิก"
+ * ทีเดียวตามสเปก ("มีปุ่มบันทึกและยกเลิก ตอนอยู่ในโหมดแก้ไข")
+ *
+ * ส่งไปอัปเดตผ่าน action 'updateMember' เดิม (composables/useMemberApi.ts) ด้วย
+ * memberId ของสมาชิกเดิมเท่านั้น — ฝั่ง server-gas (actionUpdateMember_) การันตี
+ * "ห้ามสร้างแถวใหม่" อยู่แล้ว (หาแถวไม่เจอ -> คืน error ทันที ไม่ appendRow)
+ *
+ * เบอร์โทร: validate ด้วย regex เดียวกับตอนสมัคร (profileSchema.shape.phone ใน
+ * utils/profileSchema.ts) เก็บเป็น string เสมอ (ไม่แปลงเป็นตัวเลข) เพื่อไม่ให้เลข 0
+ * นำหน้าหาย — ฝั่ง server-gas ก็บังคับ format คอลัมน์ Phone Number เป็น Plain Text
+ * ไว้แล้วเช่นกัน (ดู ensurePhoneColumnIsText_ ใน server-gas/Code.gs) กันชีตแปลงเป็น
+ * ตัวเลขเองตอนบันทึก
+ */
+const ageRangeOptions = getAgeRangeOptions()
+
+const isEditingProfile = ref(false)
+const editFirstName = ref('')
+const editLastName = ref('')
+const editPhone = ref('')
+const editGender = ref<Gender | undefined>(undefined)
+/** ปีเกิดตัวแทน (ตรงกับ value ใน ageRangeOptions) — ไม่ใช่ birthYearRange ตรง ๆ
+ * เพราะ USelectMenu ต้องผูกกับ value ที่เป็นตัวเลขเดียวไม่ซ้ำกันของแต่ละตัวเลือก */
+const editBirthYearValue = ref<number | undefined>(undefined)
+const editSubmitting = ref(false)
+const editError = ref('')
+
+/** หา value (ปีเกิดตัวแทน) ของ ageRangeOptions ที่ rangeValue ตรงกับ birthYearRange
+ * ปัจจุบันของโปรไฟล์ — ใช้ pre-select ตัวเลือกเดิมตอนเปิดโหมดแก้ไข */
+function findAgeRangeValueForRange(rangeValue?: string): number | undefined {
+  if (!rangeValue) return undefined
+  return ageRangeOptions.find((option) => option.rangeValue === rangeValue)?.value
+}
+
+function startEditProfile(): void {
+  editFirstName.value = profile.value?.firstName ?? ''
+  editLastName.value = profile.value?.lastName ?? ''
+  editPhone.value = profile.value?.phone ?? ''
+  editGender.value = profile.value?.gender
+  editBirthYearValue.value = findAgeRangeValueForRange(profile.value?.birthYearRange)
+  editError.value = ''
+  isEditingProfile.value = true
+}
+
+/** ยกเลิกโหมดแก้ไข — ไม่มีการเรียก API ใด ๆ ทั้งสิ้น โปรไฟล์กลับไปแสดงค่าเดิมทันที */
+function cancelEditProfile(): void {
+  isEditingProfile.value = false
+  editError.value = ''
+}
+
+async function saveEditProfile(): Promise<void> {
+  const memberId = profile.value?.memberId
+  if (!memberId) {
+    editError.value = 'ไม่พบ Member ID ของสมาชิก กรุณาลองเข้าสู่ระบบใหม่อีกครั้ง'
+    return
+  }
+
+  const firstName = editFirstName.value.trim()
+  const lastName = editLastName.value.trim()
+  const phone = editPhone.value.trim()
+
+  if (firstName.length < 2) {
+    editError.value = 'ชื่อต้องมีอย่างน้อย 2 ตัวอักษร'
+    return
+  }
+  if (lastName.length < 2) {
+    editError.value = 'นามสกุลต้องมีอย่างน้อย 2 ตัวอักษร'
+    return
+  }
+  // ใช้ regex เดียวกับตอนสมัคร (utils/profileSchema.ts) เก็บ/ส่งเป็น string เสมอ
+  const phoneCheck = profileSchema.shape.phone.safeParse(phone)
+  if (!phoneCheck.success) {
+    editError.value = phoneCheck.error.issues[0]?.message || 'กรุณากรอกเบอร์โทรศัพท์ให้ถูกต้อง'
+    return
+  }
+  if (!editGender.value) {
+    editError.value = 'กรุณาเลือกเพศ'
+    return
+  }
+  if (!editBirthYearValue.value) {
+    editError.value = 'กรุณาเลือกช่วงปีเกิด'
+    return
+  }
+
+  editSubmitting.value = true
+  editError.value = ''
+  try {
+    // ใช้ action 'updateMember' เดิมของระบบ Member — ระบุ memberId ตรง ๆ เท่านั้น
+    // เพื่อให้อัปเดต "แถวเดิม" ใน Google Sheet (ไม่มีทางสร้างแถวใหม่)
+    const result = await updateMember(memberId, {
+      firstName,
+      lastName,
+      phone: phoneCheck.data,
+      gender: editGender.value,
+      birthYear: birthYearRangeValueFor(editBirthYearValue.value),
+    })
+
+    if (!result.success || !result.member) {
+      editError.value = result.error || 'บันทึกข้อมูลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง'
+      return
+    }
+
+    // อัปเดต profile state + LocalStorage ทันที (ไม่ต้อง reload) -> หน้า Home
+    // เห็นชื่อใหม่ทันทีเพราะ useState เป็น global reactive state ตัวเดียวกัน
+    updateEditableFields(result.member)
+    isEditingProfile.value = false
+  } catch (err) {
+    editError.value = err instanceof Error ? err.message : 'บันทึกข้อมูลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง'
+  } finally {
+    editSubmitting.value = false
+  }
+}
 
 // Offline Mode (ใหม่): ห้ามแสดงคะแนน (ซ่อน stat-box คะแนนสะสมด้านล่าง) +
 // แสดง Card สรุปการเล่นแบบออฟไลน์ (ข้อ 11) ใต้ Profile Card — โหลดข้อมูลรอบ
@@ -228,21 +346,91 @@ async function handleResetForTesting() {
 
       <div class="info-box">
         <div class="info-box__row">
-          <span class="info-box__label">ชื่อ-นามสกุล</span>
-          <span class="info-box__value">{{ profile?.firstName }} {{ profile?.lastName }}</span>
+          <span class="info-box__label">ชื่อ</span>
+          <div class="info-box__value-wrap">
+            <span v-if="!isEditingProfile" class="info-box__value">{{ profile?.firstName }}</span>
+            <UInput
+              v-else
+              v-model="editFirstName"
+              size="sm"
+              placeholder="ชื่อ"
+              class="info-box__input"
+            />
+            <button
+              v-if="!isEditingProfile"
+              type="button"
+              class="info-box__edit-btn"
+              aria-label="แก้ไขข้อมูลโปรไฟล์"
+              @click="startEditProfile"
+            >
+              <UIcon name="i-lucide-pencil" class="info-box__edit-icon" />
+            </button>
+          </div>
         </div>
+
+        <div class="info-box__row">
+          <span class="info-box__label">นามสกุล</span>
+          <div class="info-box__value-wrap">
+            <span v-if="!isEditingProfile" class="info-box__value">{{ profile?.lastName }}</span>
+            <UInput
+              v-else
+              v-model="editLastName"
+              size="sm"
+              placeholder="นามสกุล"
+              class="info-box__input"
+            />
+          </div>
+        </div>
+
         <div class="info-box__row">
           <span class="info-box__label">เบอร์โทรศัพท์</span>
-          <span class="info-box__value">{{ profile?.phone }}</span>
+          <div class="info-box__value-wrap">
+            <span v-if="!isEditingProfile" class="info-box__value">{{ profile?.phone }}</span>
+            <UInput
+              v-else
+              v-model="editPhone"
+              type="tel"
+              inputmode="numeric"
+              placeholder="เช่น 0812345678"
+              maxlength="10"
+              size="sm"
+              class="info-box__input"
+            />
+          </div>
         </div>
+
         <div class="info-box__row">
           <span class="info-box__label">เพศ</span>
-          <span class="info-box__value">{{ GENDER_OPTIONS.find(g => g.value === profile?.gender)?.label ?? '-' }}</span>
+          <div class="info-box__value-wrap">
+            <span v-if="!isEditingProfile" class="info-box__value">{{ GENDER_OPTIONS.find(g => g.value === profile?.gender)?.label ?? '-' }}</span>
+            <USelectMenu
+              v-else
+              v-model="editGender"
+              :items="GENDER_OPTIONS"
+              value-key="value"
+              placeholder="เลือกเพศ"
+              size="sm"
+              class="info-box__input"
+            />
+          </div>
         </div>
+
         <div class="info-box__row">
           <span class="info-box__label">ช่วงปีเกิด</span>
-          <span class="info-box__value">{{ profile?.birthYearRange || '-' }}</span>
+          <div class="info-box__value-wrap">
+            <span v-if="!isEditingProfile" class="info-box__value">{{ profile?.birthYearRange || '-' }}</span>
+            <USelectMenu
+              v-else
+              v-model="editBirthYearValue"
+              :items="ageRangeOptions"
+              value-key="value"
+              placeholder="เลือกช่วงปีเกิด"
+              size="sm"
+              class="info-box__input"
+            />
+          </div>
         </div>
+
         <div class="info-box__row">
           <span class="info-box__label">เข้าใช้งานด้วย</span>
           <span class="info-box__value">{{ profile?.loginType === 'line' ? 'LINE' : 'Guest' }}</span>
@@ -258,6 +446,33 @@ async function handleResetForTesting() {
         <div v-if="profile?.lastLogin" class="info-box__row">
           <span class="info-box__label">เข้าใช้งานล่าสุด</span>
           <span class="info-box__value">{{ new Date(profile.lastLogin).toLocaleString('th-TH') }}</span>
+        </div>
+
+        <Transition name="fade">
+          <p v-if="editError" class="info-box__error">{{ editError }}</p>
+        </Transition>
+
+        <div v-if="isEditingProfile" class="info-box__actions">
+          <UButton
+            color="neutral"
+            variant="outline"
+            size="sm"
+            block
+            :disabled="editSubmitting"
+            @click="cancelEditProfile"
+          >
+            ยกเลิก
+          </UButton>
+          <UButton
+            color="primary"
+            size="sm"
+            block
+            :loading="editSubmitting"
+            :disabled="editSubmitting"
+            @click="saveEditProfile"
+          >
+            บันทึก
+          </UButton>
         </div>
       </div>
 
@@ -450,6 +665,52 @@ async function handleResetForTesting() {
   word-break: break-all;
 }
 
+.info-box__value-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.info-box__input {
+  width: 100%;
+  max-width: 11.5rem;
+}
+
+.info-box__edit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  border: none;
+  background: var(--farm-cream-dark);
+  color: var(--farm-accent-dark);
+  cursor: pointer;
+}
+
+.info-box__edit-icon {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.info-box__error {
+  font-size: 0.78rem;
+  color: #b3441f;
+  margin: 0;
+  text-align: center;
+}
+
+.info-box__actions {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.2rem;
+}
+
 .line-link-button {
   font-weight: 600;
 }
@@ -462,5 +723,15 @@ async function handleResetForTesting() {
   text-decoration: underline;
   cursor: pointer;
   align-self: center;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>

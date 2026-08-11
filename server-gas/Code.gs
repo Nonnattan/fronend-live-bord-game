@@ -246,7 +246,36 @@ function getSheet_() {
   } else {
     migrateSheetIfNeeded_(sheet);
   }
+  ensurePhoneColumnIsText_(sheet);
   return assertSheetReady_(sheet, SHEET_NAME, ss);
+}
+
+/**
+ * [Fix] บังคับให้คอลัมน์ "Phone Number" ทั้งคอลัมน์เป็น Plain Text format ('@')
+ * เสมอ ก่อนจะมีการเขียนค่าใด ๆ ลงไป
+ *
+ * เหตุผล: ปกติ appendRow()/setValues() ของ Google Sheets จะ "เดา" ชนิดข้อมูล
+ * ของค่าที่เขียนเองอัตโนมัติ ถ้าค่าที่ส่งเข้าไปเป็น string ที่หน้าตาเหมือนตัวเลข
+ * ล้วน ๆ (เช่น "0812345678") Sheets จะตีความเป็นตัวเลข 812345678 ทันที ตัดเลข 0
+ * นำหน้าทิ้งไปเลย แม้ในโค้ด JavaScript ฝั่งนี้ค่าที่ส่งเข้า setValues() จะเป็น
+ * string อยู่แล้วก็ตาม (ปัญหานี้เกิดที่ "การแสดงผล/จัดเก็บของตัวชีตเอง" ไม่ใช่
+ * โค้ด) วิธีแก้ที่ถูกต้องคือบังคับ "รูปแบบเซลล์" (number format) ของคอลัมน์นี้
+ * ให้เป็น '@' (Plain Text) ไว้ล่วงหน้าเสมอ ก่อนเขียนค่าลงไป — เมื่อเซลล์ถูก
+ * ฟอร์แมตเป็น Text แล้ว Sheets จะเก็บค่าตามที่ส่งมาตรง ๆ ไม่แปลงเป็นตัวเลขอีก
+ *
+ * ครอบคลุมทั้งคอลัมน์ (ไม่ใช่แค่แถวที่มีข้อมูลอยู่แล้ว) เพื่อกันแถวใหม่ที่จะ
+ * appendRow() เข้ามาในอนาคตด้วย เรียกทุกครั้งที่ getSheet_() ถูกเรียก (ทุก action)
+ * เป็น idempotent (เรียกซ้ำได้ไม่มีผลข้างเคียง ไม่ทำให้ค่าที่มีอยู่แล้วเปลี่ยน)
+ *
+ * หมายเหตุ: การแก้นี้ป้องกัน "ข้อมูลใหม่ที่จะบันทึกต่อจากนี้" เท่านั้น เบอร์โทร
+ * แถวเก่าที่เคยถูกตัดเลข 0 นำหน้าไปแล้วก่อนแก้โค้ดนี้ จะไม่ถูกกู้คืนอัตโนมัติ
+ * (ต้องแก้ไขด้วยมือในชีตสำหรับแถวที่ได้รับผลกระทบไปแล้ว)
+ */
+function ensurePhoneColumnIsText_(sheet) {
+  const phoneCol = HEADERS.indexOf("Phone Number") + 1;
+  if (phoneCol <= 0) return;
+  const maxRows = Math.max(sheet.getMaxRows(), 2);
+  sheet.getRange(2, phoneCol, maxRows - 1, 1).setNumberFormat("@");
 }
 
 function migrateSheetIfNeeded_(sheet) {

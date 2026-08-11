@@ -51,12 +51,19 @@ const STORAGE_KEY = 'adventureVisitedStations'
  * ก่อนเสมอ ไม่ merge ของเก่าเข้ามาอีก */
 const STORAGE_ROUND_KEY = 'adventureVisitedStations:roundId'
 
-/** [ใหม่] Initial/Master State ของผู้ใช้ — ดึงจาก Backend "ครั้งเดียวตอน Login"
- * (ดู initInitialScore() ด้านล่าง) แล้ว "ห้ามเปลี่ยนระหว่าง session" อีกต่อไป —
- * ต่างจาก STORAGE_KEY/STORAGE_ROUND_KEY ด้านบนที่เป็น "Current Round" (เปลี่ยน
- * ตามการสแกนของรอบปัจจุบัน + reset กลับ [] ทุกจบรอบ) เก็บคู่กับ owner (userId)
- * เพื่อกันเอาค่าของผู้ใช้คนอื่นที่เคย Login เครื่องเดียวกันมาปนกัน — คนละ userId
- * ต้อง fetch ค่า Initial ของตัวเองใหม่ (ครั้งเดียว) เท่านั้น ไม่ใช่ทุกครั้งที่ Login */
+/** [แก้ไข — adventureInitialScore ไม่ใช่คะแนนสะสมจากหลังบ้านอีกต่อไป] เดิมเคย
+ * ดึง getScore() (คะแนนสะสม "ข้ามทุกรอบ") มาใช้เป็นจุดเริ่มต้นของทุกรอบใหม่ —
+ * ผิดตามสเปกจริง เพราะทำให้คะแนนรอบใหม่ไม่เริ่มจาก 0 (บวกคะแนนสะสมเก่าทับเข้าไป
+ * ด้วย) และกดปุ่ม "ติดต่อเจ้าหน้าที่แล้ว / กลับสู่หน้าหลัก" (resetJourney()) ก็ไม่
+ * เคยล้างค่านี้เลย ทำให้ค้างข้ามรอบตลอดไป
+ *
+ * ตอนนี้ key เดิม (adventureInitialScore) เก็บแค่ "คะแนนของรอบปัจจุบันที่กำลัง
+ * เล่นอยู่" เท่านั้น (คำนวณจากฐานที่สแกนผ่านแล้วในรอบนี้ — totalPoint computed
+ * ด้านล่าง) sync ลง LocalStorage ทุกครั้งที่คะแนนเปลี่ยน (ดู watch(totalPoint, ...)
+ * ด้านล่าง) เพื่อให้ refresh หน้ากลางรอบแล้วคะแนนไม่หาย และ "ถูกล้างทิ้งทันที"
+ * ตอนกดปุ่ม "ติดต่อเจ้าหน้าที่แล้ว / กลับสู่หน้าหลัก" (resetJourney() ด้านล่าง)
+ * เหมือนกับ visitedIds ทุกประการ — ไม่มีการดึงคะแนนสะสมจาก Google Sheet มาบวกอีก
+ * ต่อไป (ScoreService.gs/getScore ยังทำงานปกติ แค่ไม่ถูกใช้คำนวณค่านี้แล้ว) */
 const INITIAL_SCORE_KEY = 'adventureInitialScore'
 const INITIAL_SCORE_OWNER_KEY = 'adventureInitialScore:userId'
 
@@ -190,12 +197,13 @@ export function useAdventure() {
   // ด้านล่าง) เพราะเป็นคะแนนสะสมข้ามรอบ ไม่ใช่คะแนนของรอบที่กำลังเล่นอยู่
   const backendTotalPoint = useState<number | null>('adventure-backend-total-point', () => null)
   const isSyncingFromBackend = useState<boolean>('adventure-syncing-from-backend', () => false)
-  /** [ใหม่] Initial/Master State — คะแนนเริ่มต้นของผู้ใช้ ดึงจาก getScore() "ครั้งเดียว
-   * ตอน Login" เท่านั้น (ดู initInitialScore() ด้านล่าง) แล้วแช่แข็งไว้ตลอด session —
-   * ไม่ถูกเขียนทับซ้ำอีกเลยไม่ว่าจะ sync/scan กี่ครั้งก็ตาม (ต่างจาก backendTotalPoint
-   * ด้านบนที่ถูก refreshFromBackend() ดึงซ้ำทุกครั้งที่ sync — ตัวนั้นไม่ถูกใช้คำนวณ
-   * อะไรอยู่แล้ว ปล่อยไว้เฉย ๆ ไม่ได้แตะ) null = ยังไม่เคย fetch สำเร็จเลย (fallback
-   * เป็น 0 ตอนคำนวณ totalPoint ด้านล่าง) */
+  /** [แก้ไข] คะแนนของ "รอบปัจจุบัน" ที่ sync ไว้ใน LocalStorage (key: adventureInitialScore)
+   * — ไม่ใช่คะแนนสะสมจาก Backend อีกต่อไป (ดูคำอธิบายเต็ม ๆ ที่ INITIAL_SCORE_KEY
+   * ด้านบนของไฟล์) แค่เป็นสำเนาสำรองของ roundEarned (คำนวณจาก visitedIds) กันไว้
+   * เผื่อ refresh หน้ากลางรอบก่อนที่ stationsState จะโหลดคะแนนต่อฐานจาก backend
+   * เสร็จ (ตอนนั้น roundEarned อาจคำนวณคลาดเคลื่อนชั่วคราวถ้าใช้ POINTS_PER_STATION
+   * fallback ผิดจากที่ Admin ตั้งจริง) — ถูกล้างเป็น 0 ทุกครั้งที่จบรอบ (resetJourney())
+   * เหมือนกับ visitedIds ทุกประการ ไม่ค้างข้ามรอบอีกต่อไป */
   const initialScore = useState<number | null>('adventure-initial-score', () => null)
   const initialScoreInitialized = useState<boolean>('adventure-initial-score-initialized', () => false)
   /** [Fix — root cause ของ "adventureVisitedStations เป็น [\"milk\"] หลัง reset"]
@@ -232,45 +240,22 @@ export function useAdventure() {
 
   const visitedCount = computed(() => visitedIds.value.length)
   /**
-   * [Fix — root cause ของ "คะแนนรอบเก่ากลับมา / Summary โชว์คะแนนสะสมแทนคะแนนรอบ"]
-   * เดิม totalPoint ใช้ backendTotalPoint (คะแนนสะสมทั้งหมดจากชีต "Score" —
-   * ดึงมาใน refreshFromBackend() ด้านล่าง) เป็นหลักถ้ามีค่า — แต่ refreshFromBackend()
-   * ถูกเรียกโดย syncNow() (composables/useOfflineSync.ts) ทุกครั้งที่ผ่านฐานสุดท้าย
-   * (ฐานนม) ทันที "ก่อน" ผู้เล่นกดปุ่ม "จบเกม" เสมอ (ดู pages/scan.vue
-   * ::completeStationVisit -> await runSync() ตอน stationId === FINAL_STATION_ID)
-   * ทำให้ backendTotalPoint ถูกเซ็ตเป็น "คะแนนสะสมข้ามรอบ" (เช่น 190 = 120 เดิม + 70
-   * รอบนี้) ไปแล้วตั้งแต่ก่อน endGameAfterFinalStation() จะอ่าน totalPoint.value ไป
-   * บันทึกลง roundSummary — หน้า /round-summary เลยโชว์ 190 แทนที่จะเป็น 70 (คะแนน
-   * ของรอบนี้อย่างเดียว) และถ้า auto-sync พื้นหลัง (plugins/offline-sync.client.ts)
-   * ยิงซ้ำระหว่างเล่นรอบถัดไป ก่อน resetJourney() จะทัน ก็ทำให้คะแนนรอบใหม่เพี้ยนได้
-   * เช่นกัน ("ไม่ใช่ 80" ตามสเปกข้อ 11)
+   * [แก้ไข — adventureInitialScore ต้องเป็นคะแนน "ของรอบปัจจุบัน" เท่านั้น]
+   * totalPoint คำนวณจาก "ฐานที่ผ่านแล้วในรอบปัจจุบัน" (visitedIds ในเครื่อง ซึ่ง
+   * ถูก resetJourney() ล้างเป็น [] ทุกครั้งที่จบรอบ) เพียงอย่างเดียวเสมอ — ไม่บวก
+   * คะแนนสะสมจาก Backend (getScore()/backendTotalPoint) เข้ามาอีกต่อไป เพราะเป็น
+   * คนละความหมายกัน (คะแนนสะสมข้ามรอบ ≠ คะแนนของรอบที่กำลังเล่นอยู่)
    *
-   * แก้โดยให้ totalPoint คำนวณจาก "ฐานที่ผ่านแล้วในรอบปัจจุบัน" (visitedIds ในเครื่อง
-   * ซึ่งถูก resetJourney() ล้างเป็น [] ทุกครั้งที่จบรอบ — ดู resetJourney() ด้านล่าง)
-   * เพียงอย่างเดียวเสมอ ไม่พึ่ง backendTotalPoint อีกต่อไป — คะแนนสะสมจริงใน Google
-   * Sheet (ชีต Score) ยังคงถูกต้องครบถ้วนเหมือนเดิมทุกประการ (ไม่แตะ ScoreService.gs/
-   * roundStart/roundEnd/checkin ใด ๆ เลย) เปลี่ยนแค่ "ตัวแปรที่ใช้แสดงผลฝั่ง Frontend"
-   * จุดเดียวเท่านั้นตามสเปก
-   */
-  /**
-   * [แก้ไข — แยก Initial/Master State ออกจาก Current Round State]
-   * Current Round Score (ค่าที่แสดงผลจริงทั้งแอป) = Initial State (คงที่ตลอด
-   * session ดึงครั้งเดียวตอน Login — ดู initialScore ด้านบน) + คะแนนที่ทำได้ใน
-   * "รอบปัจจุบัน" เท่านั้น (จากฐานที่ผ่านแล้วใน visitedIds ในเครื่อง) — ตัวหลังนี้
-   * เหมือนเดิมทุกประการกับ [Fix] เดิมที่เคยแก้ไว้ (ไม่พึ่ง backendTotalPoint) แค่
-   * บวก Initial State เข้าไปเป็น "จุดเริ่มต้น" ของทุกรอบแทนที่จะเริ่มจาก 0 เสมอ
-   * ตามสเปกใหม่ (Login ได้ Initial = 30 -> เริ่มเล่นรอบใหม่ Current = 30 เสมอ ไม่ว่า
-   * จะเป็นรอบที่เท่าไหร่ก็ตาม เพราะ visitedIds ถูก resetJourney() ล้างเป็น [] ทุก
-   * จบรอบ — initialScore เองไม่ถูกแตะเลยจากจุดนั้น) ไม่กระทบ Journey/Round/Score
-   * ที่บันทึกขึ้น Google Sheet จริงแม้แต่บรรทัดเดียว (คนละคนละเรื่องกับตัวแปรนี้
-   * ซึ่งเป็นแค่ตัวเลขแสดงผลฝั่ง Frontend เท่านั้น)
+   * initialScore (localStorage key: adventureInitialScore) เป็นแค่ "สำเนาสำรอง"
+   * ของค่านี้ sync ให้ตรงกันเสมอผ่าน watch ด้านล่าง (ไม่ได้ถูกบวกเข้ากับ roundEarned
+   * ซ้ำ — กันปัญหา Double Count) มีไว้เผื่อ refresh หน้ากลางรอบก่อน stationsState
+   * จะโหลดคะแนนต่อฐานจาก backend เสร็จ (ช่วง window สั้น ๆ ตอนเปิดแอปใหม่)
    */
   const totalPoint = computed(() => {
-    const roundEarned = visitedIds.value.reduce((sum, id) => {
+    return visitedIds.value.reduce((sum, id) => {
       const station = stationsState.value.find((s) => s.id === id)
       return sum + (station?.points ?? POINTS_PER_STATION)
     }, 0)
-    return (initialScore.value ?? 0) + roundEarned
   })
   const isComplete = computed(() => visitedCount.value >= totalStations.value)
 
@@ -278,9 +263,8 @@ export function useAdventure() {
     return visitedIds.value.includes(stationId)
   }
 
-  /** [ใหม่] อ่าน Initial/Master Score ที่เคย fetch สำเร็จของ userId นี้ไว้จากครั้งก่อน
-   * (เครื่อง/เบราว์เซอร์นี้เคย Login คนนี้มาก่อนแล้ว) — คนละ userId (หรือไม่มีเลย)
-   * คืนค่า null เพื่อให้ initInitialScore() รู้ว่าต้อง fetch ใหม่ */
+  /** อ่านคะแนน "ของรอบปัจจุบัน" ที่เคย sync ไว้ล่าสุดของ userId นี้ (เผื่อ refresh
+   * หน้ากลางรอบ) — คนละ userId (หรือไม่มีเลย) คืนค่า null เพื่อให้เริ่มจาก 0 ปกติ */
   function getStoredInitialScore(userId: string): number | null {
     if (!import.meta.client) return null
     const owner = localStorage.getItem(INITIAL_SCORE_OWNER_KEY)
@@ -291,10 +275,21 @@ export function useAdventure() {
     return Number.isFinite(parsed) ? parsed : null
   }
 
+  /** [แก้ไข] เขียนคะแนน "ของรอบปัจจุบัน" ลง LocalStorage คู่กับ owner (userId) — คนละ
+   * userId ต้องไม่เห็นคะแนนของกันและกันถ้าเคย Login เครื่องเดียวกันมาก่อน */
   function persistInitialScore(userId: string, score: number): void {
     if (!import.meta.client) return
     localStorage.setItem(INITIAL_SCORE_KEY, String(score))
     localStorage.setItem(INITIAL_SCORE_OWNER_KEY, userId)
+  }
+
+  /** [แก้ไข] ล้างคะแนน "ของรอบปัจจุบัน" ที่ sync ไว้ทั้งหมด — เรียกคู่กับ resetJourney()
+   * เสมอ (ตอนกดปุ่ม "ติดต่อเจ้าหน้าที่แล้ว / กลับสู่หน้าหลัก") เพื่อไม่ให้คะแนนรอบ
+   * ที่จบไปแล้วค้างข้ามมารอบใหม่ */
+  function clearPersistedInitialScore(): void {
+    if (!import.meta.client) return
+    localStorage.removeItem(INITIAL_SCORE_KEY)
+    localStorage.removeItem(INITIAL_SCORE_OWNER_KEY)
   }
 
   function getStoredVisited(): string[] | null {
@@ -349,48 +344,33 @@ export function useAdventure() {
    * refreshFromBackend() เอาไปเทียบกับ Round Active จริงได้ทันทีที่เรียก
    */
   /**
-   * [ใหม่] ดึง Initial/Master State (คะแนนเริ่มต้น) จาก Backend "ครั้งเดียวตอน Login"
-   * ตามสเปก — เรียกจาก initAdventure() ด้านล่างเท่านั้น (ไม่เรียกจาก refreshFromBackend()/
-   * syncNow() ที่ทำงานซ้ำได้หลายครั้งระหว่างเล่น เพื่อไม่ให้ค่านี้ถูกเขียนทับซ้ำ)
-   *
-   * ลำดับตรวจสอบ:
-   * 1) มีค่าอยู่แล้วใน memory (session นี้เคย fetch ไปแล้ว) -> ข้ามเลย ไม่ fetch ซ้ำ
-   * 2) มีค่าเก่าใน LocalStorage ของ userId เดียวกัน (เคย Login เครื่องนี้มาก่อนแล้ว
-   *    ไม่ว่าจะ session ไหน) -> ใช้ค่าเดิมต่อเลย ไม่ fetch ซ้ำ (สำคัญ: กันไม่ให้ค่า
-   *    Initial ขยับตามคะแนนสะสมที่เพิ่มขึ้นจากการเล่นรอบก่อน ๆ เพราะ getScore()
-   *    ที่ทำงานหลัง Login ครั้งถัดไปจะรวมคะแนนที่เล่นไปแล้วด้วยเสมอ — ต้องใช้ค่าที่
-   *    fetch ไว้ตั้งแต่ "ครั้งแรกสุด" เท่านั้นตลอดไป)
-   * 3) ไม่มีทั้ง 2 ข้อบน (ผู้ใช้ใหม่/เครื่องใหม่) และมีเน็ต -> fetch getScore(userId)
-   *    ครั้งเดียว เก็บผลลัพธ์ (0 ถ้ายังไม่เคยมีคะแนนเลย) ลง memory + LocalStorage
-   * ออฟไลน์/ดึงไม่สำเร็จตอนยังไม่มีค่าเก่าเลย -> ปล่อย null ไว้ก่อน (totalPoint
-   * computed ด้านบน fallback เป็น 0 ให้อัตโนมัติ) initInitialScore() จะลองใหม่เอง
-   * ครั้งถัดไปที่ initAdventure() ถูกเรียก (เช่น กลับมามีเน็ตแล้ว reload หน้า)
+   * [แก้ไข — ไม่ fetch จาก Backend อีกต่อไป] เดิมฟังก์ชันนี้ยิง getScore() (คะแนน
+   * สะสมข้ามรอบ) มาตั้งเป็นจุดเริ่มต้นของทุกรอบ ซึ่งผิดตามสเปกจริง (adventureInitialScore
+   * ต้องเป็นคะแนนของรอบปัจจุบันเท่านั้น ไม่ใช่คะแนนสะสมจากหลังบ้าน) — ตอนนี้แค่
+   * "restore" ค่าที่เคย sync ไว้ล่าสุดของ userId นี้กลับมา (เผื่อ refresh หน้ากลาง
+   * รอบ) เท่านั้น ไม่มีการเรียก API ใด ๆ อีกต่อไป ไม่มีเลย -> เริ่มจาก 0 ตามปกติ
+   * (totalPoint computed ด้านบนคำนวณจาก visitedIds สดอยู่แล้วเสมอ ค่านี้เป็นแค่
+   * สำเนาสำรอง sync ตามผ่าน watch ด้านล่างเท่านั้น)
    */
-  async function initInitialScore(userId?: string): Promise<void> {
+  function restoreInitialScore(userId?: string): void {
     if (!import.meta.client || !userId) return
     if (initialScoreInitialized.value) return
 
     const stored = getStoredInitialScore(userId)
-    if (stored !== null) {
-      initialScore.value = stored
-      initialScoreInitialized.value = true
-      return
-    }
-
-    if (isBrowserOffline()) return
-
-    try {
-      const { getScore } = useMemberApi()
-      const res = await getScore(userId)
-      const score = res?.success ? res.score?.totalPoint ?? 0 : null
-      if (score === null) return // ดึงไม่สำเร็จ - ลองใหม่ครั้งถัดไปที่ initAdventure() ถูกเรียก
-      initialScore.value = score
-      initialScoreInitialized.value = true
-      persistInitialScore(userId, score)
-    } catch {
-      // เงียบไว้ — ลองใหม่ครั้งถัดไปที่ initAdventure() ถูกเรียก
-    }
+    initialScore.value = stored ?? 0
+    initialScoreInitialized.value = true
   }
+
+  // [แก้ไข] sync initialScore (สำเนาสำรองใน LocalStorage) ให้ตรงกับ totalPoint
+  // (คะแนนของรอบปัจจุบัน คำนวณจาก visitedIds สด) ทุกครั้งที่เปลี่ยน — ไม่ได้ถูกบวก
+  // เข้ากับ totalPoint ที่ไหนเลย (กัน Double Count) แค่เป็นสำเนาไว้ใช้ restore ตอน
+  // refresh หน้ากลางรอบเท่านั้น เขียนเฉพาะตอนมี userId แล้ว (Login แล้ว) เท่านั้น
+  watch(totalPoint, (score) => {
+    if (!import.meta.client) return
+    initialScore.value = score
+    const userId = useProfile().profile.value?.memberId
+    if (userId) persistInitialScore(userId, score)
+  })
 
   async function initAdventure(userId?: string): Promise<void> {
     if (initialized.value) return
@@ -398,12 +378,9 @@ export function useAdventure() {
     visitedIds.value = stored ?? DEFAULT_VISITED
     visitedRoundId.value = getStoredRoundId()
     initialized.value = true
+    restoreInitialScore(userId)
 
-    await Promise.all([
-      refreshFromBackend(userId),
-      refreshStationsFromBackend(),
-      initInitialScore(userId),
-    ])
+    await Promise.all([refreshFromBackend(userId), refreshStationsFromBackend()])
   }
 
   /**
@@ -616,10 +593,13 @@ export function useAdventure() {
     visitedRoundId.value = null
     persist([], null)
     backendTotalPoint.value = null
-    // [ใหม่] ตั้งใจ "ไม่แตะ" initialScore/initialScoreInitialized ที่นี่เด็ดขาด —
-    // ตามสเปก "ไม่ต้อง reset Initial State" หลังจบรอบ Current Round Score (totalPoint
-    // computed ด้านบน) จะกลับไปเท่ากับ initialScore.value โดยอัตโนมัติทันทีที่
-    // visitedIds ว่างเปล่า ([Fix] ไม่ต้องเพิ่ม logic รีเซ็ตอะไรเพิ่มตรงนี้เลย)
+    // [แก้ไข] ล้างคะแนน "ของรอบปัจจุบัน" (initialScore/adventureInitialScore ใน
+    // LocalStorage) ทิ้งทันทีด้วย — เพราะเป็นแค่สำเนาสำรองของ totalPoint ของรอบ
+    // ที่เพิ่งจบไปเท่านั้น (ไม่ใช่คะแนนสะสมจาก Backend อีกต่อไป — ดูคำอธิบายเต็ม ๆ
+    // ที่ INITIAL_SCORE_KEY ด้านบนของไฟล์) ปล่อยค้างไว้จะทำให้รอบถัดไปเห็นคะแนนเก่า
+    // โผล่มาจนกว่า watch(totalPoint, ...) จะ sync ทับ (มี window สั้น ๆ ที่ผิดได้)
+    initialScore.value = 0
+    clearPersistedInitialScore()
 
     if (import.meta.client) {
       // eslint-disable-next-line no-console
