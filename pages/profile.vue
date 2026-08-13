@@ -505,7 +505,7 @@ async function handleResetForTesting() {
         :remaining-station-names="remainingStationNames"
       />
 
-      <UButton
+      <!-- <UButton
         v-if="isAnonymous"
         block
         size="lg"
@@ -517,7 +517,7 @@ async function handleResetForTesting() {
           <UIcon name="i-simple-icons-line" />
         </template>
         เชื่อมบัญชี LINE
-      </UButton>
+      </UButton> -->
 
       <button type="button" class="reset-link" @click="handleResetForTesting">
         รีเซ็ตข้อมูล (ทดสอบ)
