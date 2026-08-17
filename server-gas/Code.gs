@@ -278,6 +278,30 @@ function ensurePhoneColumnIsText_(sheet) {
   sheet.getRange(2, phoneCol, maxRows - 1, 1).setNumberFormat("@");
 }
 
+/**
+ * [Fix รอบนี้ — ต้นเหตุจริงที่ ensurePhoneColumnIsText_ ด้านบนแก้ไม่หมด]
+ * เขียนเบอร์โทรลงเซลล์เดียวแบบบังคับให้เป็น Text จริง ๆ
+ *
+ * *** ทำไมของเดิมยังพัง ***
+ * `ensurePhoneColumnIsText_()` ตั้ง number format เป็น '@' ไว้ล่วงหน้าแล้วก็จริง
+ * แต่ `sheet.appendRow()` ที่ใช้ตอน "สมัคร/Login ครั้งแรก" (createMemberRow_)
+ * **ไม่เคารพ number format ของเซลล์** — มันตีความค่าเหมือนผู้ใช้พิมพ์เองในชีต
+ * ("0812345678" จึงกลายเป็นตัวเลข 812345678 ทันที เลข 0 หาย) ต่างจาก
+ * `setValue()`/`setValues()` ที่เคารพ format '@' และเก็บ string ตามที่ส่งไปจริง
+ * — ตรงกับอาการที่พบพอดี: **สมัครครั้งแรกเลข 0 หาย แต่ตอนกดแก้ไขโปรไฟล์
+ * (actionUpdateMember_ ซึ่งใช้ setValues) เลข 0 อยู่ครบ**
+ *
+ * ฟังก์ชันนี้จึงตั้ง format '@' ที่ "เซลล์นั้นเซลล์เดียว" แล้วเขียนทับด้วย
+ * setValue() อีกรอบ — ปลอดภัยกับทุก path ที่เรียกใช้ และ idempotent
+ */
+function writePhoneAsText_(sheet, rowIndex, phone) {
+  const phoneCol = HEADERS.indexOf("Phone Number") + 1;
+  if (phoneCol <= 0 || rowIndex < 2) return;
+  const cell = sheet.getRange(rowIndex, phoneCol);
+  cell.setNumberFormat("@");
+  cell.setValue(normalizePhone_(phone));
+}
+
 function migrateSheetIfNeeded_(sheet) {
   const currentCols = sheet.getLastColumn();
   if (currentCols >= HEADERS.length) return;
@@ -324,6 +348,36 @@ function normalizeBirthYear_(value) {
   return normalize_(value);
 }
 
+/**
+ * [Fix เบอร์โทรเป็นตัวเลข / เลข 0 นำหน้าหาย] แปลงเบอร์โทรให้เป็น "string รูปแบบ
+ * มาตรฐานเดียว" เสมอ ไม่ว่าค่าที่รับเข้ามาจะเป็นอะไร
+ *
+ * ทำไมต้องมีฟังก์ชันนี้แยกจาก normalize_():
+ *   normalize_() แค่ .toString().trim() เฉย ๆ — ถ้าเซลล์ในชีตถูกเก็บเป็น "ตัวเลข"
+ *   (Number) มาแล้ว เช่น 812345678 จะได้ string "812345678" ที่ยัง**ขาดเลข 0
+ *   นำหน้า**อยู่ดี ทำให้เกิดปัญหาต่อเนื่อง 3 อย่าง:
+ *     1) แอปแสดงเบอร์ผิด (ขาด 0)
+ *     2) findRowIndexByPhone_() หาสมาชิกเดิมไม่เจอ เพราะฝั่งแอปส่ง "0812345678"
+ *        มาเทียบกับ "812345678" ในชีต -> ระบบสร้างสมาชิกซ้ำเป็นแถวใหม่
+ *     3) Zod ฝั่งแอป (utils/profileSchema.ts) บังคับ /^0\d{9}$/ ค่าที่ขาด 0 จึง
+ *        validate ไม่ผ่านตอนผู้ใช้กดแก้ไขโปรไฟล์
+ *
+ * สิ่งที่ทำ: ตัดทุกอย่างที่ไม่ใช่ตัวเลขทิ้ง (เผื่อมีเว้นวรรค/ขีด เช่น "081-234-5678")
+ * แล้ว "เติมเลข 0 นำหน้ากลับ" ถ้าเหลือ 9 หลัก (เบอร์มือถือไทยคือ 0 + 9 หลัก = 10
+ * หลักเสมอ ดังนั้น 9 หลักแปลว่าโดนชีตตัด 0 ทิ้งไปแน่นอน) — ใช้ได้ทั้งกับข้อมูล
+ * ใหม่และ**กู้ข้อมูลแถวเก่า**ที่เคยเสียไปแล้วให้อ่านออกถูกต้องโดยอัตโนมัติ
+ */
+function normalizePhone_(value) {
+  const raw = normalize_(value);
+  if (!raw) return "";
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return "";
+  // เติม 0 กลับเฉพาะกรณีที่ "เหลือ 9 หลัก และยังไม่ได้ขึ้นต้นด้วย 0" เท่านั้น —
+  // เงื่อนไข `charAt(0) !== "0"` สำคัญมาก: ถ้าไม่เช็ค เบอร์บ้าน 9 หลักที่ขึ้นต้น
+  // ด้วย 0 อยู่แล้ว (เช่น "021234567") จะโดนเติมซ้ำกลายเป็น "0021234567"
+  return digits.length === 9 && digits.charAt(0) !== "0" ? "0" + digits : digits;
+}
+
 function generateMemberId_() {
   const ts = Date.now().toString(36).toUpperCase();
   const rand = Math.random().toString(36).slice(2, 5).toUpperCase();
@@ -347,7 +401,11 @@ function rowToMember_(row) {
     memberId: row[0],
     firstName: row[1],
     lastName: row[2],
-    phone: row[3],
+    // [Fix] เดิมส่ง row[3] ดิบ ๆ ออกไป — ถ้าเซลล์นั้นถูกเก็บเป็น Number มาก่อน
+    // (ข้อมูลเก่าที่บันทึกไว้ก่อนแก้บั๊กนี้) แอปจะได้ค่าเป็น "ตัวเลข" ที่ขาดเลข 0
+    // นำหน้าไปแสดงผล/เก็บลง LocalStorage ต่อ normalizePhone_ เติม 0 กลับให้เอง
+    // จึงกู้ข้อมูลแถวเก่าให้ "อ่านออกถูกต้อง" ได้ทันทีโดยไม่ต้องไล่แก้ในชีต
+    phone: normalizePhone_(row[3]),
     lineUserId: row[4],
     displayName: row[5],
     pictureUrl: row[6],
@@ -389,11 +447,15 @@ function findRowIndexByLineUserId_(sheet, lineUserId) {
 }
 
 function findRowIndexByPhone_(sheet, phone) {
-  const ph = normalize_(phone);
+  // [Fix] เทียบด้วย normalizePhone_ ทั้งสองฝั่ง (ไม่ใช่ normalize_ เฉย ๆ) เพื่อให้
+  // แถวเก่าที่เบอร์ถูกเก็บเป็นตัวเลข (812345678) ยัง match กับค่าที่แอปส่งมา
+  // ("0812345678") ได้ — เดิมเทียบไม่ติด ระบบจึงเข้าใจผิดว่าเป็นสมาชิกใหม่แล้ว
+  // **สร้างแถวซ้ำ** ทุกครั้งที่คนเดิม login เข้ามา (บั๊กเงียบที่ทำให้ข้อมูลบาน)
+  const ph = normalizePhone_(phone);
   if (!ph) return -1;
   const rows = getAllDataRows_(sheet);
   for (let i = 0; i < rows.length; i++) {
-    if (normalize_(rows[i][3]) === ph) return i + 2;
+    if (normalizePhone_(rows[i][3]) === ph) return i + 2;
   }
   return -1;
 }
@@ -465,7 +527,7 @@ function createMemberRow_(sheet, payload, now) {
     memberId,
     normalize_(payload.firstName),
     normalize_(payload.lastName),
-    normalize_(payload.phone),
+    normalizePhone_(payload.phone),
     normalize_(payload.lineUserId),
     normalize_(payload.displayName),
     normalize_(payload.pictureUrl),
@@ -477,6 +539,11 @@ function createMemberRow_(sheet, payload, now) {
     normalize_(payload.gender),
   ];
   sheet.appendRow(newRow);
+  // [Fix] appendRow() แปลง "0812345678" เป็นตัวเลข 812345678 ทิ้งเลข 0 นำหน้าเสมอ
+  // (ไม่เคารพ number format '@' ที่ตั้งไว้ล่วงหน้า — ดูคำอธิบายเต็มที่
+  // writePhoneAsText_) จึงต้องเขียนทับเซลล์เบอร์โทรของแถวที่เพิ่ง append ด้วย
+  // setValue() อีกครั้งทันที ซึ่งเคารพ format '@' และเก็บเป็น string จริง
+  writePhoneAsText_(sheet, sheet.getLastRow(), newRow[3]);
   return rowToMember_(newRow);
 }
 
@@ -658,7 +725,11 @@ function actionUpdateMember_(payload) {
       ? normalize_(payload.firstName)
       : current[1],
     payload.lastName !== undefined ? normalize_(payload.lastName) : current[2],
-    payload.phone !== undefined ? normalize_(payload.phone) : current[3],
+    // [Fix] ใช้ normalizePhone_ ทั้งค่าใหม่และค่าเดิม — ค่าเดิม (current[3]) อาจ
+    // เป็น Number จากข้อมูลเก่า ถ้าเขียนกลับดิบ ๆ เลข 0 จะหายซ้ำอีกรอบ
+    payload.phone !== undefined
+      ? normalizePhone_(payload.phone)
+      : normalizePhone_(current[3]),
     payload.lineUserId !== undefined
       ? normalize_(payload.lineUserId)
       : current[4],
@@ -679,8 +750,57 @@ function actionUpdateMember_(payload) {
       : current[11],
     payload.gender !== undefined ? normalize_(payload.gender) : current[12],
   ];
+  // [Fix] บังคับ format '@' ที่เซลล์เบอร์โทร "ก่อน" setValues เสมอ — กันกรณีแถวนี้
+  // อยู่นอกช่วงที่ ensurePhoneColumnIsText_() เคยฟอร์แมตไว้ (เช่นชีตถูกขยายแถว
+  // เพิ่มภายหลัง) ซึ่งจะทำให้ Sheets ตีความเป็นตัวเลขแล้วตัดเลข 0 นำหน้าอีก
+  writePhoneAsText_(sheet, rowIndex, merged[3]);
   sheet.getRange(rowIndex, 1, 1, HEADERS.length).setValues([merged]);
   return { success: true, member: rowToMember_(merged) };
+}
+
+/**
+ * [เครื่องมือซ่อมข้อมูลเก่า — รันมือเท่านั้น ไม่มี action ไหนเรียกใช้]
+ *
+ * ไล่แก้เบอร์โทรทุกแถวในชีต Members ที่เคยถูกบันทึกเป็น "ตัวเลข" (เลข 0 นำหน้าหาย)
+ * ให้กลับมาเป็น string 10 หลักที่ถูกต้อง แล้วบังคับ format เซลล์เป็น Text
+ *
+ * วิธีใช้: เปิด Apps Script Editor > เลือกฟังก์ชัน `repairPhoneNumbers` จาก
+ * dropdown ด้านบน > กด Run > ดูผลใน Execution log
+ *
+ * ปลอดภัย: แก้เฉพาะแถวที่ค่าปัจจุบัน "ต่างจาก" ค่าที่ normalize แล้วเท่านั้น
+ * (แถวที่ถูกต้องอยู่แล้วจะถูกข้าม ไม่มีการเขียนทับ) รันซ้ำได้ไม่มีผลข้างเคียง
+ *
+ * *** แนะนำให้ก๊อปปี้ชีตสำรองไว้ก่อนรันครั้งแรก (File > Make a copy) ***
+ */
+function repairPhoneNumbers() {
+  const sheet = getSheet_();
+  const rows = getAllDataRows_(sheet);
+  const phoneCol = HEADERS.indexOf("Phone Number") + 1;
+  let fixed = 0;
+  const changes = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const rowIndex = i + 2;
+    const before = rows[i][3];
+    const after = normalizePhone_(before);
+    // เทียบแบบ string เพื่อจับทั้งกรณี "เป็น Number" และ "เป็น string ที่ขาด 0"
+    if (after !== "" && String(before) !== after) {
+      writePhoneAsText_(sheet, rowIndex, after);
+      changes.push("แถว " + rowIndex + ": " + String(before) + " -> " + after);
+      fixed++;
+    }
+  }
+
+  const summary =
+    "[repairPhoneNumbers] ตรวจ " +
+    rows.length +
+    " แถว, แก้ไข " +
+    fixed +
+    " แถว" +
+    (changes.length ? "\n" + changes.join("\n") : "");
+  Logger.log(summary);
+  console.log(summary);
+  return summary;
 }
 
 const DEPLOYED_CODE_VERSION_ = "2026-08-09-hardcoded-spreadsheet-id";
@@ -717,6 +837,18 @@ function actionPing_() {
   info.sideQuestsServiceLoaded = typeof actionListSideQuests_ === "function";
   info.stationsSheetFound = !!ss.getSheetByName("Stations");
   info.sideQuestsSheetFound = !!ss.getSheetByName("SideQuests");
+  // ไฟล์ใหม่: Photo Detection Quest — ดู PhotoQuestService.gs
+  info.photoQuestServiceLoaded = typeof actionListPhotoQuests_ === "function";
+  info.photoQuestsSheetFound = !!ss.getSheetByName("PhotoQuests");
+  info.photoQuestCompletionsSheetFound = !!ss.getSheetByName("PhotoQuestCompletions");
+  // ไฟล์ใหม่: ระบบภารกิจ + คำถามประจำฐาน — ดู QuestionService.gs
+  info.questionServiceLoaded = typeof actionListQuestions_ === "function";
+  info.questionsSheetFound = !!ss.getSheetByName("Questions");
+  info.answersSheetFound = !!ss.getSheetByName("Answers");
+  // ไฟล์ใหม่: ระบบแลกของรางวัล — ดู RewardService.gs
+  info.rewardServiceLoaded = typeof actionGetRewardStatus_ === "function";
+  info.rewardsSheetFound = !!ss.getSheetByName("Rewards");
+  info.rewardClaimsSheetFound = !!ss.getSheetByName("RewardClaims");
 
   return { success: true, ping: info };
 }
@@ -785,9 +917,41 @@ function handleRequest_(payload) {
       // Popup ฐานนม/ฐานสุดท้าย
       case "submitSurvey":
         return jsonOutput_(actionSubmitSurvey_(payload));
+      // ไฟล์ใหม่: ระบบ Photo Detection Quest — ดู PhotoQuestService.gs
+      // (ชีต "PhotoQuests" + "PhotoQuestCompletions" แยกต่างหากจากทุกชีตเดิม
+      // ไม่แตะ Stations/SideQuests/Journey/Score/Round เลย)
+      case "listPhotoQuests":
+        return jsonOutput_(actionListPhotoQuests_());
+      case "completePhotoQuest":
+        return jsonOutput_(actionCompletePhotoQuest_(payload));
+      case "createPhotoQuest":
+        return jsonOutput_(actionCreatePhotoQuest_(payload));
+      case "updatePhotoQuest":
+        return jsonOutput_(actionUpdatePhotoQuest_(payload));
+      case "deletePhotoQuest":
+        return jsonOutput_(actionDeletePhotoQuest_(payload));
+      // ไฟล์ใหม่: ระบบ "ภารกิจ + คำถามประจำฐาน" ตาม Flow ใหม่ — ดู
+      // QuestionService.gs (ชีต "Questions" + "Answers" แยกต่างหาก) แต้มที่ตอบ
+      // ถูกจะถูกบวกเข้าชีต "Score" ก้อนเดียวกับแต้มฐาน ผ่าน upsertScore_() เดิม
+      // ของ ScoreService.gs (ไม่แก้ ScoreService.gs เลยสักบรรทัด)
+      case "listQuestions":
+        return jsonOutput_(actionListQuestions_(payload));
+      case "submitAnswer":
+        return jsonOutput_(actionSubmitAnswer_(payload));
+      case "getRoundAnswers":
+        return jsonOutput_(actionGetRoundAnswers_(payload));
+      // ไฟล์ใหม่: ระบบแลกของรางวัลตามเงื่อนไขคะแนน — ดู RewardService.gs (ชีต
+      // "Rewards" + "RewardClaims" แยกต่างหาก) claimReward ตั้งใจให้เรียกจากหน้า
+      // เจ้าหน้าที่ (pages/redeem.vue) เท่านั้น ไม่มีปุ่มนี้ในหน้าผู้เล่นเอง
+      case "getRewardStatus":
+        return jsonOutput_(actionGetRewardStatus_(payload));
+      case "claimReward":
+        return jsonOutput_(actionClaimReward_(payload));
+      case "listRewards":
+        return jsonOutput_(actionListRewards_());
       default:
         return errorResponse_(
-          "action ไม่ถูกต้องหรือไม่ได้ระบุ ต้องเป็นหนึ่งใน: ping, checkMember, register, login, loginByLine, updateMember, getMember, checkin, getJourney, getScore, getLeaderboard, roundStart, roundEnd, getRound, listStations, createStation, updateStation, deleteStation, verifyStationQr, listSideQuests, createSideQuest, updateSideQuest, deleteSideQuest, submitSurvey",
+          "action ไม่ถูกต้องหรือไม่ได้ระบุ ต้องเป็นหนึ่งใน: ping, checkMember, register, login, loginByLine, updateMember, getMember, checkin, getJourney, getScore, getLeaderboard, roundStart, roundEnd, getRound, listStations, createStation, updateStation, deleteStation, verifyStationQr, listSideQuests, createSideQuest, updateSideQuest, deleteSideQuest, submitSurvey, listPhotoQuests, completePhotoQuest, createPhotoQuest, updatePhotoQuest, deletePhotoQuest, listQuestions, submitAnswer, getRoundAnswers, getRewardStatus, claimReward, listRewards",
         );
     }
   } catch (err) {

@@ -33,6 +33,23 @@ export interface RoundSummaryData {
   stations: RoundSummaryStation[]
   /** null = ไม่แสดงแถวคะแนนรวมเลย (Offline Mode ตามสเปก หรือดึงคะแนนไม่สำเร็จ) */
   totalPoint: number | null
+  /** [ใหม่] ทุก field ด้านล่างนี้เป็น optional เพื่อไม่ให้พังกับข้อมูลเก่าที่เคย
+   * บันทึกไว้ใน LocalStorage ก่อนเพิ่มระบบภารกิจ+คำถาม/รางวัล (ดู
+   * pages/round-summary.vue ที่ต้องเช็ค undefined ก่อนแสดงผลเสมอ) */
+  /** roundId จริงจาก server-gas — ใช้แสดงเป็น "รหัสรอบ" ที่หน้าสรุปผล +
+   * ใช้อ้างอิงตอนแลกของรางวัล (ดู server-gas/RewardService.gs) null = Offline
+   * Mode (ไม่มี Round ฝั่ง Backend) */
+  roundId?: string | null
+  /** memberId (หรือ uid ถ้ายังไม่มี memberId) ของผู้เล่น — ใช้แสดงเป็น "รหัสลูกค้า" */
+  userId?: string | null
+  /** คะแนนจากการตอบคำถามถูก (คนละก้อนกับ totalPoint ที่เป็นคะแนนจากการสแกนฐาน) */
+  questionPoints?: number
+  /** จำนวนข้อที่ตอบถูกทั้งหมดในรอบนี้ */
+  questionCorrectCount?: number
+  /** เหตุผลที่รอบนี้จบ — ไม่ระบุ/'manual' = ผู้เล่นกด "จบเกม" เอง, 'round-timeout' =
+   * เวลารอบ 2 ชม. หมด, 'station-timeout' = เวลาเผ่า 30 นาที หมด (ดู
+   * composables/useForceEndRound.ts) ใช้แสดงข้อความที่หน้าสรุปผลให้ตรงสาเหตุจริง */
+  endedReason?: 'manual' | 'round-timeout' | 'station-timeout'
 }
 
 export function useRoundSummary() {

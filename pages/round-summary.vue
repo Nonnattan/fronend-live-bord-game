@@ -33,12 +33,36 @@ const { roundSummary, loadRoundSummary, clearRoundSummary } = useRoundSummary();
 // ห้ามล้างข้อมูลก่อนหน้า /round-summary" หน้านี้เองอ่านจาก roundSummary:last
 // (สแนปช็อต) เท่านั้นอยู่แล้ว ไม่กระทบการแสดงผลของหน้านี้แม้แต่น้อย
 const { resetJourney } = useAdventure();
+// [ใหม่] ล้างสถานะ "ตอบคำถามไปแล้วบ้าง" ของระบบภารกิจ+คำถาม (ระบบขนาน — ดู
+// composables/useQuestion.ts) คู่กับ resetJourney() เดิมเสมอ ที่จุดเดียวกันนี้
+// เพื่อไม่ให้คำตอบของรอบที่จบไปแล้วค้างข้ามมารอบใหม่ ไม่แตะ useAdventure.ts เลย
+const { resetAnswered } = useQuestion();
 // [Fix] รอบ Offline Mode ก็ต้องเริ่ม Round Data ใหม่ (composables/useOfflineMode.ts)
 // ตรงจุดเดียวกันนี้เช่นกัน (เดิม startRound() ถูกเรียกทันทีหลังจบเกมที่ scan.vue —
 // ย้ายมาไว้ที่นี่ให้สอดคล้องกับจุด reset เดียวของทั้งแอป)
 const { isOfflineMode, startRound } = useOfflineMode();
+// [ใหม่] ระบบแลกของรางวัล — ดูสถานะอย่างเดียว (ไม่มีปุ่มยืนยันรับในหน้านี้ ตามที่
+// ตกลงกันไว้ว่าเจ้าหน้าที่เป็นคนกดที่หน้า pages/redeem.vue เท่านั้น)
+const { status: rewardStatus, isChecking: isCheckingReward, checkRewardStatus } = useReward();
 
 const isReady = ref(false);
+
+/** คะแนนรวม "ของรอบนี้" ที่แสดงผลจริง — รวมแต้มฐาน (totalPoint) + แต้มคำถามถูก
+ * (questionPoints ระบบใหม่ คนละก้อนกับ totalPoint) เข้าด้วยกัน null เฉพาะกรณี
+ * Offline Mode (ตามกติกาเดิม "ห้ามแสดงคะแนน" เท่านั้น) */
+const combinedTotalPoint = computed(() => {
+  if (!roundSummary.value || roundSummary.value.totalPoint === null) return null;
+  return roundSummary.value.totalPoint + (roundSummary.value.questionPoints ?? 0);
+});
+
+/** ข้อความหัวเรื่อง — ปรับให้ตรงสาเหตุจริงที่จบรอบ (ตามที่ scan.vue บันทึกไว้ผ่าน
+ * endedReason ดู composables/useForceEndRound.ts) ไม่ใช่ "จบการเล่น" เสมอไป */
+const resultTitle = computed(() => {
+  const reason = roundSummary.value?.endedReason;
+  if (reason === "round-timeout") return "หมดเวลารอบเล่น";
+  if (reason === "station-timeout") return "หมดเวลาทำภารกิจ";
+  return "จบการเล่น";
+});
 /** true เฉพาะตอนกดปุ่ม "ติดต่อเจ้าหน้าที่แล้ว" เท่านั้น — จุดเดียวที่อนุญาตให้
  * ออกจากหน้านี้ได้โดยไม่มีคำเตือนซ้ำ */
 const confirmedLeave = ref(false);
@@ -65,6 +89,7 @@ async function confirmAndGoHome(): Promise<void> {
   // localStorage.clear() เด็ดขาด (จะล้าง Login/Profile ไปด้วย) แตะเฉพาะ key ของ
   // Current Round เท่านั้น
   resetJourney();
+  resetAnswered();
   if (isOfflineMode.value && profile.value?.uid) {
     startRound(profile.value.uid);
   }
@@ -106,6 +131,13 @@ onMounted(() => {
   }
   isReady.value = true;
   window.addEventListener("beforeunload", handleBeforeUnload);
+
+  // [ใหม่] ตรวจสอบสิทธิ์รางวัลของรอบนี้ (อ่านอย่างเดียว ไม่บล็อกหน้าถ้าล้มเหลว) —
+  // ต้องมี roundId จริง (Online เท่านั้น — Offline Mode ไม่มี Round ฝั่ง Backend
+  // ให้ตรวจสอบ ดูเหตุผลเต็ม ๆ ที่ server-gas/RewardService.gs)
+  if (roundSummary.value?.roundId && roundSummary.value?.userId) {
+    void checkRewardStatus(roundSummary.value.roundId, roundSummary.value.userId);
+  }
 });
 
 onBeforeUnmount(() => {
@@ -137,13 +169,33 @@ onBeforeUnmount(() => {
               name="i-lucide-party-popper"
               class="result-hero__icon"
             />
-            <h1 class="result-hero__title">จบการเล่น</h1>
+            <h1 class="result-hero__title">{{ resultTitle }}</h1>
             <p class="result-hero__prize">
               กรุณาติดต่อเจ้าหน้าที่เพื่อรับรางวัล
             </p>
             <p v-if="profile" class="result-hero__subtitle">
               {{ profile.firstName }} {{ profile.lastName }}
             </p>
+          </div>
+
+          <!-- [ใหม่] ข้อมูลอ้างอิงของรอบนี้ — ไว้ให้เจ้าหน้าที่อ่านไปกรอกที่หน้า
+               จุดแลกรางวัล (pages/redeem.vue) ตามสเปก "Login: ใคร, รหัสรอบ,
+               รหัสลูกค้า" -->
+          <div v-if="roundSummary" class="info-card">
+            <div class="info-card__row">
+              <UIcon name="i-lucide-badge-check" class="info-card__icon" />
+              <div class="info-card__text">
+                <p class="info-card__label">รหัสรอบ (roundId)</p>
+                <p class="info-card__value">{{ roundSummary.roundId ?? "-" }}</p>
+              </div>
+            </div>
+            <div class="info-card__row">
+              <UIcon name="i-lucide-user-round" class="info-card__icon" />
+              <div class="info-card__text">
+                <p class="info-card__label">รหัสลูกค้า (userId)</p>
+                <p class="info-card__value">{{ roundSummary.userId ?? "-" }}</p>
+              </div>
+            </div>
           </div>
 
           <div v-if="!roundSummary" class="empty-state">
@@ -197,13 +249,39 @@ onBeforeUnmount(() => {
               </p>
             </div>
 
-            <div v-if="roundSummary.totalPoint !== null" class="total-card">
+            <div v-if="combinedTotalPoint !== null" class="total-card">
               <p class="total-card__label">คะแนนรวมของรอบนี้</p>
               <p class="total-card__value">
-                <span class="total-card__value-num">{{
-                  roundSummary.totalPoint
-                }}</span>
+                <span class="total-card__value-num">{{ combinedTotalPoint }}</span>
                 <span class="total-card__unit">Point</span>
+              </p>
+              <!-- [ใหม่] แยกให้เห็นว่าคะแนนมาจาก 2 ทาง — สแกนฐาน + ตอบคำถามถูก
+                   (ตามกติกาที่ตกลงกันไว้ "ได้ทั้งสแกนและตอบถูก") -->
+              <p
+                v-if="roundSummary.questionPoints"
+                class="total-card__breakdown"
+              >
+                (ฐาน {{ roundSummary.totalPoint }} + ตอบคำถามถูก
+                {{ roundSummary.questionCorrectCount ?? 0 }} ข้อ +{{ roundSummary.questionPoints }})
+              </p>
+            </div>
+
+            <!-- [ใหม่] สถานะสิทธิ์รางวัล — แสดงอย่างเดียว ไม่มีปุ่มยืนยันในหน้านี้
+                 (เจ้าหน้าที่กดยืนยันที่หน้า /redeem เท่านั้น ตามที่ตกลงกันไว้) -->
+            <div v-if="isCheckingReward" class="reward-card reward-card--loading">
+              <UIcon name="i-lucide-loader-2" class="reward-card__spinner" />
+              กำลังตรวจสอบสิทธิ์รางวัล...
+            </div>
+            <div v-else-if="rewardStatus?.reward" class="reward-card">
+              <UIcon name="i-lucide-gift" class="reward-card__icon" />
+              <p class="reward-card__label">รางวัลของคุณ</p>
+              <p class="reward-card__name">{{ rewardStatus.reward.name }}</p>
+              <p v-if="rewardStatus.alreadyClaimed" class="reward-card__status reward-card__status--done">
+                <UIcon name="i-lucide-check-circle-2" />
+                รับแล้ว {{ formatDateTime(rewardStatus.claimedAt) }}
+              </p>
+              <p v-else class="reward-card__status">
+                กรุณาแจ้งเจ้าหน้าที่ที่จุดแลกรางวัลเพื่อรับของรางวัล
               </p>
             </div>
 
@@ -504,5 +582,76 @@ onBeforeUnmount(() => {
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--farm-text-muted);
+}
+
+.total-card__breakdown {
+  margin: 0.2rem 0 0;
+  font-size: 0.72rem;
+  color: var(--farm-text-muted);
+}
+
+/* --------------------------- Reward Card (ใหม่) --------------------------- */
+
+.reward-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.25rem;
+  padding: 1rem;
+  border-radius: 1rem;
+  background: linear-gradient(160deg, #fff8e6 0%, #ffe9b3 100%);
+  border: 2px solid var(--farm-accent-dark);
+}
+
+.reward-card--loading {
+  flex-direction: row;
+  justify-content: center;
+  gap: 0.5rem;
+  color: var(--farm-text-muted);
+  font-size: 0.82rem;
+  background: var(--farm-cream);
+  border-color: var(--farm-wood);
+}
+
+.reward-card__spinner {
+  width: 1.1rem;
+  height: 1.1rem;
+  animation: spin 1s linear infinite;
+}
+
+.reward-card__icon {
+  width: 2rem;
+  height: 2rem;
+  color: var(--farm-accent-dark);
+}
+
+.reward-card__label {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--farm-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.reward-card__name {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--farm-text-dark);
+}
+
+.reward-card__status {
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  color: var(--farm-wood-dark);
+  font-weight: 600;
+}
+
+.reward-card__status--done {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--farm-accent-dark);
 }
 </style>

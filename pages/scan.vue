@@ -19,6 +19,9 @@ import {
   POINTS_PER_STATION,
   type StationType,
 } from "~/composables/useAdventure";
+// ไฟล์ใหม่ (ระบบภารกิจ + คำถามประจำฐาน) — ดู components/mission/MissionQuestionPopup.vue
+import type { StationQuestion, StationAnswer } from "~/types/question";
+import MissionQuestionPopup from "~/components/mission/MissionQuestionPopup.vue";
 
 definePageMeta({ layout: "app" });
 const { profile, isReady } = useRequireProfile();
@@ -89,6 +92,34 @@ const { endCurrentRound, ensureRoundStarted, currentRoundId } = useRound();
 // แบบประเมินหลังจบเกม (ใหม่) — ใช้ submitSurvey() เดิมที่เพิ่งเพิ่มใน
 // composables/useMemberApi.ts (action 'submitSurvey' -> server-gas/SurveyService.gs)
 const { submitSurvey } = useMemberApi();
+// ไฟล์ใหม่ (ระบบภารกิจ + คำถามประจำฐาน) — ระบบขนานทั้งหมด ไม่แตะ/ไม่เรียกใช้
+// ฟังก์ชันของ useAdventure/useOfflineSync/useRound ข้างต้นเลยสักฟังก์ชัน อ่านแค่
+// currentRoundId ที่มีอยู่แล้วมาแนบไปกับคำตอบเท่านั้น (ดู composables/useQuestion.ts)
+const {
+  initQuestions,
+  initAnsweredState,
+  getQuestionForStation,
+  isStationQuestionDone,
+  findAnswered,
+  submitAnswer: submitQuestionAnswer,
+  resetAnswered,
+  totalQuestionPoints,
+  totalCorrect: totalQuestionCorrect,
+} = useQuestion();
+const { initOfflineAnswerSync, syncNow: syncAnswersNow } =
+  useOfflineAnswerSync();
+// [ใหม่] Flow ใหม่ — Timer เวลารอบ 2 ชม./เวลาเผ่า 30 นาที + จบรอบบังคับตอนหมดเวลา
+// (ระบบขนานเช่นกัน ดู composables/useRoundTimer.ts / useForceEndRound.ts)
+const {
+  initRoundTimer,
+  startStationTimer,
+  clearStationTimer,
+  stationRemainingLabel,
+  hasActiveRoundTimer,
+  isRoundExpired,
+  isStationExpired,
+} = useRoundTimer();
+const { forceEndRoundDueToTimeout } = useForceEndRound();
 
 type CheckinFeedbackKind = "success" | "duplicate" | "invalid";
 const checkinFeedback = ref<{ kind: CheckinFeedbackKind; text: string } | null>(
@@ -106,6 +137,19 @@ const successPopupOpen = ref(false);
 // Popup พิเศษฐานสุดท้าย (นม) — "ยินดีด้วย! คุณมาถึงฐานนมแล้ว" + ปุ่มเล่นต่อ/จบเกม
 const finalPopupOpen = ref(false);
 const scannedStation = ref<{ name: string; points: number } | null>(null);
+
+/**
+ * [ใหม่] Popup "ภารกิจ + คำถามประจำฐาน" — เปิดก่อน Popup ผลลัพธ์ด้านบนเสมอ ถ้าฐาน
+ * ที่เพิ่งสแกนมีคำถามกำหนดไว้ในชีต "Questions" (ไม่มี/ตอบไปแล้ว = ข้ามไปเปิด
+ * Popup ผลลัพธ์เดิมทันที — ดู presentMission() ด้านล่าง)
+ */
+const missionPopupOpen = ref(false);
+const activeMissionQuestion = ref<StationQuestion | null>(null);
+const activeMissionAnswer = ref<StationAnswer | null>(null);
+/** Popup ที่ "รอเปิดต่อ" หลังปิด Popup ภารกิจ+คำถาม — 'success' = Popup เข้าฐาน
+ * สำเร็จฐาน 1-3 เดิม, 'final' = Popup ฐานนมเดิม, null = ไม่ต้องเปิดต่ออะไรเลย
+ * (กรณี Offline Mode ฐาน 1-3 ที่ใช้ checkinFeedback ข้อความแทน ไม่ใช้ Popup) */
+const pendingResultPopup = ref<"success" | "final" | null>(null);
 
 /**
  * แบบประเมินก่อนจบเกม (ใหม่, ข้อ 1 ก่อน — เผื่อเพิ่มข้อถัดไปทีหลัง):
@@ -127,9 +171,19 @@ const SURVEY_RATING_OPTIONS: { value: number; label: string }[] = [
   { value: 2, label: "ดิน" },
   { value: 1, label: "ข้าวโพด" },
 ];
-/** true ระหว่างที่มี Popup ผลลัพธ์ค้างอยู่ — ใช้กันการสแกน/กรอกรหัสซ้ำซ้อน */
+/** true ระหว่างที่มี Popup ผลลัพธ์ค้างอยู่ — ใช้กันการสแกน/กรอกรหัสซ้ำซ้อน
+ * (เพิ่ม missionPopupOpen เข้ามาด้วย — กันสแกนฐานถัดไปซ้อนระหว่างยังไม่ได้ตอบ
+ * คำถามของฐานปัจจุบันให้เสร็จก่อน) */
 const isResultPopupOpen = computed(
-  () => successPopupOpen.value || finalPopupOpen.value,
+  () =>
+    successPopupOpen.value || finalPopupOpen.value || missionPopupOpen.value,
+);
+
+/** ชื่อฐานของคำถามที่กำลังแสดงใน Popup ภารกิจ+คำถาม (ใหม่) — ใช้แสดงหัวข้อ Popup */
+const activeMissionStationName = computed(
+  () =>
+    stations.value.find((s) => s.id === activeMissionQuestion.value?.stationId)
+      ?.name ?? "",
 );
 
 /**
@@ -299,6 +353,75 @@ async function processScannedStationQr(qrToken: string): Promise<void> {
 }
 
 /**
+ * [ใหม่] จุดกลางที่ตัดสินใจว่าจะโชว์ Popup "ภารกิจ + คำถาม" ก่อน หรือข้ามไปที่
+ * Popup ผลลัพธ์เดิมเลย — เรียกแทนที่ "successPopupOpen.value = true" /
+ * "finalPopupOpen.value = true" ตรง ๆ ในทุกจุดที่เคยเปิด Popup เดิม (ดูจุดเรียกใช้
+ * ใน completeStationVisit() ด้านล่าง) ไม่แก้ Logic ก่อนหน้านั้นเลยสักบรรทัด —
+ * toggleStation/queueCheckin/logStationScan ยังทำงานเหมือนเดิมทุกประการก่อนจะมา
+ * ถึงจุดนี้เสมอ
+ *
+ * ไม่มีคำถามของฐานนี้เลย (Admin ยังไม่ได้กรอกในชีต "Questions") หรือเคยตอบไปแล้ว
+ * (เช่นแอปถูกปิดแล้วเปิดใหม่กลางฐาน) -> ข้าม Popup ภารกิจ+คำถามไปเปิด Popup
+ * ผลลัพธ์ที่ระบุใน `after` ทันที (พฤติกรรมเดิมก่อนมีระบบนี้ทุกประการ — Backward
+ * Compatible เสมอ) `after: null` ใช้กับ Offline Mode ฐาน 1-3 ที่ใช้ข้อความ
+ * checkinFeedback แทน Popup อยู่แล้ว (ไม่ต้องเปิดอะไรต่อ)
+ */
+function presentMission(
+  stationId: StationType,
+  after: "success" | "final" | null,
+): void {
+  initAnsweredState(currentRoundId.value);
+  const question = getQuestionForStation(stationId);
+
+  if (!question || isStationQuestionDone(stationId)) {
+    // ไม่มีคำถามให้ตอบ/ตอบไปแล้ว -> ภารกิจของฐานนี้ถือว่า "จบ" ทันที เคลียร์เวลา
+    // เผ่าทิ้ง (กันเวลานับต่อไปเรื่อย ๆ ทั้งที่ไม่มีอะไรให้ทำต่อแล้ว)
+    clearStationTimer();
+    if (after === "success") successPopupOpen.value = true;
+    else if (after === "final") finalPopupOpen.value = true;
+    return;
+  }
+
+  activeMissionQuestion.value = question;
+  activeMissionAnswer.value = findAnswered(question.id) ?? null;
+  pendingResultPopup.value = after;
+  missionPopupOpen.value = true;
+}
+
+/** ผู้เล่นกดส่งคำตอบใน MissionQuestionPopup — ตัดสินบนเครื่องทันที (Offline
+ * First ผ่าน useQuestion().submitAnswer()) แล้วอัปเดต activeMissionAnswer ให้
+ * Popup เปลี่ยนไปแสดงผลลัพธ์เอง มีเน็ตอยู่แล้ว (และไม่ใช่ Offline Mode) ลอง Sync
+ * คำตอบนี้ขึ้น Backend ทันทีแบบไม่บล็อก UI (เหมือนแนวทาง Offline Queue อื่น ๆ) */
+function handleMissionSubmit(value: string): void {
+  if (!activeMissionQuestion.value) return;
+  const userId = profile.value?.memberId || profile.value?.uid || "";
+  const result = submitQuestionAnswer(activeMissionQuestion.value, value, {
+    userId,
+    firstName: profile.value?.firstName,
+    roundId: currentRoundId.value,
+  });
+  activeMissionAnswer.value = result;
+
+  if (!isOfflineMode.value && isOnline.value && userId) {
+    void syncAnswersNow(userId, profile.value?.firstName);
+  }
+}
+
+/** ผู้เล่นกด "เดินทางไปเผ่าต่อไป" หลังเห็นผลลัพธ์คำถามแล้ว — ปิด Popup ภารกิจ+
+ * คำถาม แล้วเปิด Popup ผลลัพธ์เดิมที่ค้างไว้ต่อ (ถ้ามี — ดู pendingResultPopup
+ * ใน presentMission() ด้านบน) */
+function handleMissionContinue(): void {
+  // ตอบคำถามเสร็จแล้ว (ไม่ว่าถูกหรือผิด — "ตอบได้ครั้งเดียว") -> ภารกิจของฐานนี้จบ
+  clearStationTimer();
+  missionPopupOpen.value = false;
+  activeMissionQuestion.value = null;
+  activeMissionAnswer.value = null;
+  if (pendingResultPopup.value === "success") successPopupOpen.value = true;
+  else if (pendingResultPopup.value === "final") finalPopupOpen.value = true;
+  pendingResultPopup.value = null;
+}
+
+/**
  * จุดเดียวที่จัดการ "ผ่านฐานสำเร็จ" หลังได้ stationId ที่ยืนยันแล้ว (ไม่ว่าจะมาจาก
  * resolveStationId() ของการกรอกรหัสเอง หรือจาก verifyStationQr() ของกล้องสแกน QR)
  * 1) เคยผ่านฐานนี้แล้ว -> "ห้ามบันทึกซ้ำ ห้ามส่งไป Google Sheet" ทันที
@@ -323,6 +446,23 @@ async function completeStationVisit(stationId: StationType): Promise<void> {
     };
     return;
   }
+
+  // [ใหม่] ต้องกดปุ่ม GO ที่หน้า Home ก่อนเสมอ (เปิด Round + เริ่มนับเวลารอบ 2 ชม.
+  // — ดู pages/home.vue::pressGo()) ถึงจะสแกนฐานได้ — กันเคสผู้เล่นเข้า /scan
+  // ตรง ๆ (พิมพ์ URL/เคย bookmark) โดยไม่ผ่านหน้า Home เลย
+  if (!hasActiveRoundTimer.value) {
+    checkinFeedback.value = {
+      kind: "invalid",
+      text: "กรุณากดปุ่ม GO ที่หน้าหลักก่อนเริ่มเล่นครับ",
+    };
+    return;
+  }
+
+  // [ใหม่] เริ่มนับเวลาเผ่า 30 นาทีใหม่ทุกครั้งที่เข้าฐานใหม่ (ก่อน Commit ใด ๆ
+  // เผื่อ ensureRoundStarted() ด้านล่างช้า/ไม่สำเร็จ ก็ยังนับเวลาให้ถูกต้องจากจุด
+  // ที่สแกนสำเร็จจริง ๆ) presentMission()/handleMissionContinue() ด้านล่างเป็นคน
+  // เคลียร์ Timer นี้ทิ้งเมื่อทำภารกิจของฐานนี้เสร็จแล้ว
+  startStationTimer();
 
   // [Fix — เปิด Round ตรงนี้เท่านั้น] ตามสเปก "Scan ฐานแรกเท่านั้นที่เปิด Round" —
   // ต้องรอให้ยืนยันแล้วว่านี่คือฐานที่ยังไม่เคยผ่าน (ผ่านเงื่อนไข isVisited ด้านบน
@@ -361,7 +501,7 @@ async function completeStationVisit(stationId: StationType): Promise<void> {
    */
   if (stationId === FINAL_STATION_ID) {
     scannedStation.value = { name: station.name, points: stationPoint };
-    finalPopupOpen.value = true;
+    presentMission(stationId, "final");
     return;
   }
 
@@ -383,6 +523,11 @@ async function completeStationVisit(stationId: StationType): Promise<void> {
       kind: "success",
       text: `ผ่าน${station.name}สำเร็จ (บันทึกในเครื่องแล้ว)`,
     };
+    // [ใหม่] เปิด Popup ภารกิจ+คำถามด้วย ถ้าฐานนี้มีคำถามกำหนดไว้ (ตัดสิน/บันทึก
+    // บนเครื่องได้เต็มรูปแบบแม้ไม่มีเน็ต — ดู useQuestion.ts) after: null เพราะ
+    // Offline Mode ใช้ข้อความ checkinFeedback ด้านบนแสดงผลอยู่แล้ว ไม่มี Popup
+    // ผลลัพธ์อื่นให้เปิดต่อ
+    presentMission(stationId, null);
     return;
   }
 
@@ -394,8 +539,11 @@ async function completeStationVisit(stationId: StationType): Promise<void> {
 
   // แสดง Popup ผลลัพธ์ — ฐาน 1-3 ใช้ Success Popup ปกติ ("เข้าฐานสำเร็จ!") เท่านั้น
   // (ฐานสุดท้าย/นม ไม่มีทางมาถึงบรรทัดนี้อีกต่อไป — return ไปที่ Branch ด้านบนแล้ว)
+  // [ใหม่] ผ่าน presentMission() แทนการเปิด successPopupOpen ตรง ๆ — จะแสดง Popup
+  // ภารกิจ+คำถามก่อน (ถ้าฐานนี้มีคำถาม) แล้วค่อยเปิด Popup นี้ต่อตอนกด "เดินทางไป
+  // เผ่าต่อไป" (ดู handleMissionContinue()) ไม่มีคำถาม = เปิด Popup นี้ทันทีเหมือนเดิม
   scannedStation.value = { name: station.name, points: stationPoint };
-  successPopupOpen.value = true;
+  presentMission(stationId, "success");
 }
 
 /**
@@ -529,6 +677,13 @@ async function endGameOfflineAfterFinalStation(): Promise<void> {
       ).toISOString(),
       stations: playedStations,
       totalPoint: null,
+      // [ใหม่] Offline Mode ไม่มี Round ฝั่ง Backend เลย (roundId: null เสมอ) แต่
+      // คำถาม/คำตอบยังตัดสินบนเครื่องได้ตามปกติ (useQuestion.ts เป็น Offline First
+      // อยู่แล้ว) จึงยังมี questionPoints/questionCorrectCount ให้แสดงที่หน้าสรุปผล
+      roundId: null,
+      userId: profile.value?.uid ?? null,
+      questionPoints: totalQuestionPoints.value,
+      questionCorrectCount: totalQuestionCorrect.value,
     });
   } catch (err) {
     console.error(
@@ -643,6 +798,12 @@ async function endGameAfterFinalStation(): Promise<void> {
       .filter((s) => isVisited(s.id))
       .map((s) => ({ name: s.name, points: s.points ?? POINTS_PER_STATION }));
     const roundTotalPoint = totalPoint.value;
+    // [ใหม่] จับค่า roundId ไว้ "ก่อน" endCurrentRound() ด้านล่าง — endCurrentRound()
+    // เคลียร์ currentRoundId.value เป็น null ใน finally ของมันเองเสมอ (ดู
+    // composables/useRound.ts) ถ้าไปอ่านค่าหลังเรียกจะได้ null ผิดพลาด ต้องจับสด ๆ
+    // ตรงนี้ก่อนเสมอ เพื่อบันทึกเป็น "รหัสรอบ" ที่หน้าสรุปผลได้ถูกต้อง
+    const roundIdForSummary = currentRoundId.value;
+    const userIdForSummary = profile.value?.memberId || profile.value?.uid || null;
 
     let startTimeIso: string | null = null;
     let endTimeIso = new Date().toISOString();
@@ -700,6 +861,13 @@ async function endGameAfterFinalStation(): Promise<void> {
       endTime: endTimeIso,
       stations: playedStations,
       totalPoint: isOfflineMode.value ? null : roundTotalPoint,
+      // [ใหม่] roundId/userId ไว้แสดงเป็น "รหัสรอบ"/"รหัสลูกค้า" ที่หน้าสรุปผล +
+      // ใช้อ้างอิงตอนแลกของรางวัล — questionPoints/questionCorrectCount คนละก้อน
+      // กับ totalPoint (คะแนนจากตอบคำถามถูก ไม่ใช่จากสแกนฐาน — ดู useQuestion.ts)
+      roundId: isOfflineMode.value ? null : roundIdForSummary,
+      userId: userIdForSummary,
+      questionPoints: totalQuestionPoints.value,
+      questionCorrectCount: totalQuestionCorrect.value,
     });
   } catch (err) {
     console.error(
@@ -820,6 +988,15 @@ onMounted(async () => {
   // กันซ้ำได้แม่นยำขึ้น (เผื่อผ่านฐานนี้จากเครื่อง/รอบก่อนหน้าที่ sync ไปแล้ว)
   await initAdventure(profile.value?.memberId);
   initOfflineSync();
+  // [ใหม่] โหลดคำถามทุกฐานมา cache ไว้ล่วงหน้า + เตรียมคิว sync คำตอบ (ระบบขนาน
+  // ของ useQuestion.ts/useOfflineAnswerSync.ts — ไม่กระทบ initAdventure/
+  // initOfflineSync ข้างบนเลย) initAnsweredState() เรียกจริงใน presentMission()
+  // อีกที (ต้องรอ currentRoundId พร้อมก่อนเสมอ — ที่นี่แค่โหลดคลังคำถามพอ)
+  await initQuestions();
+  initOfflineAnswerSync();
+  // [ใหม่] โหลดค่า Timer ที่ค้างจาก LocalStorage กลับมา (เผื่อ Refresh หน้ากลาง
+  // ฐาน) — เริ่มนับต่อทันที ไม่รีเซ็ตค่าใด ๆ (ดู composables/useRoundTimer.ts)
+  initRoundTimer();
 
   const mod = await import("html5-qrcode");
   Html5QrcodeCtor = mod.Html5Qrcode;
@@ -836,6 +1013,24 @@ onMounted(async () => {
   await startCamera(cameras.value[activeCameraIndex.value]?.id);
 
   window.addEventListener("beforeunload", handleScanPageBeforeUnload);
+});
+
+/**
+ * [ใหม่] เวลารอบ (2 ชม.) หรือเวลาเผ่า (30 นาที) หมด ระหว่างที่ผู้เล่นอยู่หน้านี้
+ * พอดี — ตามกติกา "หมดเวลา = บังคับจบรอบ" ปิด Popup/กล้องของหน้านี้ก่อนเสมอ
+ * (forceEndRoundDueToTimeout() ไม่รู้จัก UI ของหน้านี้เลย) แล้วค่อยเรียกจบรอบจริง
+ * ผ่าน composables/useForceEndRound.ts (เหมือนกด "จบเกม" แต่ไม่มี Survey/ไม่
+ * Commit ฐานนม — ดูเหตุผลเต็ม ๆ ในไฟล์นั้น)
+ */
+watch([isRoundExpired, isStationExpired], async ([roundExpired, stationExpired]) => {
+  if (!roundExpired && !stationExpired) return;
+
+  missionPopupOpen.value = false;
+  successPopupOpen.value = false;
+  finalPopupOpen.value = false;
+  surveyPopupOpen.value = false;
+  await stopCamera();
+  await forceEndRoundDueToTimeout(roundExpired ? "round" : "station");
 });
 
 onBeforeUnmount(async () => {
@@ -859,6 +1054,12 @@ onBeforeUnmount(async () => {
       <UIcon name="i-lucide-loader-2" class="page__spinner" />
     </div>
     <div v-else class="scan">
+      <!-- [ใหม่] ป้ายเวลาเผ่าที่เหลือ — แสดงเฉพาะระหว่างกำลังทำภารกิจของฐานหนึ่งอยู่ -->
+      <div v-if="stationRemainingLabel" class="scan__station-timer">
+        <UIcon name="i-lucide-hourglass" />
+        เวลาทำภารกิจฐานนี้เหลือ {{ stationRemainingLabel }}
+      </div>
+
       <div
         class="scan__viewport"
         :class="{
@@ -1029,6 +1230,18 @@ onBeforeUnmount(async () => {
       </section>
     </div>
 
+    <!-- [ใหม่] Popup "ภารกิจ + คำถามประจำฐาน" — เปิดก่อน Popup ผลลัพธ์ด้านล่างเสมอ
+         (ถ้าฐานนี้มีคำถามกำหนดไว้ — ดู presentMission() ในสคริปต์ด้านบน) -->
+    <MissionQuestionPopup
+      v-if="activeMissionQuestion"
+      v-model:open="missionPopupOpen"
+      :station-name="activeMissionStationName"
+      :question="activeMissionQuestion"
+      :answered="activeMissionAnswer"
+      @submit="handleMissionSubmit"
+      @continue="handleMissionContinue"
+    />
+
     <!-- Popup "เข้าฐานสำเร็จ!" — ฐาน 1-3 (ไม่ใช่ฐานนม/ฐานสุดท้าย) -->
     <UModal
       v-model:open="successPopupOpen"
@@ -1165,6 +1378,18 @@ onBeforeUnmount(async () => {
   gap: 0.85rem;
   padding: 1.5rem 1.25rem 2rem;
   text-align: center;
+}
+
+.scan__station-timer {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  background: var(--farm-cream-dark);
+  color: var(--farm-wood-dark);
+  font-weight: 700;
+  font-size: 0.82rem;
 }
 
 .scan__viewport {

@@ -165,6 +165,33 @@ registerRoute(
 )
 
 // -----------------------------------------------------------------------
+// 5.1) โมเดล AI ของ Photo Detection Quest (TensorFlow.js / COCO-SSD) — Cache First
+// -----------------------------------------------------------------------
+// เพิ่มใหม่ (Phase 2 — Object Detection จริง ดู
+// services/detection/providers/cocoSsdProvider.ts): ตัวโค้ด TFJS ถูก Bundle ไป
+// กับแอปและ Precache อยู่แล้วเหมือน JS ก้อนอื่น แต่ **ไฟล์น้ำหนักของโมเดล**
+// (model.json + group1-shard*of* รวมประมาณ 5-6 MB) โหลดข้ามโดเมนจาก
+// storage.googleapis.com ตอนใช้งานครั้งแรกเสมอ — ไฟล์พวกนี้ `destination` เป็น
+// '' (fetch ธรรมดา ไม่ใช่ script/image/font) จึงไม่เข้าเงื่อนไข Route ข้อ 4-6
+// ที่มีอยู่เดิมเลยสักข้อ ถ้าไม่เพิ่ม Route นี้ผู้เล่นจะต้องโหลดใหม่ทุกครั้งที่
+// เปิดแอป และทำเควสตอนออฟไลน์ไม่ได้เลย (ขัดกับ Offline First ของทั้งแอป)
+//
+// ใช้ CacheFirst + อายุยาว 1 ปี เพราะไฟล์โมเดลเป็น Immutable จริง ๆ (เวอร์ชัน
+// ใหม่ = URL ใหม่) และ maxEntries เผื่อไว้ 20 (model.json + shard หลายไฟล์)
+// purgeOnQuotaError: true เพื่อให้ยอมสละ Cache ก้อนนี้ก่อนถ้าเครื่องพื้นที่เต็ม
+// (ยอมให้เควสถ่ายรูปใช้ไม่ได้ ดีกว่าทำให้ทั้งแอปหลุด Cache จนเปิดออฟไลน์ไม่ได้)
+registerRoute(
+  ({ url }) => url.hostname === 'storage.googleapis.com' && url.pathname.startsWith('/tfjs-models/'),
+  new CacheFirst({
+    cacheName: `tfjs-model-cache-${CACHE_VERSION}`,
+    plugins: [
+      new CacheableResponsePlugin({ statuses: [0, 200] }),
+      new ExpirationPlugin({ maxEntries: 20, maxAgeSeconds: 365 * 24 * 60 * 60, purgeOnQuotaError: true }),
+    ],
+  }),
+)
+
+// -----------------------------------------------------------------------
 // 6) Font — Cache First (ฟอนต์แทบไม่เปลี่ยนเลย เก็บไว้นานได้)
 // -----------------------------------------------------------------------
 registerRoute(

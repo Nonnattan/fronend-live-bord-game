@@ -84,7 +84,15 @@ export default defineNuxtConfig({
       // Navigation/Refresh หน้า /round-summary พอดี (เช่นเบราว์เซอร์บางตัว
       // Suspend แล้ว Reload Tab เอง) จะไม่มี Cache ให้โหลดหน้าสรุปผลได้เลย ต้อง
       // เพิ่มเข้าลิสต์นี้เพื่อให้ทำงานสอดคล้องกับทุกหน้าอื่นในแอป (Offline First)
-      routes: ['/', '/offline', '/home', '/map', '/scan', '/profile', '/info', '/history', '/reservation', '/round-summary'],
+      // [Fix] เพิ่ม '/photo-quest' — หน้าใหม่ของระบบ Photo Detection Quest ที่
+      // ยังไม่เคยถูกใส่ในลิสต์นี้ (เหตุผลเดียวกับ '/round-summary' ด้านบนเป๊ะ ๆ)
+      // หมายเหตุ: '/photo-quest/[id]' เป็น Dynamic Route จึง Prerender ล่วงหน้า
+      // ไม่ได้ (ไม่รู้ id ตอน build) — ผู้เล่นเข้าหน้ารายการก่อนเสมออยู่แล้ว
+      // และ Shell ของหน้า [id] จะถูก NetworkFirst (html-cache) เก็บให้เองตอน
+      // เข้าครั้งแรกที่ยังออนไลน์ ตามพฤติกรรมเดิมของ service-worker/sw.ts
+      // [Fix] เพิ่ม '/redeem' — หน้าใหม่ "จุดแลกรางวัล" สำหรับเจ้าหน้าที่ (ระบบ
+      // แลกของรางวัล) เหตุผลเดียวกับหน้าอื่น ๆ ในลิสต์นี้ทุกประการ
+      routes: ['/', '/offline', '/home', '/map', '/scan', '/profile', '/info', '/history', '/reservation', '/round-summary', '/photo-quest', '/redeem'],
       failOnError: false,
       // Crawl ลิงก์จากหน้าที่ Prerender ไว้ต่อเองด้วย (กันตกหล่นถ้ามีหน้าใหม่
       // ถูกเพิ่มมาทีหลังแล้วลืมเติมใน routes ด้านบน) ไม่กระทบของเดิมเพราะทุก
@@ -129,9 +137,20 @@ export default defineNuxtConfig({
       // เพิ่ม jpg/jpeg/webp/gif เข้าไปด้วย (แก้ไขจุดนี้ — เดิมมีแค่ png/svg)
       // เผื่ออนาคตมีการเพิ่มรูปภาพฟอร์แมตอื่นใน public/ ที่ต้องถูก Precache
       // ด้วย ไม่กระทบไฟล์ปัจจุบันที่มีอยู่ (ยังเป็น png ทั้งหมดเหมือนเดิม)
-      globPatterns: ['**/*.{js,css,html,ico,png,jpg,jpeg,webp,gif,svg,woff,woff2,json}'],
+      // เพิ่ม bin/wasm/tflite/onnx (แก้ไขจุดนี้ — Phase 2 Object Detection):
+      // ตอนนี้ไฟล์น้ำหนักโมเดล COCO-SSD ยังโหลดข้ามโดเมนจาก
+      // storage.googleapis.com แล้วให้ Service Worker เก็บแบบ CacheFirst แทน
+      // (ดู service-worker/sw.ts ข้อ 5.1) จึงยังไม่มีไฟล์เหล่านี้ใน public/ จริง
+      // — ใส่ไว้ล่วงหน้าเพื่อให้ "ย้ายมา Self-host เอง" ทำได้ทันทีโดยไม่ต้อง
+      // กลับมาแก้ตรงนี้อีก (แค่วางไฟล์ที่ public/models/ แล้วชี้ modelUrl ใหม่)
+      globPatterns: ['**/*.{js,css,html,ico,png,jpg,jpeg,webp,gif,svg,woff,woff2,json,bin,wasm,tflite,onnx}'],
       globIgnores: ['**/node_modules/**/*'],
-      maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+      // ขยายจาก 5 MB -> 16 MB (แก้ไขจุดนี้): ตั้งแต่เพิ่ม TensorFlow.js เข้ามา
+      // JS Chunk ของ Detection Engine ใหญ่ขึ้นมาก ถ้าไฟล์ไหนเกินลิมิตนี้
+      // Workbox จะ "ข้ามไปเงียบ ๆ" ตอน build (ไม่ error) แล้วผลคือฟีเจอร์เควส
+      // ถ่ายรูปใช้ไม่ได้ตอนออฟไลน์โดยไม่มีสัญญาณเตือนอะไรเลย — เผื่อเพดานไว้
+      // ให้ปลอดภัย และรองรับกรณี Self-host ไฟล์โมเดลใน public/ ในอนาคตด้วย
+      maximumFileSizeToCacheInBytes: 16 * 1024 * 1024,
     },
     manifest: {
       id: '/',

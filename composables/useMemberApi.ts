@@ -21,6 +21,7 @@
  */
 
 import type { AuthData } from '~/types/auth'
+import type { RewardStatus } from '~/types/reward'
 
 /** โครงสร้างสมาชิกตามที่ Google Apps Script ส่งกลับมา (ตรงกับคอลัมน์ใน Sheet)
  * birthYear: null = ยังไม่มีข้อมูลในชีต — เป็นข้อความช่วงปีเกิด ค.ศ. ตรงตามที่ผู้ใช้
@@ -259,6 +260,104 @@ interface ListSideQuestsResponse {
   success: boolean
   sideQuests?: SideQuestRecord[]
   error?: string
+}
+
+/** ไฟล์ใหม่ (Photo Detection Quest) — ดึงจากชีต "PhotoQuests" ผ่าน action
+ * 'listPhotoQuests' รูปแบบตรงกับ types/photoQuest.ts::PhotoQuest ทุกประการ
+ * (import ตรงมาจากที่นั่นเพื่อไม่ให้ type ซ้ำซ้อน/หลุดจากกัน) */
+interface ListPhotoQuestsResponse {
+  success: boolean
+  quests?: import('~/types/photoQuest').PhotoQuest[]
+  error?: string
+}
+
+/** Payload ที่ส่งไปกับ action 'completePhotoQuest' — แจ้ง Backend ว่าเควสนี้
+ * ตรวจจับผ่านแล้ว (Detection ทำบนเครื่องเสร็จสมบูรณ์ก่อนเรียก action นี้เสมอ —
+ * ดู composables/useOfflinePhotoQuestSync.ts) */
+export interface CompletePhotoQuestPayload {
+  userId: string
+  questId: string
+  points: number
+  confidence: number
+  /** uuid ฝั่ง client — กันบันทึกซ้ำเหมือน CheckinPayload.clientId เดิม */
+  clientId?: string
+  [key: string]: unknown
+}
+
+interface CompletePhotoQuestResponse {
+  success: boolean
+  alreadyCompleted?: boolean
+  error?: string
+}
+
+/** ไฟล์ใหม่ (ระบบภารกิจ + คำถามประจำฐาน) — ดึงจากชีต "Questions" ผ่าน action
+ * 'listQuestions' รูปแบบตรงกับ types/question.ts::StationQuestion ทุกประการ */
+interface ListQuestionsResponse {
+  success: boolean
+  questions?: import('~/types/question').StationQuestion[]
+  error?: string
+}
+
+/** Payload ที่ส่งไปกับ action 'submitAnswer' — ตอบคำถาม 1 ข้อ 1 ครั้ง
+ * (Backend เป็นคนตัดสินถูก/ผิด "ใหม่" เสมอจากเฉลยในชีต ไม่เชื่อค่าที่ client
+ * คำนวณมา — ดูเหตุผลเต็มที่ types/question.ts) */
+export interface SubmitAnswerPayload {
+  userId: string
+  firstName?: string
+  roundId?: string
+  stationId: string
+  questionId: string
+  answer: string
+  /** uuid ฝั่ง client — กันบันทึกซ้ำเหมือน CheckinPayload.clientId เดิม */
+  clientId?: string
+  [key: string]: unknown
+}
+
+interface SubmitAnswerResponse {
+  success: boolean
+  alreadyAnswered?: boolean
+  isCorrect?: boolean
+  pointsEarned?: number
+  correctAnswer?: string
+  explanation?: string
+  score?: unknown
+  error?: string
+}
+
+/** รูปแบบ "ที่ Backend คืนมาจริง" ของคำตอบ 1 แถวในชีต "Answers" — คนละ shape
+ * กับ types/question.ts::StationAnswer โดยเจตนา (StationAnswer คือ record ฝั่ง
+ * client สำหรับคิว Offline มี synced/locked/answeredAt เป็น timestamp ตัวเลข
+ * ส่วนอันนี้คือ wire format มี answerId และ answeredAt เป็น string เวลา
+ * Asia/Bangkok จาก server ตรงกับแนวทางเดียวกับ RoundEntry ด้านบนในไฟล์นี้) */
+export interface RemoteStationAnswer {
+  answerId: string
+  roundId: string
+  userId: string
+  stationId: string
+  questionId: string
+  answer: string
+  isCorrect: boolean
+  pointsEarned: number
+  answeredAt: string
+  clientId: string
+}
+
+interface GetRoundAnswersResponse {
+  success: boolean
+  answers?: RemoteStationAnswer[]
+  summary?: import('~/types/question').QuestionRoundSummary
+  error?: string
+}
+
+/** ไฟล์ใหม่ (ระบบแลกของรางวัล) — response ร่วมของทั้ง action 'getRewardStatus'
+ * (อ่านอย่างเดียว) และ 'claimReward' (เจ้าหน้าที่ยืนยันรับจริง) รูปแบบเดียวกัน
+ * ทั้งคู่ — ดู types/reward.ts::RewardStatus */
+interface RewardStatusResponse extends RewardStatus {
+  success: boolean
+  error?: string
+  /** คะแนนรวมของรอบนี้ที่ server คำนวณเอง (Journey + Answers) — ไว้แสดง Debug/
+   * ยืนยันความถูกต้องที่หน้า /redeem ได้ ถ้าต้องการ */
+  score?: number
 }
 
 /** Payload ที่ส่งไปกับ action 'checkin' — 1 ฐานที่ผ่านสำเร็จ 1 ครั้ง
@@ -504,6 +603,57 @@ export function useMemberApi() {
     return callApi<ListSideQuestsResponse>('listSideQuests', {})
   }
 
+  /** ไฟล์ใหม่ (Photo Detection Quest) — action 'listPhotoQuests' ดึงรายการ
+   * เควสถ่ายรูปทั้งหมดจากชีต "PhotoQuests" (ไม่เขียนข้อมูลใด ๆ) */
+  function listPhotoQuests(): Promise<ListPhotoQuestsResponse> {
+    return callApi<ListPhotoQuestsResponse>('listPhotoQuests', {})
+  }
+
+  /** ไฟล์ใหม่ (Photo Detection Quest) — action 'completePhotoQuest' บันทึกว่า
+   * สมาชิกคนนี้ทำเควสถ่ายรูปนี้สำเร็จแล้ว (server-gas กันบันทึกซ้ำด้วย
+   * userId+questId เหมือน checkin เดิม) */
+  function completePhotoQuest(payload: CompletePhotoQuestPayload): Promise<CompletePhotoQuestResponse> {
+    return callApi<CompletePhotoQuestResponse>('completePhotoQuest', payload)
+  }
+
+  /** ไฟล์ใหม่ (ระบบภารกิจ + คำถามประจำฐาน) — action 'listQuestions' ดึงคำถาม
+   * ทั้งหมดจากชีต "Questions" (ไม่ระบุ stationId = เอาทุกฐานมาทีเดียว แนะนำให้
+   * เรียกครั้งเดียวตอนเริ่มรอบแล้ว cache ไว้ฝั่ง client เพื่อให้ตอบคำถามได้แม้
+   * สัญญาณหลุดกลางแปลง — ดู composables/useQuestion.ts) */
+  function listQuestions(stationId?: string): Promise<ListQuestionsResponse> {
+    return callApi<ListQuestionsResponse>('listQuestions', stationId ? { stationId } : {})
+  }
+
+  /** ไฟล์ใหม่ (ระบบภารกิจ + คำถามประจำฐาน) — action 'submitAnswer' ส่งคำตอบไป
+   * ให้ Backend ตัดสินและบันทึก (idempotent ด้วย roundId+userId+questionId —
+   * เรียกซ้ำได้ปลอดภัยเสมอ ดู server-gas/QuestionService.gs) */
+  function submitAnswer(payload: SubmitAnswerPayload): Promise<SubmitAnswerResponse> {
+    return callApi<SubmitAnswerResponse>('submitAnswer', payload)
+  }
+
+  /** ไฟล์ใหม่ (ระบบภารกิจ + คำถามประจำฐาน) — action 'getRoundAnswers' ดึงคำตอบ
+   * ทั้งหมดของผู้เล่นในรอบที่ระบุ (ไม่เขียนข้อมูล) ใช้กู้สถานะ "ตอบไปแล้วบ้าง"
+   * กลับมาถ้าผู้เล่นเปลี่ยนเครื่อง/ล้าง LocalStorage กลางรอบ */
+  function getRoundAnswers(userId: string, roundId?: string): Promise<GetRoundAnswersResponse> {
+    return callApi<GetRoundAnswersResponse>('getRoundAnswers', { userId, roundId })
+  }
+
+  /** ไฟล์ใหม่ (ระบบแลกของรางวัล) — action 'getRewardStatus' ตรวจสอบสิทธิ์รางวัล
+   * ของรอบที่ระบุ (ไม่เขียนข้อมูล) ใช้จากหน้าสรุปผลของผู้เล่นเอง (ดู
+   * pages/round-summary.vue) เพื่อโชว์ว่ามีสิทธิ์รางวัลอะไร + เจ้าหน้าที่ยืนยัน
+   * ให้แล้วหรือยัง — ไม่มีปุ่มยืนยันในหน้านั้น (ดู claimReward ด้านล่าง) คะแนน
+   * คำนวณจาก Journey+Answers ฝั่ง server เอง ไม่ต้องส่งมาจาก client */
+  function getRewardStatus(roundId: string | null, userId: string): Promise<RewardStatusResponse> {
+    return callApi<RewardStatusResponse>('getRewardStatus', { roundId, userId })
+  }
+
+  /** ไฟล์ใหม่ (ระบบแลกของรางวัล) — action 'claimReward' เจ้าหน้าที่กดยืนยันรับ
+   * รางวัลที่จุดแลกรางวัล (ดู pages/redeem.vue) idempotent ด้วย roundId+userId
+   * เรียกซ้ำได้ปลอดภัยเสมอ (ไม่สร้างประวัติซ้ำ ไม่ให้แลกซ้ำ) */
+  function claimReward(roundId: string, userId: string, displayName: string): Promise<RewardStatusResponse> {
+    return callApi<RewardStatusResponse>('claimReward', { roundId, userId, displayName })
+  }
+
   return {
     checkMember,
     registerMember,
@@ -522,5 +672,12 @@ export function useMemberApi() {
     listStations,
     verifyStationQr,
     listSideQuests,
+    listPhotoQuests,
+    completePhotoQuest,
+    listQuestions,
+    submitAnswer,
+    getRoundAnswers,
+    getRewardStatus,
+    claimReward,
   }
 }

@@ -45,12 +45,24 @@ const {
 // [Debug — ชั่วคราว] ใช้ยืนยันว่ามือถือ/คอมเห็น Round + สถานะฐานตรงกันจริงหลังจบรอบ
 // (ดู composables/useAdventure.ts::refreshFromBackend สำหรับ Fix ตัวจริง) — ลบออก
 // ได้เมื่อยืนยันบั๊ก "มือถือค้าง 1/4" หายแล้ว
-const { currentRoundId } = useRound();
+const { currentRoundId, ensureRoundStarted } = useRound();
+// [ใหม่] Flow ใหม่ — ปุ่ม GO เปิดรอบ (แทนที่การเปิดรอบเงียบ ๆ ตอนสแกนฐานแรก) +
+// Timer 2 ชั่วโมง ดู composables/useRoundTimer.ts / useForceEndRound.ts
+const { isOfflineMode, startRound } = useOfflineMode();
+const {
+  initRoundTimer,
+  startRoundTimer,
+  roundRemainingLabel,
+  hasActiveRoundTimer,
+  isRoundExpired,
+} = useRoundTimer();
+const { forceEndRoundDueToTimeout } = useForceEndRound();
 
 // ส่ง memberId เข้าไปด้วย (ถ้ามี) เพื่อดึงฐานที่ผ่านจริง + คะแนนสะสมจริงจาก
 // Google Sheet (getJourney/getScore) มาทับ LocalStorage — ดู useAdventure.ts
 onMounted(async () => {
   await initAdventure(profile.value?.memberId);
+  initRoundTimer();
   if (import.meta.client) {
     // eslint-disable-next-line no-console
     console.log("[HOME ROUND STATE]", {
@@ -61,6 +73,32 @@ onMounted(async () => {
     });
   }
 });
+
+// [ใหม่] เวลารอบหมดระหว่างที่ผู้เล่นอยู่หน้า Home พอดี (ไม่ได้ไปหน้า Scan) — ก็ต้อง
+// บังคับจบรอบเหมือนกัน ไม่รอให้ไปหน้า Scan ก่อนถึงจะทำงาน (ดู pages/scan.vue ที่มี
+// watch เดียวกันนี้ สำหรับตอนที่ผู้เล่นอยู่หน้านั้นแทน)
+watch(isRoundExpired, (expired) => {
+  if (expired) void forceEndRoundDueToTimeout("round");
+});
+
+/** ปุ่ม "GO" — เริ่มรอบใหม่จริง (เปิด Round ฝั่ง Backend/Offline + เริ่มนับเวลา
+ * 2 ชั่วโมง) ก่อนหน้านี้ Round จะถูกเปิดเงียบ ๆ ตอนสแกนฐานแรกแทน (ยังคงเป็น
+ * fallback อยู่ใน pages/scan.vue เผื่อกรณีที่ไม่ได้ผ่านหน้านี้ก่อน) */
+const isPressingGo = ref(false);
+async function pressGo(): Promise<void> {
+  if (isPressingGo.value) return;
+  isPressingGo.value = true;
+  try {
+    if (isOfflineMode.value) {
+      startRound(profile.value?.uid ?? "");
+    } else if (profile.value?.memberId) {
+      await ensureRoundStarted(profile.value.memberId, profile.value.firstName);
+    }
+    startRoundTimer();
+  } finally {
+    isPressingGo.value = false;
+  }
+}
 
 function goToMapPage() {
   navigateTo("/map");
@@ -91,8 +129,35 @@ function goToMapPage() {
             {{ profile?.firstName }} {{ profile?.lastName }}
           </p>
         </div>
+        <!-- [ใหม่] ป้ายเวลารอบที่เหลือ — แสดงเฉพาะตอนกด GO แล้วเท่านั้น -->
+        <div v-if="hasActiveRoundTimer" class="greeting__timer">
+          <UIcon name="i-lucide-timer" class="greeting__timer-icon" />
+          {{ roundRemainingLabel }}
+        </div>
       </div>
 
+      <!-- [ใหม่] Go Gate — ยังไม่กด GO เลย (ยังไม่มี Round/Timer เริ่ม) แสดงปุ่ม
+           GO แทนเนื้อหาปกติทั้งหมด (Summary Card/เควสถ่ายรูป/แผนที่) ตาม Flow ใหม่:
+           Login -> หน้านี้ (มีปุ่ม GO) -> กด GO -> เปิด Round + รับเวลา 2 ชม. ->
+           เข้าเนื้อหาปกติ (สแกน QR เข้าฐานได้) -->
+      <section v-if="!hasActiveRoundTimer" class="go-gate">
+        <UIcon name="i-lucide-flag-triangle-right" class="go-gate__icon" />
+        <p class="go-gate__title">พร้อมเริ่มผจญภัยหรือยัง?</p>
+        <p class="go-gate__desc">
+          กดปุ่ม GO เพื่อเปิดรอบเล่น — มีเวลา 2 ชั่วโมงในการเก็บฐานให้ครบทุกเผ่า
+        </p>
+        <UButton
+          size="xl"
+          color="primary"
+          :loading="isPressingGo"
+          class="go-gate__button"
+          @click="pressGo"
+        >
+          GO
+        </UButton>
+      </section>
+
+      <template v-else>
       <!-- Summary Card: เข้าฐานแล้ว + คะแนน "ของรอบปัจจุบัน" เท่านั้น (totalPoint
            จาก useAdventure() — ไม่ใช่คะแนนสะสมจาก Google Sheet/Members.Point)
            ค่านี้ถูกคำนวณจากฐานที่ผ่านแล้วในรอบนี้เท่านั้นอยู่แล้ว (ดู totalPoint
@@ -144,6 +209,22 @@ function goToMapPage() {
         </div>
       </section>
 
+      <!-- [เพิ่มใหม่] ทางเข้าระบบ "เควสถ่ายรูป" (Photo Detection Quest) — เดิม
+           หน้า /photo-quest ไม่มีปุ่มเข้าจากที่ไหนเลยในแอป ต้องพิมพ์ URL เอง
+           วางไว้ตรงนี้แทนการเพิ่มเมนูที่ 6 ใน BottomNav.vue เพราะแถบล่างมีครบ 5
+           เมนูแล้ว (หน้าแรก/แผนที่/Scan QR/โปรไฟล์/Info) การยัดเพิ่มจะทำให้
+           ปุ่มเบียดกันจนกดยากบนจอเล็ก — ไม่ได้แตะ BottomNav.vue เลยสักบรรทัด -->
+      <NuxtLink to="/photo-quest" class="quest-entry">
+        <span class="quest-entry__icon-wrap">
+          <UIcon name="i-lucide-camera" class="quest-entry__icon" />
+        </span>
+        <span class="quest-entry__text">
+          <span class="quest-entry__title">เควสถ่ายรูป</span>
+          <span class="quest-entry__desc">ถ่ายภาพให้ AI ตรวจ รับแต้มพิเศษ</span>
+        </span>
+        <UIcon name="i-lucide-chevron-right" class="quest-entry__arrow" />
+      </NuxtLink>
+
       <!-- Mini Adventure Map: แผนที่อ้างอิงตำแหน่งฐานย่อ ๆ ไม่มี Progress/สถานะผ่านฐาน
            (ดูสรุปเข้าฐานแล้วได้จาก Summary Card ด้านบนแทน) กดทั้ง Card
            เพื่อไปหน้า Map เต็ม -->
@@ -152,6 +233,7 @@ function goToMapPage() {
         :visited-ids="visitedIds"
         @open="goToMapPage"
       />
+      </template>
     </div>
   </div>
 </template>
@@ -243,6 +325,70 @@ function goToMapPage() {
   white-space: nowrap;
 }
 
+/* ------------------------- Round Timer Badge (ใหม่) ------------------------- */
+
+.greeting__timer {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  background: var(--farm-cream-dark);
+  color: var(--farm-accent-dark);
+  font-weight: 800;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.greeting__timer-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+/* ------------------------------ Go Gate (ใหม่) ------------------------------ */
+
+.go-gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.6rem;
+  padding: 2.5rem 1.5rem;
+  border-radius: 1.25rem;
+  background: linear-gradient(160deg, var(--farm-cream) 0%, var(--farm-cream-dark) 100%);
+  border: 2px solid var(--farm-wood);
+  box-shadow: 0 10px 24px -16px rgba(74, 47, 24, 0.45);
+}
+
+.go-gate__icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  color: var(--farm-accent-dark);
+}
+
+.go-gate__title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--farm-text-dark);
+}
+
+.go-gate__desc {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--farm-text-muted);
+  max-width: 22rem;
+}
+
+.go-gate__button {
+  margin-top: 0.5rem;
+  min-width: 8rem;
+  font-size: 1.3rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
 /* ---------------------------- Summary Card ---------------------------- */
 
 .summary-card {
@@ -317,6 +463,71 @@ function goToMapPage() {
 .summary-card__value-unit {
   font-size: 0.75rem;
   font-weight: 600;
+  color: var(--farm-text-muted);
+  flex-shrink: 0;
+}
+
+/* ------------------- ปุ่มเข้าเควสถ่ายรูป (เพิ่มใหม่) ------------------- */
+
+.quest-entry {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.8rem 1rem;
+  border-radius: 1.1rem;
+  background: linear-gradient(160deg, var(--farm-cream) 0%, var(--farm-cream-dark) 100%);
+  border: 2px solid var(--farm-wood);
+  box-shadow: 0 10px 24px -16px rgba(74, 47, 24, 0.45);
+  text-decoration: none;
+  transition: transform 0.15s ease;
+}
+
+.quest-entry:active {
+  transform: scale(0.985);
+}
+
+.quest-entry__icon-wrap {
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--farm-grass) 0%, var(--farm-accent-dark) 100%);
+  border: 2px solid var(--farm-cream);
+  flex-shrink: 0;
+}
+
+.quest-entry__icon {
+  width: 1.3rem;
+  height: 1.3rem;
+  color: var(--farm-cream);
+}
+
+.quest-entry__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.quest-entry__title {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--farm-text-dark);
+}
+
+.quest-entry__desc {
+  font-size: 0.7rem;
+  color: var(--farm-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quest-entry__arrow {
+  width: 1.1rem;
+  height: 1.1rem;
   color: var(--farm-text-muted);
   flex-shrink: 0;
 }
