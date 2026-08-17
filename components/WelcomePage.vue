@@ -56,7 +56,10 @@ const emit = defineEmits<{
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, var(--farm-sky-top) 0%, var(--farm-sky-bottom) 55%, var(--farm-grass) 100%);
+  /* [ใหม่] พื้นหลังหน้า Login เป็นภาพ Board Game ฟาร์ม (public/images/login.jpg)
+     แทน gradient เดิม — background-color เดิมไว้เป็น fallback สีระหว่างรอโหลด
+     ภาพ/กรณีโหลดภาพไม่สำเร็จ ไม่ให้เห็นพื้นขาวโล่ง ๆ */
+  background: url('/images/login.jpg') center / cover no-repeat, var(--farm-grass);
 }
 
 .welcome-page__scroll {

@@ -224,24 +224,24 @@ registerRoute(
 //      บันทึกสำเร็จทั้งที่ยังไม่ได้ส่งขึ้น Server จริง
 const READ_ONLY_ACTIONS = new Set(['getMember', 'getJourney', 'getScore'])
 
+/**
+ * [Fix — TypeError: Failed to execute 'clone' on 'Request': Request body is
+ * already used] เดิม cacheKeyWillBeUsed พยายาม request.clone().text() "ที่นี่"
+ * เพื่ออ่าน action ทุกครั้งที่ถูกเรียก — ปัญหาคือ Workbox เรียก hook นี้ 2 จังหวะ
+ * ต่อ 1 request เสมอ: mode 'read' (ก่อนลองหา Cache เดิม) และ mode 'write' (ตอน
+ * cachePut หลัง fetch(request) สำเร็จแล้ว) จังหวะหลังนี้ตัว request เดิมถูก
+ * fetch() ไปใช้งานจริงแล้ว (body stream ถูก "ใช้" ไปครั้งหนึ่งแล้วโดย fetch เอง)
+ * เรียก .clone() ซ้ำบน request ตัวเดิมที่ body ถูกใช้ไปแล้วจึง throw ทันที
+ * (Fetch API spec: clone() ต้องเรียกก่อน body ถูกอ่านเท่านั้น)
+ *
+ * แก้โดยย้ายการอ่าน body ไปทำ "ครั้งเดียว" ที่ route handler ด้านล่าง (ก่อน fetch
+ * จริงเสมอ) แล้วฝัง action/idKey ลงใน URL ของ Request ตั้งแต่ตอนนั้นเลย —
+ * cacheKeyWillBeUsed ที่นี่จึงแค่ "อ่าน request.url ตรง ๆ" พอ ไม่ต้องแตะ body
+ * อีกเลยไม่ว่าจะถูกเรียกกี่ครั้ง/จังหวะไหนก็ตาม (ปลอดภัยทั้ง mode 'read'/'write')
+ */
 const gasCacheKeyPlugin: WorkboxPlugin = {
-  async cacheKeyWillBeUsed({ request, mode }) {
-    try {
-      const body = await request.clone().text()
-      const payload = JSON.parse(body) as Record<string, unknown>
-      const action = String(payload.action ?? 'unknown')
-      const idKey = String(payload.userId ?? payload.memberId ?? payload.lineUserId ?? '')
-      const url = new URL(request.url)
-      url.searchParams.set('__swAction', action)
-      if (idKey) url.searchParams.set('__swId', idKey)
-      // mode 'read' ใช้ตอนหา Cache เดิม, 'write' ใช้ตอนจะบันทึก Cache ใหม่ —
-      // ใช้ Key เดียวกันทั้งคู่พอ (แค่ต้องการ URL คงที่ต่อ Action+ผู้ใช้)
-      void mode
-      return url.toString()
-    } catch {
-      // Body อ่าน/parse ไม่ได้ -> ใช้ Request เดิมไปเลย (จะไม่ match Cache ใด ๆ)
-      return request
-    }
+  async cacheKeyWillBeUsed({ request }) {
+    return request.url
   },
 }
 
@@ -267,15 +267,41 @@ registerRoute(
   },
   async (params) => {
     let action = ''
+    let idKey = ''
+    let bodyText = ''
     try {
-      const body = await params.request.clone().text()
-      action = String((JSON.parse(body) as Record<string, unknown>).action ?? '')
+      // อ่าน body "ครั้งเดียวที่นี่" ก่อน fetch จริงเสมอ (ปลอดภัยเพราะยังไม่มีใคร
+      // แตะ body ของ request ตัวจริงเลย — .clone() ใช้ได้ปกติ) เก็บ bodyText ไว้
+      // ใช้สร้าง Request ใหม่ด้านล่างด้วย ไม่ต้องอ่านซ้ำรอบสอง
+      bodyText = await params.request.clone().text()
+      const payload = JSON.parse(bodyText) as Record<string, unknown>
+      action = String(payload.action ?? '')
+      idKey = String(payload.userId ?? payload.memberId ?? payload.lineUserId ?? '')
     } catch {
       // อ่าน body ไม่ได้ -> ถือว่าไม่ทราบ action ปฏิบัติแบบปลอดภัยที่สุด
       // (ไม่ Cache) ปล่อยผ่าน Network ตามปกติ
     }
-    const handler = READ_ONLY_ACTIONS.has(action) ? apiNetworkFirst : apiNetworkOnly
-    return handler.handle(params)
+
+    if (!READ_ONLY_ACTIONS.has(action)) {
+      // Action ที่ห้าม Cache (เขียนข้อมูล) — ไม่ต้องสร้าง Request ใหม่เลย ส่ง
+      // params เดิมตรง ๆ (NetworkOnly ไม่เรียก cacheKeyWillBeUsed อยู่แล้ว)
+      return apiNetworkOnly.handle(params)
+    }
+
+    // [Fix] ฝัง action/idKey ลงใน query string ของ Request ใหม่ "ตรงนี้ที่เดียว"
+    // (ก่อน fetch จริง) แทนที่จะให้ cacheKeyWillBeUsed ไปอ่าน body เอาเองทีหลัง —
+    // ดูเหตุผลเต็ม ๆ ที่คอมเมนต์ gasCacheKeyPlugin ด้านบน สร้าง body ใหม่จาก
+    // bodyText ที่อ่านไปแล้ว ไม่ clone().text() ซ้ำรอบสอง
+    const keyedUrl = new URL(params.request.url)
+    keyedUrl.searchParams.set('__swAction', action)
+    if (idKey) keyedUrl.searchParams.set('__swId', idKey)
+    const keyedRequest = new Request(keyedUrl.toString(), {
+      method: params.request.method,
+      headers: params.request.headers,
+      body: bodyText,
+    })
+
+    return apiNetworkFirst.handle({ ...params, request: keyedRequest })
   },
   'POST',
 )

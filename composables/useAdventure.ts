@@ -151,9 +151,12 @@ export const MOCK_ADVENTURE_STATIONS: AdventureStation[] = [
  *   |                          |
  *   1 (ซ้ายล่าง) -------- 4 (ขวาล่าง)
  *
- * เทียบกับตำแหน่ง % จริงใน ADVENTURE_STATION_POSITIONS ด้านล่าง:
- *   order 1 -> ซ้ายล่าง (corn: x24,y76)   order 2 -> ซ้ายบน (soil: x24,y26)
- *   order 3 -> ขวาบน   (cow:  x76,y26)   order 4 -> ขวาล่าง (milk: x76,y76)
+ * [แก้ไข] เดิมคอมเมนต์นี้อ้างอิงค่า x/y ตรง ๆ (ตอนวางเป็นรูปสี่เหลี่ยม 4 มุม) —
+ * ตัดออกเพราะพื้นหลังเปลี่ยนเป็นภาพเกาะลอยแล้ว ตำแหน่งจริงไม่ใช่สี่เหลี่ยมอีก
+ * ต่อไป (ดู ADVENTURE_STATION_POSITIONS ด้านล่าง) แต่ Array นี้ (BOARD_POSITION_ORDER)
+ * ยังทำงานเหมือนเดิมทุกประการ เพราะจับคู่ด้วย "ลำดับ index ใน array" ล้วน ๆ
+ * ไม่เคยอ้างอิงค่า x/y เลยสักบรรทัด — เปลี่ยนตำแหน่งแสดงผลได้อิสระโดยไม่กระทบ
+ * Logic จับคู่ฐาน backend ตรงนี้เลย
  *
  * ใช้ "ลำดับ (order) เท่านั้น" ในการจับคู่ฐาน backend เข้ากับช่องบนกระดาน —
  * ห้ามใช้ type/name ของฝั่ง Backend มาช่วยจัดลำดับเด็ดขาด (ดู
@@ -163,21 +166,28 @@ export const MOCK_ADVENTURE_STATIONS: AdventureStation[] = [
 const BOARD_POSITION_ORDER: string[] = ['corn', 'soil', 'cow', 'milk']
 
 /**
- * ตำแหน่ง % (X-Y) ของฐานทั้ง 4 บนภาพพื้นหลัง PNG (Board Game Layout) — ใช้ร่วมกัน
- * ทั้งหน้า Map เต็มจอ (components/map/AdventureMap.vue) และ Mini Map บนหน้า Home
- * (components/map/MiniMap.vue) เพื่อไม่ต้อง hardcode พิกัดซ้ำ 2 ที่ เป็นแค่
+ * ตำแหน่ง % (X-Y) ของฐานทั้ง 4 บนภาพพื้นหลังใหม่ (เกาะลอยฟาร์ม แบบมีตึก/หมุด/
+ * ป้ายชื่อวาดอยู่ในภาพเลย — public/images/adventure-map-bg.jpg) — ใช้ร่วมกัน
+ * ทั้งหน้า Map เต็มจอ (components/map/AdventureMap.vue) และ Mini Map บนหน้า
+ * Home (components/map/MiniMap.vue) เพื่อไม่ต้อง hardcode พิกัดซ้ำ 2 ที่ เป็นแค่
  * Layout ของ UI ล้วน ๆ (ไม่ใช่ข้อมูลจาก Google Sheet/Admin จึงไม่ผิดกติกา
- * "ห้าม hardcode ข้อมูลใหม่"):
+ * "ห้าม hardcode ข้อมูลใหม่")
  *
- *   🌱 ดิน   ──────── 🐄 วัว
- *      │                    │
- *   🌽 ข้าวโพด ──────── 🥛 นม (ฐานสุดท้าย)
+ * [แก้ไข — เปลี่ยนพื้นหลังเป็นภาพที่มีหมุด/ป้ายชื่ออยู่ในภาพเลย] เดิมพื้นหลัง
+ * เป็นภาพเกาะลอยเปล่า ๆ แล้ววาดหมุด+ป้ายชื่อทับด้วย CSS/รูปแยก (บับเบิลกรอบแดง
+ * เด้งได้) — ผู้ใช้ต้องการภาพที่มีหมุด/ตึก/ป้ายชื่อวาดอยู่ในพื้นหลังเลยแทน
+ * (ยอมรับแล้วว่าหมุดจะเด้งไม่ได้ เพราะติดอยู่ในภาพนิ่งภาพเดียว) ค่าพิกัดนี้จึง
+ * เหลือไว้ใช้แค่วางตำแหน่ง "ติ๊กถูกสีเขียว" ทับเมื่อผ่านฐานแล้วเท่านั้น (ดู
+ * components/map/AdventureMap.vue, MiniMap.vue) ไม่ได้ใช้วาดหมุดเองอีกต่อไป —
+ * ไม่กระทบ BOARD_POSITION_ORDER ด้านบนเลย (การจับคู่ฐาน backend ใช้ "ลำดับใน
+ * array" ของ BOARD_POSITION_ORDER ล้วน ๆ ไม่ได้อ้างอิงค่า x/y ตรงนี้แต่อย่างใด)
+ * ตัวเลขคำนวณจากตำแหน่งจริงที่ตัดรูปหมุดออกมา (พิกเซล -> % ของภาพ 1139x1437)
  */
 export const ADVENTURE_STATION_POSITIONS: Record<string, { x: number; y: number }> = {
-  soil: { x: 24, y: 26 },
-  cow: { x: 76, y: 26 },
-  corn: { x: 24, y: 76 },
-  milk: { x: 76, y: 76 },
+  corn: { x: 73, y: 33 },
+  cow: { x: 29, y: 56 },
+  soil: { x: 47, y: 67 },
+  milk: { x: 47, y: 80 },
 }
 
 /** ค่าตั้งต้นสำหรับ Demo Mockup: ผ่านฐานแรก (ข้าวโพด) แล้ว 1 ฐาน */
@@ -507,10 +517,30 @@ export function useAdventure() {
       // เครื่องนี้เป็นเจ้าของอยู่ตอนนี้ (visitedRoundId) — ไม่ตรงกัน (รวมถึงกรณีไม่มี
       // Round Active เลย เช่น เพิ่งจบเกม ยังไม่ทันเริ่มรอบใหม่) แปลว่าของในเครื่องนี้
       // เป็นของ Round เก่าที่ไม่ใช่รอบปัจจุบันแล้ว ต้องล้างทิ้งก่อนเสมอ
+      //
+      // [Fix — บั๊กคะแนนฐานหายตอนถึงหน้าสรุปผล] เดิมเงื่อนไขนี้ล้าง visitedIds ทิ้ง
+      // ทันทีทุกครั้งที่ไม่ตรงกัน "แม้ในเคสที่ visitedRoundId เป็น null เพราะแค่ยัง
+      // ไม่เคยรู้ roundId จริง" (ensureRoundStarted() ตอนสแกนฐานแรกเจอเน็ตมือถือ
+      // หลุด/ช้าจน resolve ไม่ทันตอนนั้น — toggleStation() เลย persist ด้วย roundId
+      // เป็น null ไปก่อน) ซึ่ง "ไม่ใช่คนละรอบจริง ๆ" แค่ยังไม่รู้ roundId ตอนนั้นเอง
+      // — ถ้าเข้าเงื่อนไขนี้พอดีก่อนสแกนฐานถัดไป จะล้างฐานที่ผ่านไปแล้วทิ้งหมด ทั้งที่
+      // เป็นรอบเดียวกันอยู่ (นี่คือสาเหตุจริงที่คะแนนฐานก่อน ๆ "หาย" ไปก่อนถึงฐานนม)
+      //
+      // แก้โดยเพิ่มเงื่อนไขพิเศษ (เหมือนที่แก้ใน useQuestion.ts::initAnsweredState()
+      // ระบบคู่ขนาน): ถ้า visitedRoundId เดิมเป็น null และ currentRoundId ที่เพิ่งรู้
+      // "ไม่ใช่ null" -> ถือว่าเป็นรอบเดียวกัน (แค่เพิ่งรู้ roundId จริงช้า) -> ย้าย
+      // แท็กมาเป็น roundId จริงแทน ไม่ล้าง visitedIds ที่มีอยู่ทิ้ง ส่วนกรณีอื่นทั้งหมด
+      // (roundId จริงสองค่าต่างกัน, หรือไม่มี Round Active เลย) ยังคงล้างทิ้งเหมือนเดิม
+      // ทุกประการ (พฤติกรรมเดิมไม่เปลี่ยนสำหรับกรณี "คนละรอบจริง ๆ")
       if (currentRoundId !== visitedRoundId.value) {
-        visitedIds.value = []
-        visitedRoundId.value = currentRoundId
-        persist([], currentRoundId)
+        if (visitedRoundId.value === null && currentRoundId !== null) {
+          visitedRoundId.value = currentRoundId
+          persist(visitedIds.value, currentRoundId)
+        } else {
+          visitedIds.value = []
+          visitedRoundId.value = currentRoundId
+          persist([], currentRoundId)
+        }
       }
 
       const [journeyRes, scoreRes] = await Promise.all([
@@ -549,14 +579,36 @@ export function useAdventure() {
     }
   }
 
-  /** แตะ Marker -> Toggle ผ่านฐาน/ยกเลิก พร้อมอัปเดต Point และ Polyline (ผ่าน computed) */
-  function toggleStation(stationId: string): void {
+  /**
+   * แตะ Marker -> Toggle ผ่านฐาน/ยกเลิก พร้อมอัปเดต Point และ Polyline (ผ่าน computed)
+   *
+   * [Fix — บั๊กคะแนนฐานหายตอนถึงหน้าสรุปผล] เดิมฟังก์ชันนี้ไม่รับ/ไม่อัปเดต
+   * visitedRoundId เลย — เรียก persist(next) โดยไม่ส่ง roundId ตามมาด้วย ทำให้
+   * STORAGE_ROUND_KEY ใน LocalStorage "ไม่ถูกแตะเลย" ทุกครั้งที่สแกนฐาน ถ้า
+   * ensureRoundStarted() (pages/scan.vue) เพิ่งได้ roundId จริงมาช้ากว่าการสแกน
+   * ฐานแรก (เน็ตมือถือกลางแปลงหลุด/ช้า — เคสที่เกิดขึ้นได้จริงบ่อยกับเกมนี้)
+   * visitedRoundId ในเครื่องจะค้างเป็นค่าเก่า/null ต่อไปเรื่อย ๆ ทั้งที่ visitedIds
+   * มีฐานที่ผ่านจริงอยู่แล้ว — พอ refreshFromBackend() รอบถัดไป (เช่น เปลี่ยนหน้า
+   * Scan -> Map) เทียบ currentRoundId (roundId จริงจาก backend) กับ visitedRoundId
+   * เก่านี้แล้วเจอไม่ตรงกัน จะเข้าใจผิดว่า "เป็นข้อมูลของรอบเก่า" แล้วล้าง
+   * visitedIds ทิ้งทั้งหมดทันที (ดู refreshFromBackend() ด้านบน) — นี่คือสาเหตุจริง
+   * ที่คะแนนจากฐานที่สแกนไปแล้ว "หายไป" ก่อนถึงฐานสุดท้าย
+   *
+   * แก้โดยรับ roundId ที่ "สดจริง ๆ" จากผู้เรียก (pages/scan.vue ส่ง
+   * currentRoundId.value ที่อ่านจาก useRound() ตรง ๆ ทุกครั้งที่ตอบ ไม่ใช่ค่า cache)
+   * มาอัปเดต visitedRoundId.value ทันทีที่ toggleStation() ทำงาน — ทำให้ระบบ
+   * "ซ่อมตัวเองได้" แม้ ensureRoundStarted() ครั้งแรกจะ resolve ช้า/ล้มเหลวชั่วคราว
+   * ก็ตาม ไม่ส่ง roundId มา (undefined) = พฤติกรรมเดิมทุกประการ (ไม่แตะ
+   * visitedRoundId/STORAGE_ROUND_KEY) เผื่อมีจุดเรียกอื่นที่ยังไม่พร้อมส่งค่านี้
+   */
+  function toggleStation(stationId: string, roundId?: string | null): void {
     const exists = visitedIds.value.includes(stationId)
     const next = exists
       ? visitedIds.value.filter((id) => id !== stationId)
       : [...visitedIds.value, stationId]
     visitedIds.value = next
-    persist(next)
+    if (roundId !== undefined) visitedRoundId.value = roundId
+    persist(next, roundId)
   }
 
   /**

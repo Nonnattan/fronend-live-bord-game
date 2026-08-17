@@ -131,18 +131,41 @@ export function useQuestion() {
     loadError.value = ''
   }
 
-  /** โหลดสถานะ "ตอบไปแล้วบ้าง" ของรอบปัจจุบัน — เรียกคู่กับ initQuestions() เสมอ
+  /**
+   * โหลดสถานะ "ตอบไปแล้วบ้าง" ของรอบปัจจุบัน — เรียกคู่กับ initQuestions() เสมอ
    * ต้องรู้ roundId ก่อน (จาก useRound().currentRoundId) เพื่อเทียบว่าของที่ค้าง
    * อยู่ใน LocalStorage เป็นของรอบนี้จริงหรือของรอบเก่า (แนวทางเดียวกับ
-   * useAdventure.ts::visitedRoundId — กันคำตอบรอบเก่าค้างข้ามมารอบใหม่) */
+   * useAdventure.ts::visitedRoundId — กันคำตอบรอบเก่าค้างข้ามมารอบใหม่)
+   *
+   * [Fix — บั๊กคะแนนคำถามหายตอนถึงหน้าสรุปผล] เดิม roundId ไม่ตรงกัน = ล้าง
+   * answeredList ทิ้งทันทีเสมอ — แต่ถ้าฐานแรกของรอบถูกสแกนตอน ensureRoundStarted()
+   * (pages/scan.vue) ยังไม่ resolve roundId จริง (เน็ตมือถือกลางแปลงหลุด/ช้า)
+   * initAnsweredState(null) จะถูกเรียกก่อน แล้วคำตอบฐานแรกถูก persist ด้วย
+   * roundId: null ไปก่อน — พอฐานถัดไปเรียกซ้ำด้วย roundId จริงที่เพิ่ง resolve ได้
+   * (ไม่ใช่ null แล้ว) จะเจอว่า "ไม่ตรงกับที่เคย persist ไว้ (null)" ทั้งที่เป็นรอบ
+   * เดียวกันอยู่ ทำให้คำตอบ/คะแนนของฐานแรกหายไปทันที
+   *
+   * แก้โดยเพิ่มเงื่อนไข: roundId เดิมที่เคย persist ไว้เป็น null แต่ roundId ใหม่ที่
+   * ได้ตอนนี้ "ไม่ใช่ null" -> ถือว่าเป็นรอบเดียวกัน (แค่เพิ่งรู้ roundId จริงช้า) ->
+   * ย้ายคำตอบเดิมมาผูกกับ roundId จริงแทน ไม่ทิ้ง — กรณีอื่น (roundId จริงสองค่า
+   * ต่างกัน, หรือไม่เคยมีข้อมูลมาก่อนเลย) ยังคงล้างว่างใหม่เหมือนเดิมทุกประการ
+   */
   function initAnsweredState(roundId: string | null): void {
     const stored = readStoredAnswered()
-    if (stored && stored.roundId === roundId) {
-      answeredList.value = stored.answers
-      answeredRoundId.value = roundId
-      return
+    if (stored) {
+      if (stored.roundId === roundId) {
+        answeredList.value = stored.answers
+        answeredRoundId.value = roundId
+        return
+      }
+      if (stored.roundId === null && roundId !== null) {
+        answeredList.value = stored.answers
+        answeredRoundId.value = roundId
+        persistAnswered({ roundId, answers: stored.answers })
+        return
+      }
     }
-    // คนละรอบ (หรือไม่เคยมีเลย) -> เริ่มว่างใหม่ ไม่ merge ของรอบเก่าเข้ามา
+    // คนละรอบจริง ๆ (หรือไม่เคยมีเลย) -> เริ่มว่างใหม่ ไม่ merge ของรอบเก่าเข้ามา
     answeredList.value = []
     answeredRoundId.value = roundId
     persistAnswered({ roundId, answers: [] })
@@ -173,9 +196,26 @@ export function useQuestion() {
     return isQuestionAnswered(q.id)
   }
 
-  function persistAndSet(next: StationAnswer[]): void {
+  /**
+   * [Fix] เดิมใช้ answeredRoundId.value (ค่าที่ cache ไว้ตอน initAnsweredState()
+   * ครั้งล่าสุด) เป็น roundId ตอนเขียนลง LocalStorage เสมอ — ถ้า initAnsweredState()
+   * เคยถูกเรียกตอน currentRoundId ฝั่ง useRound.ts ยังไม่นิ่ง (เช่น เพิ่ง mount
+   * หน้า Scan แล้ว ensureRoundStarted() ยังไม่ resolve) ค่านี้จะค้างเป็นค่าเก่า/null
+   * ไปตลอด แม้ภายหลัง Round จะได้ roundId จริงมาแล้วก็ตาม ทำให้คำตอบที่ตอบไปถูก
+   * บันทึกผูกกับ roundId ผิด (หรือ null) และ "หายไป" ตอนฐานถัดไปเรียก
+   * initAnsweredState(roundId จริง) เพราะเทียบไม่ตรงกับที่เคย persist ไว้ ->
+   * ตัดสินว่าเป็นคนละรอบ -> เคลียร์ answeredList ทิ้งทั้งหมด (นี่คือสาเหตุที่คะแนน
+   * คำถามจากฐานก่อน ๆ "ดึงผิด"/หายไปตอนถึงหน้าสรุปผล)
+   *
+   * แก้โดยรับ roundId ที่ "สดจริง ๆ" จากผู้เรียก (submitAnswer() ส่ง ctx.roundId
+   * ที่ผู้เรียกอ่านจาก useRound().currentRoundId ตรง ๆ ทุกครั้งที่ตอบ ไม่ใช่ค่า
+   * cache) มาเขียนทับ answeredRoundId.value ทุกครั้งที่บันทึกคำตอบ — ทำให้ระบบ
+   * "ซ่อมตัวเองได้" แม้ initAnsweredState() ครั้งแรกจะเจอ roundId ที่ยังไม่นิ่งก็ตาม
+   */
+  function persistAndSet(next: StationAnswer[], roundId: string | null): void {
     answeredList.value = next
-    persistAnswered({ roundId: answeredRoundId.value, answers: next })
+    answeredRoundId.value = roundId
+    persistAnswered({ roundId, answers: next })
   }
 
   /**
@@ -210,7 +250,7 @@ export function useQuestion() {
       locked: true,
     }
 
-    persistAndSet([...answeredList.value, answer])
+    persistAndSet([...answeredList.value, answer], ctx.roundId)
 
     const { queueAnswer } = useOfflineAnswerSync()
     queueAnswer(answer)

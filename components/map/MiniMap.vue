@@ -2,20 +2,22 @@
 /**
  * components/map/MiniMap.vue
  * ---------------------------------------------------------------------------
- * Adventure Map แบบย่อสำหรับหน้า Home — สูงประมาณ 250px พื้นหลังเป็นภาพ PNG
- * เดียวกับหน้า Map เต็ม (ไม่ใช้ Leaflet/OpenStreetMap/GPS ใด ๆ) แสดงผังเดียวกับ
- * หน้า Map เต็ม: 4 ฐานวางเป็นรูปสี่เหลี่ยม (Board Game Layout) ด้วยพิกัด % (X-Y)
- * เดียวกับ components/map/AdventureMap.vue (ใช้ ADVENTURE_STATION_POSITIONS
- * จาก useAdventure.ts ร่วมกัน ไม่ hardcode ซ้ำ)
+ * Adventure Map แบบย่อสำหรับหน้า Home — สูงประมาณ 250px พื้นหลังเป็นภาพเกาะลอย
+ * ฟาร์มที่มีตึก/หมุด/ป้ายชื่อฐานทั้ง 4 วาดอยู่ในภาพเลย เดียวกับหน้า Map เต็ม
+ * (public/images/adventure-map-bg.jpg) ไม่ใช้ Leaflet/OpenStreetMap/GPS ใด ๆ
  *
  * เป็น "หน้าอ้างอิงตำแหน่งฐาน" ย่อ ๆ ที่รับ visitedIds จาก useAdventure()
  * ผ่าน props เดียวกับ Main Map เพื่อแสดง ✓ ที่จุดเดียวกันโดยไม่สร้าง scanned state
  * แยกเอง แล้ว emit "open" ออกไป
  * ให้หน้า (page) เป็นผู้สั่ง navigateTo('/map') เอง
+ *
+ * [แก้ไข — ตามที่แก้ใน AdventureMap.vue] พื้นหลังภาพเดียวมีครบทั้งตึก/หมุด/
+ * ป้ายชื่อ/ไอคอนตกแต่งอยู่แล้ว ตัดการวาดหมุดทับ (บับเบิลกรอบแดง+เด้ง) ออกทั้งหมด
+ * เหลือไว้แค่ "ติ๊กถูกสีเขียว" ทับตำแหน่งฐานที่ผ่านแล้วเท่านั้น
  */
 
 import type { AdventureStation } from '~/composables/useAdventure'
-import { ADVENTURE_STATION_POSITIONS, STATION_TYPE_META } from '~/composables/useAdventure'
+import { ADVENTURE_STATION_POSITIONS } from '~/composables/useAdventure'
 
 const props = defineProps<{
   stations: AdventureStation[]
@@ -48,7 +50,7 @@ function positionOf(station: AdventureStation): { x: number; y: number } {
     <div class="mini-map__canvas">
       <img
         class="mini-map__bg"
-        src="/images/adventure-map-bg.png"
+        src="/images/adventure-map-bg.jpg"
         alt="แผนที่ฟาร์ม Adventure"
         draggable="false"
       />
@@ -56,17 +58,12 @@ function positionOf(station: AdventureStation): { x: number; y: number } {
       <span
         v-for="station in props.stations"
         :key="station.id"
-        class="mini-map__pin"
-        :class="{ 'mini-map__pin--visited': isVisited(station.id) }"
-        :style="{
-          left: `${positionOf(station).x}%`,
-          top: `${positionOf(station).y}%`,
-          '--pin-color': STATION_TYPE_META[station.type].color,
-          '--pin-color-dark': STATION_TYPE_META[station.type].colorDark,
-        }"
-        :aria-label="station.name"
+        class="mini-map__check-slot"
+        :style="{ left: `${positionOf(station).x}%`, top: `${positionOf(station).y}%` }"
       >
-        {{ isVisited(station.id) ? '✓' : STATION_TYPE_META[station.type].icon }}
+        <span v-if="isVisited(station.id)" class="mini-map__check" :aria-label="`${station.name}: ผ่านแล้ว`">
+          <UIcon name="i-lucide-check" class="mini-map__check-icon" />
+        </span>
       </span>
     </div>
 
@@ -119,29 +116,33 @@ function positionOf(station: AdventureStation): { x: number; y: number } {
   pointer-events: none;
 }
 
-.mini-map__pin {
+/* ติ๊กถูกสีเขียว — แสดงเฉพาะฐานที่ผ่านแล้วเท่านั้น (หมุด/ตึก/ป้ายชื่ออยู่ในภาพ
+   พื้นหลังหมดแล้ว จุดนี้เป็นสิ่งเดียวที่ภาพนิ่งบอกไม่ได้เอง) — __check-slot
+   เป็นตัวยึดตำแหน่ง (render เสมอ ไม่แสดงอะไรถ้ายังไม่ผ่าน) ส่วน __check คือ
+   วงกลมจริงที่โผล่มาเฉพาะตอนผ่านฐานแล้ว (แยก v-if ออกจาก v-for ตามกติกา Vue 3) */
+.mini-map__check-slot {
   position: absolute;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -100%);
   z-index: 10;
-  width: 1.9rem;
-  height: 1.9rem;
-  border-radius: 999px;
-  background: var(--pin-color);
-  border: 2.5px solid var(--pin-color-dark);
-  box-shadow: 0 6px 14px -8px rgba(74, 47, 24, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.9rem;
-  line-height: 1;
   pointer-events: none;
 }
 
-.mini-map__pin--visited {
-  --pin-color: #5fb648 !important;
-  --pin-color-dark: #457a26 !important;
+.mini-map__check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  background: #5fb648;
+  border: 2px solid #fff8ec;
+  box-shadow: 0 2px 4px rgba(74, 47, 24, 0.5);
+}
+
+.mini-map__check-icon {
+  width: 0.65rem;
+  height: 0.65rem;
   color: #fff;
-  font-weight: 800;
 }
 
 .mini-map__footer {

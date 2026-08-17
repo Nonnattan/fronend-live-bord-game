@@ -139,8 +139,18 @@ function goToMapPage() {
       <!-- [ใหม่] Go Gate — ยังไม่กด GO เลย (ยังไม่มี Round/Timer เริ่ม) แสดงปุ่ม
            GO แทนเนื้อหาปกติทั้งหมด (Summary Card/เควสถ่ายรูป/แผนที่) ตาม Flow ใหม่:
            Login -> หน้านี้ (มีปุ่ม GO) -> กด GO -> เปิด Round + รับเวลา 2 ชม. ->
-           เข้าเนื้อหาปกติ (สแกน QR เข้าฐานได้) -->
-      <section v-if="!hasActiveRoundTimer" class="go-gate">
+           เข้าเนื้อหาปกติ (สแกน QR เข้าฐานได้)
+           [ใหม่] กด GO แล้วสลับไปแสดงหน้าโหลดแบบเต็มพื้นที่แทนปุ่ม GO ทันที
+           (isPressingGo) — ระหว่างรอ ensureRoundStarted()/startRound() ซึ่งเป็น
+           Network Call ที่อาจช้าได้จริงบนเน็ตมือถือกลางแปลง กันผู้เล่นกด GO ซ้ำ/
+           สงสัยว่าปุ่มทำงานหรือไม่ (เดิมมีแค่ Spinner เล็ก ๆ ในปุ่มเท่านั้น) -->
+      <section v-if="isPressingGo" class="go-gate go-gate--loading">
+        <UIcon name="i-lucide-loader-2" class="go-gate__loading-spinner" />
+        <p class="go-gate__title">กำลังเปิดรอบผจญภัย...</p>
+        <p class="go-gate__desc">กรุณารอสักครู่</p>
+      </section>
+
+      <section v-else-if="!hasActiveRoundTimer" class="go-gate">
         <UIcon name="i-lucide-flag-triangle-right" class="go-gate__icon" />
         <p class="go-gate__title">พร้อมเริ่มผจญภัยหรือยัง?</p>
         <p class="go-gate__desc">
@@ -149,7 +159,6 @@ function goToMapPage() {
         <UButton
           size="xl"
           color="primary"
-          :loading="isPressingGo"
           class="go-gate__button"
           @click="pressGo"
         >
@@ -214,7 +223,7 @@ function goToMapPage() {
            วางไว้ตรงนี้แทนการเพิ่มเมนูที่ 6 ใน BottomNav.vue เพราะแถบล่างมีครบ 5
            เมนูแล้ว (หน้าแรก/แผนที่/Scan QR/โปรไฟล์/Info) การยัดเพิ่มจะทำให้
            ปุ่มเบียดกันจนกดยากบนจอเล็ก — ไม่ได้แตะ BottomNav.vue เลยสักบรรทัด -->
-      <NuxtLink to="/photo-quest" class="quest-entry">
+      <!-- <NuxtLink to="/photo-quest" class="quest-entry">
         <span class="quest-entry__icon-wrap">
           <UIcon name="i-lucide-camera" class="quest-entry__icon" />
         </span>
@@ -223,7 +232,7 @@ function goToMapPage() {
           <span class="quest-entry__desc">ถ่ายภาพให้ AI ตรวจ รับแต้มพิเศษ</span>
         </span>
         <UIcon name="i-lucide-chevron-right" class="quest-entry__arrow" />
-      </NuxtLink>
+      </NuxtLink> -->
 
       <!-- Mini Adventure Map: แผนที่อ้างอิงตำแหน่งฐานย่อ ๆ ไม่มี Progress/สถานะผ่านฐาน
            (ดูสรุปเข้าฐานแล้วได้จาก Summary Card ด้านบนแทน) กดทั้ง Card
@@ -387,6 +396,20 @@ function goToMapPage() {
   font-size: 1.3rem;
   font-weight: 800;
   letter-spacing: 0.05em;
+}
+
+/* [ใหม่] หน้าโหลดตอนกด GO — การ์ดเดียวกับ go-gate ปกติ แค่สลับเนื้อหาข้างในเป็น
+   Spinner กลาง ๆ ให้พื้นที่สูงใกล้เคียงกัน กันหน้าโหย่งตอนสลับ state ไปมา */
+.go-gate--loading {
+  min-height: 14rem;
+  justify-content: center;
+}
+
+.go-gate__loading-spinner {
+  width: 2.75rem;
+  height: 2.75rem;
+  color: var(--farm-accent-dark);
+  animation: spin 1s linear infinite;
 }
 
 /* ---------------------------- Summary Card ---------------------------- */

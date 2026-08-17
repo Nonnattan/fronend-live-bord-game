@@ -44,6 +44,12 @@ const { isOfflineMode, startRound } = useOfflineMode();
 // [ใหม่] ระบบแลกของรางวัล — ดูสถานะอย่างเดียว (ไม่มีปุ่มยืนยันรับในหน้านี้ ตามที่
 // ตกลงกันไว้ว่าเจ้าหน้าที่เป็นคนกดที่หน้า pages/redeem.vue เท่านั้น)
 const { status: rewardStatus, isChecking: isCheckingReward, checkRewardStatus } = useReward();
+// [ใหม่] เคลียร์ Timer รอบ/เผ่า (composables/useRoundTimer.ts) คู่กับ resetJourney()
+// เสมอ ที่จุดเดียวกันนี้ — ตามสเปก "จบเกมแล้วต้องกลับไปเจอหน้า GO อีกครั้ง" (ดู
+// pages/home.vue::go-gate ที่โชว์ตาม hasActiveRoundTimer) เดิมไม่มีจุดไหนเรียก
+// clearAllTimers() เลยสักที่ ทำให้ roundEndsAt ค้างอยู่ใน LocalStorage ข้ามรอบ
+// กลับไปหน้า Home แล้วเห็นเนื้อหาปกติ (Summary Card ฯลฯ) ทันทีแทนที่จะเจอปุ่ม GO
+const { clearAllTimers } = useRoundTimer();
 
 const isReady = ref(false);
 
@@ -90,6 +96,7 @@ async function confirmAndGoHome(): Promise<void> {
   // Current Round เท่านั้น
   resetJourney();
   resetAnswered();
+  clearAllTimers();
   if (isOfflineMode.value && profile.value?.uid) {
     startRound(profile.value.uid);
   }

@@ -507,7 +507,10 @@ async function completeStationVisit(stationId: StationType): Promise<void> {
 
   // ฐาน 1-3: Logic เดิมทั้งหมด ไม่มีการแก้ไข (Commit ทันทีเหมือนเดิมทุกประการ)
   // บันทึกลง LocalStorage ก่อนเสมอ (Offline First) — ไม่ยิง Google Sheet ตรงนี้
-  toggleStation(stationId);
+  // [Fix] ส่ง currentRoundId.value (สดจริง ๆ ณ ตอนนี้ หลัง ensureRoundStarted()
+  // ด้านบนพยายามแล้ว) ให้ toggleStation() แนบไปด้วยเสมอ — กันบั๊กคะแนนฐานหายตอน
+  // ถึงหน้าสรุปผล (ดูคำอธิบายเต็ม ๆ ที่ useAdventure.ts::toggleStation())
+  toggleStation(stationId, currentRoundId.value);
 
   // -------------------------------------------------------------------
   // Offline Mode (ใหม่): ห้ามแตะระบบ Online/Sync เดิมเลย (queueCheckin/
@@ -559,7 +562,9 @@ async function commitFinalStationVisit(): Promise<void> {
   const station = stations.value.find((s) => s.id === FINAL_STATION_ID)!;
   const stationPoint = station.points ?? POINTS_PER_STATION;
 
-  toggleStation(FINAL_STATION_ID);
+  // [Fix] เหตุผลเดียวกับฐาน 1-3 ใน completeStationVisit() — ดู
+  // useAdventure.ts::toggleStation()
+  toggleStation(FINAL_STATION_ID, currentRoundId.value);
 
   if (isOfflineMode.value) {
     logStationScan(FINAL_STATION_ID, station.name);

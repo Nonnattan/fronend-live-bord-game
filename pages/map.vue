@@ -2,8 +2,8 @@
 /**
  * pages/map.vue
  * ---------------------------------------------------------------------------
- * หน้า Map — Adventure Game Map แบบเต็ม พื้นหลังเป็นภาพ PNG ล้วน ๆ (ไม่ใช้
- * Leaflet/OpenStreetMap/GPS ใด ๆ) 4 ฐานวางเป็นรูปสี่เหลี่ยมด้วยพิกัด % (X-Y)
+ * หน้า Map — Adventure Game Map แบบเต็ม พื้นหลังเป็นภาพเกาะลอยฟาร์มล้วน ๆ (ไม่ใช้
+ * Leaflet/OpenStreetMap/GPS ใด ๆ) วางฐานด้วยพิกัด % (X-Y) ตามจุดจริงบนเกาะ
  * (ชื่อ/คะแนน/เปิดปิดฐาน ดึงจากชีต "Stations" ฝั่ง Admin จริงเหมือนเดิม ผ่าน
  * useAdventure().refreshStationsFromBackend() — ตำแหน่งบนภาพ (%) กับไอคอน/สี
  * ยังเป็น Layout คงที่ฝั่ง frontend เหมือนเดิม ดู components/map/AdventureMap.vue)
