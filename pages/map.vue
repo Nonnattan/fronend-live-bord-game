@@ -26,8 +26,15 @@ definePageMeta({ layout: "app" });
 const { profile, isReady } = useRequireProfile();
 
 const { stations, visitedIds, initAdventure } = useAdventure();
+// [Fix — เหตุผลเดียวกับ pages/home.vue] หน้านี้ก็ใช้ layout: 'app' เหมือนกัน
+// (ถูกซ่อน BottomNav ตาม hasActiveRoundTimer ใน layouts/app.vue) แต่เดิมไม่เคย
+// เรียก initRoundTimer() เลยสักครั้ง — Hard Refresh ตรงหน้านี้ตรง ๆ จะไม่มีทาง
+// restore roundEndsAt จาก LocalStorage ได้เอง ทำให้เมนูล่างหายไปค้างตลอด (ต่างจาก
+// Bug อื่นตรงที่ไม่มีการรอ Network เลยด้วยซ้ำ — แค่ไม่เคยเรียกฟังก์ชันนี้เท่านั้น)
+const { initRoundTimer } = useRoundTimer();
 
 onMounted(() => {
+  initRoundTimer();
   void initAdventure(profile.value?.memberId);
 });
 </script>

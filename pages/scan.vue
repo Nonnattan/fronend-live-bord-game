@@ -6,20 +6,41 @@
  * getUserMedia ให้อีกที) เปิดกล้องอัตโนมัติเมื่อเข้าหน้านี้ รองรับมือถือ
  * (เลือกกล้องหลังก่อนเป็นค่าเริ่มต้น) มีปุ่มสลับกล้องหน้า/หลัง และปุ่มปิดกล้อง
  *
- * หมายเหตุ: ไม่แตะต้อง Logic เดิมของหน้านี้ (useRequireProfile guard เดิม
- * ยังทำงานเหมือนเดิมทุกประการ) — ส่วนที่เพิ่มคือ Logic การเปิด/ปิด/สลับกล้อง
- * และการอ่านค่า QR เท่านั้น ซึ่งเป็นของใหม่ทั้งหมด ไม่ได้ไปแก้ของเดิมที่มีอยู่
+ * [Flow ปลดล็อคฐาน + ภารกิจ] ตามสเปกล่าสุด "Scan QR ฐาน = Unlock Station เท่านั้น
+ * + หน้าเลือกฐาน/หน้าภารกิจต้องเป็นหน้าเต็ม ห้ามเป็น Popup" — Scan/กรอกรหัสฐาน
+ * สำเร็จแล้ว "ห้าม" พาไป Question ทันทีอีกต่อไป และห้ามเปิด Popup ใด ๆ ในหน้านี้
+ * ด้วย — ทำแค่ scanStation() (composables/useStationQuest.ts — Mock State ฝั่ง
+ * Frontend ล้วน ๆ) แล้ว navigateTo('/stations') ทันที (ดูฟังก์ชัน
+ * unlockStationFromScan() เป็นจุดเดียวที่ processStationCode()/
+ * processScannedStationQr() เรียกหลังยืนยัน stationId แล้ว) หน้าเลือกฐาน/หน้า
+ * ภารกิจ/หน้าแบบประเมินอยู่คนละไฟล์ทั้งหมด (pages/stations.vue,
+ * pages/station/[stationId].vue, pages/evaluation.vue)
+ *
+ * Logic เดิมทั้งชุด (completeStationVisit/presentMission/handleMissionSubmit/
+ * handleMissionContinue/commitFinalStationVisit/Popup ฐานนม/แบบประเมิน/
+ * endGameAfterFinalStation ฯลฯ) "ไม่ถูกลบทิ้ง" — ยังอยู่ครบทุกบรรทัดด้านล่าง
+ * แต่ตอนนี้ "ไม่มีจุดไหนในไฟล์นี้เรียกใช้อีกต่อไปแล้ว" เพราะสเปกใหม่ไม่ได้ระบุว่า
+ * กลไก "จบเกม"/แบบประเมิน แบบเดิม ควรถูกย้ายไปผูกกับจุดไหนแทน (คงโค้ดไว้ก่อนเผื่อ
+ * ออกแบบจุดเชื่อมใหม่ในรอบถัดไป — อย่าลบทิ้งโดยไม่ได้รับการยืนยันจากผู้ใช้ก่อน)
+ * "จบเกม"/แบบประเมิน เวอร์ชันใหม่ (ฐานโปรดเดียว ไม่ใช่คะแนน 1-5) อยู่ที่
+ * pages/evaluation.vue แทน — ไปจบ Round จริง (endCurrentRound/endRound) ที่นั่น
+ * ผลข้างเคียงที่ตามมา: toggleStation()/queueCheckin() ไม่ถูกเรียกจาก Scan อีก
+ * ต่อไป ดังนั้นฐานที่ "ปลดล็อค" ผ่าน Flow ใหม่จะไม่ถูกนับเป็น "ผ่านแล้ว" ใน
+ * useAdventure.ts (isVisited/totalPoint/Journey Polyline ที่หน้า Home/Map จะไม่
+ * ขยับจาก Flow นี้)
+ *
+ * กล้อง/Manual Code Form/Sync Card ของเดิมทำงานเหมือนเดิมทุกประการ (ไม่ถูกแก้)
+ * — จุดเดียวที่เปลี่ยนคือสิ่งที่เกิดขึ้น "หลัง" ยืนยัน stationId ได้แล้วเท่านั้น
  */
 
 import type {
   Html5Qrcode as Html5QrcodeType,
   CameraDevice,
 } from "html5-qrcode";
-import {
-  POINTS_PER_STATION,
-  type StationType,
-} from "~/composables/useAdventure";
-// ไฟล์ใหม่ (ระบบภารกิจ + คำถามประจำฐาน) — ดู components/mission/MissionQuestionPopup.vue
+import { POINTS_PER_STATION, type StationType } from "~/composables/useAdventure";
+// ไฟล์เดิม (ระบบภารกิจ + คำถามประจำฐานจริง) — ดู components/mission/MissionQuestionPopup.vue
+// คงไว้เฉย ๆ ให้ completeStationVisit()/presentMission() เดิม (ตอนนี้ไม่มีใครเรียก
+// แล้ว ดูคอมเมนต์ด้านบน) ยัง compile ผ่านอยู่ ไม่ได้ใช้งานจริงในหน้านี้อีกต่อไป
 import type { StationQuestion, StationAnswer } from "~/types/question";
 import MissionQuestionPopup from "~/components/mission/MissionQuestionPopup.vue";
 
@@ -111,7 +132,6 @@ const { initOfflineAnswerSync, syncNow: syncAnswersNow } =
 // [ใหม่] Flow ใหม่ — Timer เวลารอบ 2 ชม./เวลาเผ่า 30 นาที + จบรอบบังคับตอนหมดเวลา
 // (ระบบขนานเช่นกัน ดู composables/useRoundTimer.ts / useForceEndRound.ts)
 const {
-  initRoundTimer,
   startStationTimer,
   clearStationTimer,
   stationRemainingLabel,
@@ -120,6 +140,12 @@ const {
   isStationExpired,
 } = useRoundTimer();
 const { forceEndRoundDueToTimeout } = useForceEndRound();
+// [ใหม่] Flow ปลดล็อคฐาน + ภารกิจ (Mock State ฝั่ง Frontend ล้วน ๆ) — ดู
+// composables/useStationQuest.ts "อ่าน" currentRoundId ด้านบนมาผูก Round เท่านั้น
+// ไม่เรียก toggleStation/queueCheckin/submitAnswer ใด ๆ จากระบบนี้เด็ดขาด —
+// หน้านี้แค่ scanStation() แล้ว navigateTo('/stations') เท่านั้น (หน้าเลือกฐาน/
+// ภารกิจ/แบบประเมินอยู่คนละไฟล์ทั้งหมด — ดูคอมเมนต์หัวไฟล์)
+const { scanStation, initStationQuest } = useStationQuest();
 
 type CheckinFeedbackKind = "success" | "duplicate" | "invalid";
 const checkinFeedback = ref<{ kind: CheckinFeedbackKind; text: string } | null>(
@@ -171,6 +197,7 @@ const SURVEY_RATING_OPTIONS: { value: number; label: string }[] = [
   { value: 2, label: "ดิน" },
   { value: 1, label: "ข้าวโพด" },
 ];
+
 /** true ระหว่างที่มี Popup ผลลัพธ์ค้างอยู่ — ใช้กันการสแกน/กรอกรหัสซ้ำซ้อน
  * (เพิ่ม missionPopupOpen เข้ามาด้วย — กันสแกนฐานถัดไปซ้อนระหว่างยังไม่ได้ตอบ
  * คำถามของฐานปัจจุบันให้เสร็จก่อน) */
@@ -242,12 +269,49 @@ function resolveStationId(raw: string): StationType | null {
 }
 
 /**
+ * [Flow ปลดล็อคฐาน + ภารกิจ] จุดเดียวที่จัดการหลังยืนยัน stationId แล้ว (ไม่ว่า
+ * จะมาจาก resolveStationId() ของการกรอกรหัสเอง หรือจาก verifyStationQr() ของ
+ * กล้องสแกน QR) แทนที่ completeStationVisit() เดิมที่เคย Commit ฐาน (toggleStation/
+ * queueCheckin) แล้วพาไปหน้าคำถามทันที — ตามสเปกใหม่ "Scan QR ฐาน = Unlock
+ * Station เท่านั้น" หน้าที่เดียวของฟังก์ชันนี้คือ scanStation() (composables/
+ * useStationQuest.ts — Mock State ฝั่ง Frontend ล้วน ๆ ไม่มีการเขียนคะแนน/
+ * Checkin/Google Sheet ใด ๆ ทั้งสิ้น) แล้ว navigateTo('/stations') ทันที (หน้า
+ * เต็มจริง — ตามสเปก "ห้ามใช้ Popup เป็นหน้าเลือกฐาน" ดูคอมเมนต์หัวไฟล์)
+ *
+ * ยังคงเช็ค hasActiveRoundTimer (ต้องกด GO ที่ Home ก่อนเสมอ) และเรียก
+ * ensureRoundStarted() เหมือนเดิม (idempotent — ปกติ Round เปิดไปแล้วตั้งแต่
+ * หน้า /starting เรียกซ้ำที่นี่แค่กันเคสยังไม่มี currentRoundId เพื่อให้
+ * useStationQuest ผูกกับ Round ที่ถูกต้อง) "ไม่เรียก" startStationTimer() อีก
+ * ต่อไป (ของเดิมมี presentMission()/handleMissionContinue() เป็นคนเคลียร์ทิ้ง
+ * ตอนตอบคำถามเสร็จ — Flow ใหม่ไม่มีจุดไหนเรียก clearStationTimer() แล้ว ถ้ายัง
+ * เรียก startStationTimer() ต่อจะกลายเป็นเวลานับที่ไม่มีวันถูกเคลียร์ แล้วบังคับ
+ * จบรอบทั้งที่ผู้เล่นกำลังทำภารกิจอยู่เฉย ๆ ได้)
+ */
+async function unlockStationFromScan(stationId: StationType): Promise<void> {
+  if (!hasActiveRoundTimer.value) {
+    checkinFeedback.value = {
+      kind: "invalid",
+      text: "กรุณากดปุ่ม GO ที่หน้าหลักก่อนเริ่มเล่นครับ",
+    };
+    return;
+  }
+
+  if (!isOfflineMode.value && profile.value?.memberId) {
+    await ensureRoundStarted(profile.value.memberId, profile.value.firstName);
+  }
+
+  scanStation(stationId);
+  await navigateTo("/stations");
+}
+
+/**
  * จุดที่จัดการ "กรอกรหัสฐานเอง" เท่านั้น (ปุ่ม/ฟอร์ม submitManualCode — เผื่อกล้อง
  * ใช้ไม่ได้/QR ชำรุด) — ใช้ resolveStationId()/STATION_CODE_MAP เดิมตามปกติ
  * ไม่เกี่ยวกับการสแกน QR ด้วยกล้องอีกต่อไป (ดู processScannedStationQr() ด้านล่าง
  * ซึ่งเป็นจุดที่กล้องเรียกโดยตรง ส่ง qrToken ไปตรวจกับ Backend แทน)
  * 1) หาไม่เจอ -> แจ้งรหัสไม่ถูกต้อง ไม่แตะ LocalStorage/Sync เลย
- * 2) เจอ -> ส่งต่อเข้า completeStationVisit() ที่ใช้ร่วมกับฝั่งกล้อง
+ * 2) เจอ -> ส่งต่อเข้า unlockStationFromScan() [ใหม่] ที่ใช้ร่วมกับฝั่งกล้อง
+ *    (เดิมส่งต่อเข้า completeStationVisit() — เปลี่ยนตามสเปกใหม่ ดูคอมเมนต์หัวไฟล์)
  *
  * ป้องกัน Popup เปิดซ้อน/ยิง request ซ้ำ (กันกดปุ่ม "ยืนยัน" ซ้ำระหว่างกำลัง
  * ประมวลผลอยู่) — ครอบด้วย isProcessingScan lock คืนค่าใน finally เสมอไม่ว่าจะ
@@ -268,7 +332,7 @@ async function processStationCode(raw: string): Promise<void> {
       return;
     }
 
-    await completeStationVisit(stationId);
+    await unlockStationFromScan(stationId);
   } finally {
     isProcessingScan.value = false;
   }
@@ -285,8 +349,9 @@ async function processStationCode(raw: string): Promise<void> {
  * ตรงตามที่ actionVerifyStationQr_ ฝั่ง server-gas ออกแบบไว้) ตรวจสอบผ่านแล้ว
  * ค่อยจับคู่ Station ที่ backend ส่งกลับมาเข้ากับฐานบนกระดานเกม (corn/cow/soil/
  * milk) ด้วย backendId เป็นหลัก (ดูรายละเอียดการจับคู่ในฟังก์ชันด้านล่าง) แล้ว
- * ส่งต่อเข้า completeStationVisit() เดิม ทุกอย่างหลังจากนี้ (Check-in/Offline
- * logic) เหมือนเดิมทุกประการ ไม่มีการแก้ไข
+ * ส่งต่อเข้า unlockStationFromScan() [ใหม่] แทน completeStationVisit() เดิม —
+ * ตามสเปกใหม่ QR ฐานที่ตรวจสอบผ่าน Backend จริงแล้ว (verifyStationQr) มีหน้าที่
+ * แค่ "ปลดล็อค" เท่านั้น ไม่ Commit/ไม่พาไปหน้าคำถามอีกต่อไป (ดูคอมเมนต์หัวไฟล์)
  */
 async function processScannedStationQr(qrToken: string): Promise<void> {
   if (isProcessingScan.value || isResultPopupOpen.value) return;
@@ -346,7 +411,7 @@ async function processScannedStationQr(qrToken: string): Promise<void> {
       return;
     }
 
-    await completeStationVisit(matched.id as StationType);
+    await unlockStationFromScan(matched.id as StationType);
   } finally {
     isProcessingScan.value = false;
   }
@@ -422,6 +487,16 @@ function handleMissionContinue(): void {
 }
 
 /**
+ * [ไม่ถูกเรียกใช้แล้ว — คงไว้เฉย ๆ] ตามสเปก Flow ปลดล็อคฐาน + ภารกิจ ล่าสุด
+ * ("Scan QR ฐาน = Unlock Station เท่านั้น ห้ามเรียก completeStationVisit()
+ * แบบเดิมจากการ Scan") processStationCode()/processScannedStationQr() ทั้งคู่
+ * เปลี่ยนไปเรียก unlockStationFromScan() แทนแล้ว (ดูคอมเมนต์หัวไฟล์ + จุดนิยาม
+ * unlockStationFromScan() ด้านบน) ฟังก์ชันนี้ (และ presentMission()/
+ * handleMissionSubmit()/handleMissionContinue()/commitFinalStationVisit()/
+ * Popup ฐานนม/แบบประเมิน/endGameAfterFinalStation() ที่พึ่งพากันเป็นทอด ๆ)
+ * จึง "ไม่มีจุดไหนเรียกใช้อีกต่อไป" ตั้งแต่ตอนนี้ — คงไว้ทั้งหมดโดยไม่แก้ไข/ลบ
+ * เพราะสเปกใหม่ไม่ได้ระบุว่ากลไก "จบเกม"/แบบประเมิน ควรย้ายไปผูกกับจุดไหนแทน
+ *
  * จุดเดียวที่จัดการ "ผ่านฐานสำเร็จ" หลังได้ stationId ที่ยืนยันแล้ว (ไม่ว่าจะมาจาก
  * resolveStationId() ของการกรอกรหัสเอง หรือจาก verifyStationQr() ของกล้องสแกน QR)
  * 1) เคยผ่านฐานนี้แล้ว -> "ห้ามบันทึกซ้ำ ห้ามส่งไป Google Sheet" ทันที
@@ -989,6 +1064,14 @@ async function retryCamera() {
 }
 
 onMounted(async () => {
+  // [Fix — เหตุผลเดียวกับ pages/home.vue] initStationQuest() (ซึ่งเรียก
+  // initRoundTimer() แบบ sync ล้วน ๆ เป็นบรรทัดแรกของมันเองอยู่แล้ว) ต้องเรียก
+  // "ก่อน" initAdventure()/initQuestions() (Network Call ที่อาจช้า/ล้มเหลวบนเน็ต
+  // มือถือกลางแปลง) เสมอ ไม่งั้น hasActiveRoundTimer (ที่ layouts/app.vue ใช้
+  // ตัดสินใจซ่อน/แสดง BottomNav) จะค้างเป็น false ระหว่างรอ Network ทั้งที่ Round
+  // จริงยังไม่จบ ทำให้เมนูล่างหายไปชั่วคราว/ค้างนานตอน Hard Refresh หน้านี้ตรง ๆ
+  await initStationQuest();
+
   // ส่ง memberId เข้าไปด้วย (ถ้ามี) เพื่อดึงฐานที่ผ่านจริงจาก Google Sheet มา
   // กันซ้ำได้แม่นยำขึ้น (เผื่อผ่านฐานนี้จากเครื่อง/รอบก่อนหน้าที่ sync ไปแล้ว)
   await initAdventure(profile.value?.memberId);
@@ -999,9 +1082,6 @@ onMounted(async () => {
   // อีกที (ต้องรอ currentRoundId พร้อมก่อนเสมอ — ที่นี่แค่โหลดคลังคำถามพอ)
   await initQuestions();
   initOfflineAnswerSync();
-  // [ใหม่] โหลดค่า Timer ที่ค้างจาก LocalStorage กลับมา (เผื่อ Refresh หน้ากลาง
-  // ฐาน) — เริ่มนับต่อทันที ไม่รีเซ็ตค่าใด ๆ (ดู composables/useRoundTimer.ts)
-  initRoundTimer();
 
   const mod = await import("html5-qrcode");
   Html5QrcodeCtor = mod.Html5Qrcode;
@@ -1179,6 +1259,19 @@ onBeforeUnmount(async () => {
         >
       </form>
 
+      <!-- [ใหม่] ไปหน้า "เลือกฐาน" เต็มหน้าซ้ำได้ตลอดโดยไม่ต้องสแกนใหม่ (ดู
+           Progress ของทุกฐานได้ แต่กดเข้าฐานที่สิทธิ์หมดแล้วไม่ได้จนกว่าจะสแกน
+           QR ฐานนั้นใหม่ — ดู pages/stations.vue) -->
+      <UButton
+        block
+        variant="soft"
+        color="primary"
+        icon="i-lucide-layout-grid"
+        to="/stations"
+      >
+        ดูฐานทั้งหมด
+      </UButton>
+
       <!-- Offline Mode (ใหม่): ล็อกทั้ง Session แล้ว ไม่มีการ Sync ขึ้น Google Sheet
            เลย จึงไม่แสดงการ์ด Sync เดิม (จะสับสน เพราะเดิมอ้างอิง navigator.onLine
            สด ๆ ซึ่งอาจกลับมาออนไลน์ได้ระหว่างเล่น แต่แอปยังคงล็อก Offline Mode
@@ -1346,6 +1439,7 @@ onBeforeUnmount(async () => {
         </UButton>
       </template>
     </UModal>
+
   </div>
 </template>
 

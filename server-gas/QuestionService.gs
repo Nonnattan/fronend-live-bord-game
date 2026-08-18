@@ -120,10 +120,18 @@ function parseChoices_(value) {
 }
 
 function rowToQuestion_(row) {
+  const stationId = normalize_(row[1]);
+  const mission = normalize_(row[2]);
   return {
     id: normalize_(row[0]),
-    stationId: normalize_(row[1]),
-    mission: normalize_(row[2]),
+    stationId: stationId,
+    mission: mission,
+    // ไฟล์ใหม่: missionId ระบุว่าคำถามนี้เป็นของภารกิจไหน (ดู MissionsService.gs::
+    // buildMissionId_ — รูปแบบเดียวกันเป๊ะ "<stationId>-<mission>") คำนวณสดจาก
+    // stationId/mission ที่มีอยู่แล้วในชีตนี้เสมอ *** ไม่เพิ่มคอลัมน์ใหม่ *** จึง
+    // Backward-compatible 100% กับ Questions เก่าที่มีอยู่แล้วทุกแถว (ค่าว่างถ้า
+    // แถวไหนยังไม่ได้กรอก StationId/Mission ไว้)
+    missionId: stationId && mission ? stationId + "-" + mission : "",
     question: normalize_(row[3]),
     answerType: normalize_(row[4]) || "choice",
     choices: parseChoices_(row[5]),

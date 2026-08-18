@@ -92,7 +92,12 @@ export default defineNuxtConfig({
       // เข้าครั้งแรกที่ยังออนไลน์ ตามพฤติกรรมเดิมของ service-worker/sw.ts
       // [Fix] เพิ่ม '/redeem' — หน้าใหม่ "จุดแลกรางวัล" สำหรับเจ้าหน้าที่ (ระบบ
       // แลกของรางวัล) เหตุผลเดียวกับหน้าอื่น ๆ ในลิสต์นี้ทุกประการ
-      routes: ['/', '/offline', '/home', '/map', '/scan', '/profile', '/info', '/history', '/reservation', '/round-summary', '/photo-quest', '/redeem'],
+      // [ใหม่] '/stations' + '/evaluation' — หน้าเต็มของ Flow ปลดล็อคฐาน + ภารกิจ
+      // (เดิม '/station-quest' หน้าเดียวแบบ Mockup แยก — ถูกลบทิ้งแล้วเพราะ Flow
+      // จริงถูกรวมเข้า /scan หมดแล้ว) หมายเหตุ: '/station/[stationId]' เป็น
+      // Dynamic Route จึง Prerender ล่วงหน้าไม่ได้ (เหตุผลเดียวกับ '/photo-quest/[id]'
+      // ด้านบน) — Shell จะถูก NetworkFirst (html-cache) เก็บให้เองตอนเข้าครั้งแรก
+      routes: ['/', '/offline', '/home', '/map', '/scan', '/profile', '/info', '/history', '/reservation', '/round-summary', '/photo-quest', '/redeem', '/stations', '/evaluation'],
       failOnError: false,
       // Crawl ลิงก์จากหน้าที่ Prerender ไว้ต่อเองด้วย (กันตกหล่นถ้ามีหน้าใหม่
       // ถูกเพิ่มมาทีหลังแล้วลืมเติมใน routes ด้านบน) ไม่กระทบของเดิมเพราะทุก

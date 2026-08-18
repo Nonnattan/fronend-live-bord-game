@@ -30,6 +30,12 @@
  *                สแกนแล้วส่งค่านี้กลับมาตรวจสอบผ่าน action 'verifyStationQr' (ONLINE
  *                เท่านั้น ดู actionVerifyStationQr_ ด้านล่าง) — ต่อท้ายสุดโดยตั้งใจ
  *                เหมือน ImageUrl/Type/Lat/Lng เพื่อไม่กระทบตำแหน่งคอลัมน์เดิม
+ * - MissionQrToken : ไฟล์ใหม่ — รหัส QR ของ "ภารกิจสแกน QR" (type: 'qr') ประจำฐานนี้
+ *                คนละค่ากับ QrToken เด็ดขาด (QrToken = QR ป้ายฐาน ใช้กับ
+ *                verifyStationQr เท่านั้น, MissionQrToken = QR ภารกิจภายในฐาน ใช้กับ
+ *                verifyMissionQr เท่านั้น — ดู MissionsService.gs) สร้างอัตโนมัติ
+ *                ตอนสร้างฐานใหม่ (generateMissionQrToken_) และ backfill ให้ฐานเก่า
+ *                อัตโนมัติเหมือน QrToken ทุกประการ — ต่อท้ายสุดโดยตั้งใจเช่นกัน
  */
 
 const STATIONS_SHEET_NAME = "Stations";
@@ -46,9 +52,15 @@ const STATIONS_HEADERS = [
   "Lat",
   "Lng",
   "QrToken",
+  "MissionQrToken",
 ];
-// ตำแหน่งคอลัมน์ (0-indexed) ของ QrToken — ใช้ backfillMissingQrTokens_/rowToStation_
-var STATIONS_QR_TOKEN_COL_INDEX = STATIONS_HEADERS.length - 1;
+// ตำแหน่งคอลัมน์ (0-indexed) ของ QrToken/MissionQrToken — ใช้ indexOf แทนเลขคอลัมน์
+// ตรง ๆ (เดิมใช้ STATIONS_HEADERS.length - 1 ตอน QrToken ยังเป็นคอลัมน์สุดท้าย — ใช้
+// ต่อไม่ได้แล้วหลังเพิ่ม MissionQrToken ต่อท้ายอีกคอลัมน์) กัน bug ตำแหน่งเลื่อนถ้ามี
+// การเพิ่มคอลัมน์ใหม่ต่อท้ายอีกในอนาคต
+var STATIONS_QR_TOKEN_COL_INDEX = STATIONS_HEADERS.indexOf("QrToken");
+var STATIONS_MISSION_QR_TOKEN_COL_INDEX =
+  STATIONS_HEADERS.indexOf("MissionQrToken");
 
 /** คืนค่าชีต "Stations" — สร้างชีตใหม่ + ใส่หัวตารางให้อัตโนมัติถ้ายังไม่มี
  * (ไม่แตะต้องชีตอื่นใดในสเปรดชีตเดียวกันเลย) */
@@ -66,6 +78,9 @@ function getStationsSheet_() {
     // เติม QrToken ให้ฐานเก่าที่สร้างไว้ก่อนเพิ่มฟีเจอร์นี้ (คอลัมน์ว่าง) โดยอัตโนมัติ
     // ไม่กระทบฐานที่มี QrToken อยู่แล้วเลย (ข้ามแถวที่มีค่าอยู่แล้วทั้งหมด)
     backfillMissingQrTokens_(sheet);
+    // ไฟล์ใหม่: เติม MissionQrToken ให้ฐานเก่าเช่นเดียวกัน (คนละคอลัมน์/ค่ากับ QrToken
+    // ด้านบนเสมอ — ดูคำอธิบายเต็มที่ comment ของ MissionQrToken หัวไฟล์)
+    backfillMissingMissionQrTokens_(sheet);
   }
   return sheet;
 }
@@ -114,7 +129,15 @@ function rowToStation_(row) {
     // row[11] อาจเป็น undefined สำหรับแถวเก่าก่อนเพิ่มคอลัมน์นี้ — ปกติจะไม่เกิดขึ้นเพราะ
     // getStationsSheet_() เรียก backfillMissingQrTokens_() ให้ทุกแถวมีค่าเสมอแล้ว
     // แต่กันไว้เผื่อเรียก rowToStation_() ตรง ๆ จากที่อื่นในอนาคต
-    qrToken: row[11] ? String(row[11]) : "",
+    qrToken: row[STATIONS_QR_TOKEN_COL_INDEX]
+      ? String(row[STATIONS_QR_TOKEN_COL_INDEX])
+      : "",
+    // ไฟล์ใหม่: เหมือน qrToken ด้านบนทุกประการ แต่คนละคอลัมน์ (ดู MissionQrToken
+    // หัวไฟล์) — getStationsSheet_() เรียก backfillMissingMissionQrTokens_() ให้ทุก
+    // แถวมีค่าเสมอเช่นกัน
+    missionQrToken: row[STATIONS_MISSION_QR_TOKEN_COL_INDEX]
+      ? String(row[STATIONS_MISSION_QR_TOKEN_COL_INDEX])
+      : "",
   };
 }
 
@@ -176,6 +199,56 @@ function backfillMissingQrTokens_(sheet) {
   }
 }
 
+/** อ่านค่าคอลัมน์ MissionQrToken ของทุกแถว คืนเป็น array ของ string ที่ normalize
+ * แล้ว (คู่ขนานกับ getAllStationQrTokens_ ด้านบน แต่คนละคอลัมน์/pool ความไม่ซ้ำ) */
+function getAllStationMissionQrTokens_(sheet) {
+  const rows = getAllStationRows_(sheet);
+  return rows.map(function (row) {
+    return normalize_(row[STATIONS_MISSION_QR_TOKEN_COL_INDEX]);
+  });
+}
+
+/** สร้างรหัส QR ภารกิจใหม่ ไม่ซ้ำกับที่มีอยู่แล้ว เช่น MQR-LXQK3F-A1B — ขึ้นต้นด้วย
+ * "MQR-" (ต่างจาก "QR-" ของ generateStationQrToken_) เพื่อให้แยกแยะง่ายด้วยตาเปล่าว่า
+ * เป็น QR ภารกิจ ไม่ใช่ QR ป้ายฐาน เวลาเปิดดูในชีต/ปริ้นออกมา */
+function generateMissionQrToken_(existingTokens) {
+  const used = {};
+  for (let i = 0; i < existingTokens.length; i++) {
+    if (existingTokens[i]) used[existingTokens[i]] = true;
+  }
+  let token;
+  do {
+    const ts = Date.now().toString(36).toUpperCase();
+    const rand = Math.random().toString(36).slice(2, 7).toUpperCase();
+    token = "MQR-" + ts + "-" + rand;
+  } while (used[token]);
+  return token;
+}
+
+/** เติม MissionQrToken ให้ทุกแถวที่ยังว่างอยู่ — คู่ขนานกับ backfillMissingQrTokens_
+ * ด้านบนทุกประการ แค่คนละคอลัมน์/generator (ไม่แตะ QrToken เลย) */
+function backfillMissingMissionQrTokens_(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+
+  const col = STATIONS_MISSION_QR_TOKEN_COL_INDEX + 1; // 1-indexed สำหรับ Range
+  const values = sheet.getRange(2, col, lastRow - 1, 1).getValues();
+  const existingTokens = getAllStationMissionQrTokens_(sheet);
+
+  let hasMissing = false;
+  for (let i = 0; i < values.length; i++) {
+    if (!normalize_(values[i][0])) {
+      const token = generateMissionQrToken_(existingTokens);
+      existingTokens.push(token);
+      values[i][0] = token;
+      hasMissing = true;
+    }
+  }
+  if (hasMissing) {
+    sheet.getRange(2, col, values.length, 1).setValues(values);
+  }
+}
+
 /** คืนค่า row number จริงบนชีต (1-indexed) ของฐานที่ตรงกับ QR token ที่สแกนมา
  * หรือ -1 ถ้าไม่พบ (ใช้โดย actionVerifyStationQr_ เท่านั้น) */
 function findStationRowIndexByQrToken_(sheet, qrToken) {
@@ -200,6 +273,18 @@ function findStationRowIndexById_(sheet, id) {
   return -1;
 }
 
+/** ไฟล์ใหม่: คืนค่าฐาน (ผ่าน rowToStation_) จาก id โดยตรง หรือ null ถ้าไม่พบ — ลด
+ * โค้ดซ้ำ "หา rowIndex -> getRange -> rowToStation_" ที่ไฟล์ service อื่น (เช่น
+ * MissionsService.gs) ต้องใช้แค่ "อ่าน" ข้อมูลฐาน 1 แถวเท่านั้น ไม่ต้องเขียนอะไร */
+function getStationById_(sheet, id) {
+  const rowIndex = findStationRowIndexById_(sheet, id);
+  if (rowIndex === -1) return null;
+  const row = sheet
+    .getRange(rowIndex, 1, 1, STATIONS_HEADERS.length)
+    .getValues()[0];
+  return rowToStation_(row);
+}
+
 /** ดึงรายชื่อฐานทั้งหมด เรียงตาม Order (น้อย -> มาก) — ใช้ทั้งฝั่ง Admin (แสดงตาราง)
  * และฝั่งเกม (โหลดฐานจริงแทน mock data เดิม) */
 function listStations_(sheet) {
@@ -214,6 +299,9 @@ function listStations_(sheet) {
 function createStation_(sheet, input, now) {
   const id = generateStationId_();
   const qrToken = generateStationQrToken_(getAllStationQrTokens_(sheet));
+  const missionQrToken = generateMissionQrToken_(
+    getAllStationMissionQrTokens_(sheet),
+  );
   const newRow = [
     id,
     Number(input.order) || 0,
@@ -231,6 +319,7 @@ function createStation_(sheet, input, now) {
       ? ""
       : Number(input.lng),
     qrToken,
+    missionQrToken,
   ];
   sheet.appendRow(newRow);
   return rowToStation_(newRow);
@@ -271,6 +360,10 @@ function updateStation_(sheet, rowIndex, input, now) {
         : Number(input.lng)
       : current[10],
     qrToken,
+    // ไฟล์ใหม่: MissionQrToken ไม่มีทาง regenerate ผ่าน updateStation ในรอบนี้ (ยังไม่มี
+    // ความจำเป็น/field payload สำหรับสิ่งนี้) จึงคงค่าเดิมไว้เสมอ ต่างจาก qrToken ด้านบน
+    // ที่รองรับ payload.regenerateQr อยู่แล้วก่อนหน้านี้
+    current[STATIONS_MISSION_QR_TOKEN_COL_INDEX],
   ];
   sheet
     .getRange(rowIndex, 1, 1, STATIONS_HEADERS.length)
@@ -340,9 +433,11 @@ function actionDeleteStation_(payload) {
  * คืนค่า:
  *   - พบฐานและฐาน active     -> { success: true, station: { id, order, name, points,
  *                                  description, active, updatedAt, imageUrl, type,
- *                                  lat, lng, qrToken } } (โครงสร้างเดียวกับ action
- *                                  อื่น ๆ ของ Stations ทั้งหมด — Frontend ใช้
- *                                  station.id / station.name / station.points ต่อได้เลย)
+ *                                  lat, lng, qrToken, missionQrToken } } (โครงสร้าง
+ *                                  เดียวกับ action อื่น ๆ ของ Stations ทั้งหมด —
+ *                                  Frontend ใช้ station.id / station.name /
+ *                                  station.points ต่อได้เลย — ดู MissionsService.gs
+ *                                  สำหรับวิธีใช้ missionQrToken)
  *   - ไม่ส่ง qrToken มา       -> { success: false, error: '...' }
  *   - หา qrToken นี้ไม่เจอ    -> { success: false, error: 'QR นี้ไม่ถูกต้องหรือไม่มีอยู่ในระบบ' }
  *   - เจอฐานแต่ปิดใช้งานอยู่  -> { success: false, error: 'ฐานนี้ปิดใช้งานอยู่ในขณะนี้' }

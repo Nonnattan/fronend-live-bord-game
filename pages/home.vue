@@ -33,45 +33,53 @@ import { STATION_TYPE_META } from "~/composables/useAdventure";
 definePageMeta({ layout: "app" });
 
 const { profile, isReady } = useRequireProfile();
+const { stations, totalStations, initAdventure } = useAdventure();
+// [แก้ไข — Source of Truth เดียวกับ Mission/Station] ✓/Progress ต่อฐาน + คะแนน
+// ที่หน้านี้แสดง ต้องมาจาก useStationQuest() ตัวเดียวกับที่ pages/stations.vue +
+// pages/station/[stationId].vue ใช้อยู่แล้วเท่านั้น (ห้ามสร้าง State แยกสำหรับ
+// Home) — ของเดิม (visitedCount/totalPoint/isVisited จาก useAdventure()) ผูกกับ
+// ระบบเช็คอินจริงที่ Flow ปลดล็อคฐาน+ภารกิจปัจจุบันไม่เคยเรียก toggleStation()/
+// queueCheckin() อีกต่อไปแล้ว (ดู composables/useStationQuest.ts) ทำให้ค้างที่
+// 0/4 + คะแนน 0 ตลอดไม่ว่าจะเล่นผ่านไปกี่ฐานก็ตาม
 const {
-  stations,
-  totalStations,
-  visitedCount,
-  visitedIds,
-  totalPoint,
-  isVisited,
-  initAdventure,
-} = useAdventure();
-// [Debug — ชั่วคราว] ใช้ยืนยันว่ามือถือ/คอมเห็น Round + สถานะฐานตรงกันจริงหลังจบรอบ
-// (ดู composables/useAdventure.ts::refreshFromBackend สำหรับ Fix ตัวจริง) — ลบออก
-// ได้เมื่อยืนยันบั๊ก "มือถือค้าง 1/4" หายแล้ว
-const { currentRoundId, ensureRoundStarted } = useRound();
+  isStationMissionComplete,
+  missionProgressCount,
+  mockScore,
+  initStationQuest,
+} = useStationQuest();
 // [ใหม่] Flow ใหม่ — ปุ่ม GO เปิดรอบ (แทนที่การเปิดรอบเงียบ ๆ ตอนสแกนฐานแรก) +
-// Timer 2 ชั่วโมง ดู composables/useRoundTimer.ts / useForceEndRound.ts
-const { isOfflineMode, startRound } = useOfflineMode();
-const {
-  initRoundTimer,
-  startRoundTimer,
-  roundRemainingLabel,
-  hasActiveRoundTimer,
-  isRoundExpired,
-} = useRoundTimer();
+// Timer 2 ชั่วโมง ดู composables/useRoundTimer.ts / useForceEndRound.ts — การเปิด
+// รอบจริง (ensureRoundStarted/startRound/startRoundTimer) ย้ายไปอยู่ที่หน้า
+// /starting ทั้งหมดแล้ว (ดู pages/starting.vue) หน้านี้ใช้แค่ hasActiveRoundTimer
+// เพื่อตัดสินใจว่าจะโชว์ปุ่ม GO หรือเนื้อหาปกติเท่านั้น
+const { roundRemainingLabel, hasActiveRoundTimer, isRoundExpired } = useRoundTimer();
 const { forceEndRoundDueToTimeout } = useForceEndRound();
 
-// ส่ง memberId เข้าไปด้วย (ถ้ามี) เพื่อดึงฐานที่ผ่านจริง + คะแนนสะสมจริงจาก
-// Google Sheet (getJourney/getScore) มาทับ LocalStorage — ดู useAdventure.ts
+/** จำนวนฐานที่ทำภารกิจครบ 3/3 แล้ว (แทน visitedCount เดิมจาก useAdventure) */
+const completedStationCount = computed(
+  () => stations.value.filter((s) => isStationMissionComplete(s.type)).length,
+);
+/** ให้ MiniMap ติ๊ก ✓ ตรงกับการ์ดฐานด้านล่างเป๊ะ ๆ (ที่มาเดียวกัน — ไม่ใช้
+ * visitedIds เดิมจาก useAdventure() ซึ่งเป็นระบบเช็คอินคนละอันที่ Flow นี้ไม่แตะ) */
+const miniMapVisitedIds = computed(() =>
+  stations.value.filter((s) => isStationMissionComplete(s.type)).map((s) => s.id),
+);
+
+/**
+ * [Fix — root cause ของ "Refresh แล้วเห็นปุ่ม GO/ไม่มีเมนูล่างทั้งที่กด GO ไปแล้ว"]
+ * เดิม initRoundTimer() (restore roundEndsAt จาก LocalStorage แบบ sync ล้วน ๆ ไม่
+ * พึ่ง Network เลย) ถูกเรียก "หลัง" await initAdventure() (ยิง getJourney/getScore/
+ * listStations ขึ้น Google Sheet จริง — ช้า/ไม่แน่นอนบนเน็ตมือถือกลางแปลง) ทำให้
+ * hasActiveRoundTimer (ซึ่ง go-gate ด้านล่าง + BottomNav ใน layouts/app.vue อ่านค่า
+ * เดียวกันนี้) ค้างเป็น false ระหว่างรอ initAdventure() ทั้งที่ผู้เล่นกด GO ไปแล้ว
+ * จริง เห็นเป็นปุ่ม GO/ไม่มีเมนูล่างโผล่มาผิด ๆ ชั่วคราว (หรือค้างอยู่นานถ้าเน็ตช้า/
+ * หลุด) — แก้โดยเรียก initStationQuest() (ซึ่งเรียก initRoundTimer() เป็นบรรทัด
+ * แรกของมันเองอยู่แล้ว — ดู composables/useStationQuest.ts) ก่อน initAdventure()
+ * เสมอ ไม่ต้องเรียก initRoundTimer() แยกอีกที่นี่ซ้ำ
+ */
 onMounted(async () => {
+  await initStationQuest();
   await initAdventure(profile.value?.memberId);
-  initRoundTimer();
-  if (import.meta.client) {
-    // eslint-disable-next-line no-console
-    console.log("[HOME ROUND STATE]", {
-      currentRoundId: currentRoundId.value,
-      visitedIds: visitedIds.value,
-      visitedCount: visitedCount.value,
-      totalPoint: totalPoint.value,
-    });
-  }
 });
 
 // [ใหม่] เวลารอบหมดระหว่างที่ผู้เล่นอยู่หน้า Home พอดี (ไม่ได้ไปหน้า Scan) — ก็ต้อง
@@ -81,23 +89,14 @@ watch(isRoundExpired, (expired) => {
   if (expired) void forceEndRoundDueToTimeout("round");
 });
 
-/** ปุ่ม "GO" — เริ่มรอบใหม่จริง (เปิด Round ฝั่ง Backend/Offline + เริ่มนับเวลา
- * 2 ชั่วโมง) ก่อนหน้านี้ Round จะถูกเปิดเงียบ ๆ ตอนสแกนฐานแรกแทน (ยังคงเป็น
- * fallback อยู่ใน pages/scan.vue เผื่อกรณีที่ไม่ได้ผ่านหน้านี้ก่อน) */
-const isPressingGo = ref(false);
-async function pressGo(): Promise<void> {
-  if (isPressingGo.value) return;
-  isPressingGo.value = true;
-  try {
-    if (isOfflineMode.value) {
-      startRound(profile.value?.uid ?? "");
-    } else if (profile.value?.memberId) {
-      await ensureRoundStarted(profile.value.memberId, profile.value.firstName);
-    }
-    startRoundTimer();
-  } finally {
-    isPressingGo.value = false;
-  }
+/** ปุ่ม "GO" — [ใหม่] ตอนนี้ไม่เปิดรอบตรงนี้ในหน้า Home อีกต่อไป แค่พาไปหน้า
+ * /starting (หน้าโหลดเต็มจอแยกต่างหาก) ซึ่งเป็นจุดที่เรียก
+ * ensureRoundStarted()/startRound() + startRoundTimer() จริง แล้วค่อยพากลับมา
+ * หน้านี้เองเมื่อเสร็จ (ดู pages/starting.vue) — ทำให้ระหว่างรอ Network Call
+ * (อาจช้าบนเน็ตมือถือกลางแปลง) ผู้เล่นเห็นเป็นหน้าเต็มจอแยกจริง ๆ แทนการ์ดเล็ก ๆ
+ * ในหน้า Home เหมือนเดิม */
+function pressGo(): void {
+  navigateTo("/starting");
 }
 
 function goToMapPage() {
@@ -138,19 +137,10 @@ function goToMapPage() {
 
       <!-- [ใหม่] Go Gate — ยังไม่กด GO เลย (ยังไม่มี Round/Timer เริ่ม) แสดงปุ่ม
            GO แทนเนื้อหาปกติทั้งหมด (Summary Card/เควสถ่ายรูป/แผนที่) ตาม Flow ใหม่:
-           Login -> หน้านี้ (มีปุ่ม GO) -> กด GO -> เปิด Round + รับเวลา 2 ชม. ->
-           เข้าเนื้อหาปกติ (สแกน QR เข้าฐานได้)
-           [ใหม่] กด GO แล้วสลับไปแสดงหน้าโหลดแบบเต็มพื้นที่แทนปุ่ม GO ทันที
-           (isPressingGo) — ระหว่างรอ ensureRoundStarted()/startRound() ซึ่งเป็น
-           Network Call ที่อาจช้าได้จริงบนเน็ตมือถือกลางแปลง กันผู้เล่นกด GO ซ้ำ/
-           สงสัยว่าปุ่มทำงานหรือไม่ (เดิมมีแค่ Spinner เล็ก ๆ ในปุ่มเท่านั้น) -->
-      <section v-if="isPressingGo" class="go-gate go-gate--loading">
-        <UIcon name="i-lucide-loader-2" class="go-gate__loading-spinner" />
-        <p class="go-gate__title">กำลังเปิดรอบผจญภัย...</p>
-        <p class="go-gate__desc">กรุณารอสักครู่</p>
-      </section>
-
-      <section v-else-if="!hasActiveRoundTimer" class="go-gate">
+           Login -> หน้านี้ (มีปุ่ม GO) -> กด GO -> ไปหน้า /starting (เต็มจอ) เพื่อ
+           เปิด Round + รับเวลา 2 ชม. -> พากลับมาหน้านี้ -> เข้าเนื้อหาปกติ (สแกน QR
+           เข้าฐานได้) — ดู pages/starting.vue สำหรับหน้าโหลดเต็มจอ -->
+      <section v-if="!hasActiveRoundTimer" class="go-gate">
         <UIcon name="i-lucide-flag-triangle-right" class="go-gate__icon" />
         <p class="go-gate__title">พร้อมเริ่มผจญภัยหรือยัง?</p>
         <p class="go-gate__desc">
@@ -181,7 +171,7 @@ function goToMapPage() {
             <p class="summary-card__label">เข้าฐานแล้ว</p>
             <p class="summary-card__value">
               <span class="summary-card__value-num"
-                >{{ visitedCount }}/{{ totalStations }}</span
+                >{{ completedStationCount }}/{{ totalStations }}</span
               >
             </p>
           </div>
@@ -191,7 +181,7 @@ function goToMapPage() {
           <div class="summary-card__stat">
             <p class="summary-card__label">คะแนน</p>
             <p class="summary-card__value">
-              <span class="summary-card__value-num">{{ totalPoint }}</span>
+              <span class="summary-card__value-num">{{ mockScore }}</span>
             </p>
           </div>
         </div>
@@ -201,11 +191,11 @@ function goToMapPage() {
             v-for="station in stations"
             :key="station.id"
             class="station-chip"
-            :class="{ 'station-chip--visited': isVisited(station.id) }"
+            :class="{ 'station-chip--visited': isStationMissionComplete(station.type) }"
           >
             <span class="station-chip__icon-wrap">
               <UIcon
-                v-if="isVisited(station.id)"
+                v-if="isStationMissionComplete(station.type)"
                 name="i-lucide-check"
                 class="station-chip__icon"
               />
@@ -214,6 +204,11 @@ function goToMapPage() {
               }}</span>
             </span>
             <span class="station-chip__name">{{ station.name }}</span>
+            <span
+              v-if="!isStationMissionComplete(station.type)"
+              class="station-chip__progress"
+              >{{ missionProgressCount(station.type) }}/3</span
+            >
           </div>
         </div>
       </section>
@@ -239,7 +234,7 @@ function goToMapPage() {
            เพื่อไปหน้า Map เต็ม -->
       <MiniMap
         :stations="stations"
-        :visited-ids="visitedIds"
+        :visited-ids="miniMapVisitedIds"
         @open="goToMapPage"
       />
       </template>
@@ -396,20 +391,6 @@ function goToMapPage() {
   font-size: 1.3rem;
   font-weight: 800;
   letter-spacing: 0.05em;
-}
-
-/* [ใหม่] หน้าโหลดตอนกด GO — การ์ดเดียวกับ go-gate ปกติ แค่สลับเนื้อหาข้างในเป็น
-   Spinner กลาง ๆ ให้พื้นที่สูงใกล้เคียงกัน กันหน้าโหย่งตอนสลับ state ไปมา */
-.go-gate--loading {
-  min-height: 14rem;
-  justify-content: center;
-}
-
-.go-gate__loading-spinner {
-  width: 2.75rem;
-  height: 2.75rem;
-  color: var(--farm-accent-dark);
-  animation: spin 1s linear infinite;
 }
 
 /* ---------------------------- Summary Card ---------------------------- */
@@ -622,12 +603,22 @@ function goToMapPage() {
   color: var(--farm-accent-dark);
 }
 
+.station-chip__progress {
+  font-size: 0.5rem;
+  font-weight: 700;
+  color: var(--farm-text-muted);
+}
+
 @media (max-width: 360px) {
   .station-chip__name {
     font-size: 0.52rem;
   }
 
   .station-chip__points {
+    font-size: 0.46rem;
+  }
+
+  .station-chip__progress {
     font-size: 0.46rem;
   }
 
