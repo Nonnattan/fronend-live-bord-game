@@ -28,6 +28,19 @@
 
 const REWARDS_SHEET_NAME = "Rewards";
 const REWARD_CLAIMS_SHEET_NAME = "RewardClaims";
+// [ใหม่ — ตามที่ตกลงกัน] ชีตแคช "คะแนนที่ Client รายงานมาเอง" (จาก LocalStorage
+// ฝั่งเกม — รวมคะแนนฐาน (Journey) + คะแนนคำถามตอบถูก (Answers/questionAnswered
+// ใน LocalStorage) ที่คำนวณไว้แล้วฝั่งเครื่อง) ใช้เป็น "ทางลัดชั่วคราว" แทนการ
+// พึ่ง computeRoundScore_ (Journey+Answers sheet) ล้วน ๆ เผื่อกรณี Answers sheet
+// ยัง sync ไม่ทัน/ไม่ครบตอนใช้งานจริง — เขียนทุกครั้งที่ actionGetRewardStatus_
+// ถูกเรียกพร้อม payload.score (round-summary.vue โพลทุก 10 วิ) แล้ว
+// actionClaimReward_/actionListPendingRewards_ อ่านค่านี้ก่อนเสมอถ้ามี ไม่มี ->
+// fallback ไป computeRoundScore_ เหมือนเดิมทุกประการ (ไม่กระทบ path เดิม)
+// *** ข้อควรระวัง: จุดนี้ "เชื่อคะแนนจาก client" ตรง ๆ — เหมาะสำหรับช่วง Demo/
+// ทดสอบเท่านั้น ไม่แนะนำสำหรับ Production จริงที่มีการแจกของรางวัลมีมูลค่า เพราะ
+// เปิดช่องให้แก้ค่าใน LocalStorage แล้วรับรางวัลเกินสิทธิ์ได้ ***
+const ROUND_SCORE_CACHE_SHEET_NAME = "RoundScoreCache";
+const ROUND_SCORE_CACHE_HEADERS = ["RoundId", "UserId", "Score", "UpdatedAt"];
 
 const REWARDS_HEADERS = [
   "Id",
@@ -76,6 +89,63 @@ function getRewardClaimsSheet_() {
   return sheet;
 }
 
+function getRoundScoreCacheSheet_() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = ss.getSheetByName(ROUND_SCORE_CACHE_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(ROUND_SCORE_CACHE_SHEET_NAME);
+  }
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(ROUND_SCORE_CACHE_HEADERS);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+/** บันทึก/อัปเดตคะแนนที่ Client รายงานมาของ (roundId+userId) นี้ — 1 คู่ = 1 แถว
+ * เสมอ (upsert) หา่ไม่เจอแถวเดิม -> เพิ่มแถวใหม่ */
+function upsertRoundScoreCache_(roundId, userId, score, now) {
+  const rid = normalize_(roundId);
+  const uid = normalize_(userId);
+  if (!rid || !uid) return;
+  const sheet = getRoundScoreCacheSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= 2) {
+    const rows = sheet
+      .getRange(2, 1, lastRow - 1, ROUND_SCORE_CACHE_HEADERS.length)
+      .getValues();
+    for (let i = 0; i < rows.length; i++) {
+      if (normalize_(rows[i][0]) === rid && normalize_(rows[i][1]) === uid) {
+        sheet
+          .getRange(i + 2, 1, 1, ROUND_SCORE_CACHE_HEADERS.length)
+          .setValues([[rid, uid, Number(score) || 0, now]]);
+        return;
+      }
+    }
+  }
+  sheet.appendRow([rid, uid, Number(score) || 0, now]);
+}
+
+/** อ่านคะแนนที่ Client เคยรายงานไว้ล่าสุดของ (roundId+userId) นี้ — คืน null ถ้า
+ * ไม่เคยมีการรายงานมาเลย (ให้ผู้เรียก fallback ไป computeRoundScore_ เอง) */
+function readCachedRoundScore_(roundId, userId) {
+  const rid = normalize_(roundId);
+  const uid = normalize_(userId);
+  if (!rid || !uid) return null;
+  const sheet = getRoundScoreCacheSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return null;
+  const rows = sheet
+    .getRange(2, 1, lastRow - 1, ROUND_SCORE_CACHE_HEADERS.length)
+    .getValues();
+  for (let i = 0; i < rows.length; i++) {
+    if (normalize_(rows[i][0]) === rid && normalize_(rows[i][1]) === uid) {
+      return Number(rows[i][2]) || 0;
+    }
+  }
+  return null;
+}
+
 function getAllRewardRows_(sheet) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
@@ -104,9 +174,80 @@ function rowToRewardTier_(row) {
     id: normalize_(row[0]),
     name: normalize_(row[1]),
     minScore: Number(row[2]) || 0,
-    maxScore: row[3] === "" || row[3] === null || row[3] === undefined ? null : Number(row[3]),
+    maxScore:
+      row[3] === "" || row[3] === null || row[3] === undefined
+        ? null
+        : Number(row[3]),
     active: rewardActiveToBool_(row[4]),
+    updatedAt: normalize_(row[5]),
   };
+}
+
+/** สร้างรหัสระดับรางวัลใหม่ ไม่ซ้ำกัน เช่น RW-LXQK3F-A1B (รูปแบบเดียวกับ
+ * generateSideQuestId_ ของ SideQuestsService.gs) */
+function generateRewardId_() {
+  const ts = Date.now().toString(36).toUpperCase();
+  const rand = Math.random().toString(36).slice(2, 5).toUpperCase();
+  return "RW-" + ts + "-" + rand;
+}
+
+/** คืนค่า row number จริงบนชีต "Rewards" (1-indexed) ของระดับรางวัล (id) หรือ -1
+ * ถ้าไม่พบ */
+function findRewardRowIndexById_(sheet, id) {
+  const target = normalize_(id);
+  if (!target) return -1;
+  const rows = getAllRewardRows_(sheet);
+  for (let i = 0; i < rows.length; i++) {
+    if (normalize_(rows[i][0]) === target) return i + 2;
+  }
+  return -1;
+}
+
+/** สร้างระดับรางวัลใหม่ 1 แถวในชีต "Rewards" — id/updatedAt กำหนดโดยฝั่งนี้เสมอ */
+function createRewardTier_(sheet, input, now) {
+  const id = generateRewardId_();
+  const newRow = [
+    id,
+    normalize_(input.name),
+    Number(input.minScore) || 0,
+    input.maxScore === undefined ||
+    input.maxScore === null ||
+    input.maxScore === ""
+      ? ""
+      : Number(input.maxScore),
+    input.active !== false,
+    now,
+  ];
+  sheet.appendRow(newRow);
+  return rowToRewardTier_(newRow);
+}
+
+/** แก้ไขระดับรางวัลที่มีอยู่แล้วด้วย id — อัปเดตเฉพาะฟิลด์ที่ส่งมา (undefined = คงค่าเดิมไว้) */
+function updateRewardTier_(sheet, rowIndex, input, now) {
+  const current = sheet
+    .getRange(rowIndex, 1, 1, REWARDS_HEADERS.length)
+    .getValues()[0];
+  const updatedRow = [
+    current[0],
+    input.name !== undefined ? normalize_(input.name) : current[1],
+    input.minScore !== undefined ? Number(input.minScore) || 0 : current[2],
+    input.maxScore !== undefined
+      ? input.maxScore === null || input.maxScore === ""
+        ? ""
+        : Number(input.maxScore)
+      : current[3],
+    input.active !== undefined ? !!input.active : current[4],
+    now,
+  ];
+  sheet
+    .getRange(rowIndex, 1, 1, REWARDS_HEADERS.length)
+    .setValues([updatedRow]);
+  return rowToRewardTier_(updatedRow);
+}
+
+/** ลบระดับรางวัล 1 แถวด้วย id */
+function deleteRewardRow_(sheet, rowIndex) {
+  sheet.deleteRow(rowIndex);
 }
 
 function rowToRewardClaim_(row) {
@@ -163,7 +304,9 @@ function getRoundEntryById_(roundId) {
   const sheet = getRoundSheet_();
   const rowIndex = findRoundRowIndexById_(sheet, rid);
   if (rowIndex === -1) return null;
-  const row = sheet.getRange(rowIndex, 1, 1, ROUND_HEADERS.length).getValues()[0];
+  const row = sheet
+    .getRange(rowIndex, 1, 1, ROUND_HEADERS.length)
+    .getValues()[0];
   return rowToRoundEntry_(row);
 }
 
@@ -180,9 +323,11 @@ function markRoundRewardClaimed_(roundId) {
   const sheet = getRoundSheet_();
   const rowIndex = findRoundRowIndexById_(sheet, rid);
   if (rowIndex === -1) return;
-  const row = sheet.getRange(rowIndex, 1, 1, ROUND_HEADERS.length).getValues()[0];
-  if (normalize_(row[6]) === 'Confirmed') return;
-  row[6] = 'Claimed';
+  const row = sheet
+    .getRange(rowIndex, 1, 1, ROUND_HEADERS.length)
+    .getValues()[0];
+  if (normalize_(row[6]) === "Confirmed") return;
+  row[6] = "Claimed";
   sheet.getRange(rowIndex, 1, 1, ROUND_HEADERS.length).setValues([row]);
 }
 
@@ -214,7 +359,8 @@ function computeRoundScore_(roundId, userId) {
   const answerRows = getAllAnswerRows_(getAnswersSheet_());
   for (let i = 0; i < answerRows.length; i++) {
     const answer = rowToAnswer_(answerRows[i]);
-    if (answer.roundId === rid && answer.userId === uid) total += answer.pointsEarned;
+    if (answer.roundId === rid && answer.userId === uid)
+      total += answer.pointsEarned;
   }
 
   return total;
@@ -237,14 +383,25 @@ function computeRoundScore_(roundId, userId) {
 function getRoundScoresBreakdown_(roundId, userId) {
   const rid = normalize_(roundId);
   const uid = normalize_(userId);
-  if (!rid || !uid) return { stations: [], totalPoint: 0, totalQuestionPoint: 0, totalScore: 0 };
+  if (!rid || !uid)
+    return {
+      stations: [],
+      totalPoint: 0,
+      totalQuestionPoint: 0,
+      totalScore: 0,
+    };
 
   const byStation = {};
   const order = [];
 
   function ensureStation_(stationId, stationName) {
     if (!byStation[stationId]) {
-      byStation[stationId] = { stationId: stationId, stationName: stationName || stationId, point: 0, questionPoint: 0 };
+      byStation[stationId] = {
+        stationId: stationId,
+        stationName: stationName || stationId,
+        point: 0,
+        questionPoint: 0,
+      };
       order.push(stationId);
     } else if (stationName && !byStation[stationId].stationName) {
       byStation[stationId].stationName = stationName;
@@ -268,9 +425,15 @@ function getRoundScoresBreakdown_(roundId, userId) {
     row.questionPoint += answer.pointsEarned;
   }
 
-  const stations = order.map(function (id) { return byStation[id]; });
-  const totalPoint = stations.reduce(function (sum, s) { return sum + s.point; }, 0);
-  const totalQuestionPoint = stations.reduce(function (sum, s) { return sum + s.questionPoint; }, 0);
+  const stations = order.map(function (id) {
+    return byStation[id];
+  });
+  const totalPoint = stations.reduce(function (sum, s) {
+    return sum + s.point;
+  }, 0);
+  const totalQuestionPoint = stations.reduce(function (sum, s) {
+    return sum + s.questionPoint;
+  }, 0);
 
   return {
     stations: stations,
@@ -303,7 +466,19 @@ function actionGetRewardStatus_(payload) {
   }
   const roundId = normalize_(payload.roundId);
   const userId = normalize_(payload.userId);
-  const score = computeRoundScore_(roundId, userId);
+
+  // [ใหม่] payload.score = คะแนนที่ Client คำนวณเอง (LocalStorage: ฐานที่ผ่าน +
+  // คำถามตอบถูก) ส่งมาด้วย -> เชื่อค่านี้ตรง ๆ และแคชไว้ (upsertRoundScoreCache_)
+  // ให้ actionClaimReward_/actionListPendingRewards_ อ่านต่อได้ทีหลัง ไม่ส่งมา
+  // (undefined) -> พฤติกรรมเดิมทุกประการ (คำนวณจาก Journey+Answers ฝั่ง server)
+  let score;
+  if (typeof payload.score === "number" && !isNaN(payload.score)) {
+    score = Math.max(0, Math.floor(payload.score));
+    if (roundId && userId)
+      upsertRoundScoreCache_(roundId, userId, score, bangkokNow_());
+  } else {
+    score = computeRoundScore_(roundId, userId);
+  }
 
   const tiers = getAllRewardRows_(getRewardsSheet_()).map(rowToRewardTier_);
   const tier = findQualifyingRewardTier_(tiers, score);
@@ -322,19 +497,31 @@ function actionGetRewardStatus_(payload) {
 }
 
 /**
- * action 'claimReward' — เจ้าหน้าที่กดยืนยันรับรางวัลที่จุดแลกรางวัล (ดู
- * pages/redeem.vue) idempotent ด้วย (roundId + userId): เคยแลกไปแล้ว -> คืนผล
- * เดิมทันที (alreadyClaimed: true) ไม่สร้างแถวซ้ำ ไม่ให้แลกซ้ำ
+ * action 'claimReward' — เจ้าหน้าที่กดยืนยันที่จุดแลกรางวัล (ดู pages/redeem.vue)
+ * idempotent ด้วย (roundId + userId): เคยกดยืนยันไปแล้ว -> คืนผลเดิมทันที
+ * (alreadyClaimed: true) ไม่สร้างแถวซ้ำ ไม่ให้ยืนยันซ้ำ
  *
  * ตัดสินระดับรางวัล "ใหม่ฝั่ง server เสมอ" จากคะแนนที่คำนวณเอง (ไม่รับ score จาก
  * payload อีกต่อไป — ดู computeRoundScore_ ด้านบน) และไม่เชื่อ rewardId ใด ๆ ที่
  * client อาจส่งมาเอง (กันการปลอมค่าเพื่อรับรางวัลเกินสิทธิ์) เจ้าหน้าที่จึงกรอก
  * แค่ roundId + userId ที่อ่านจากหน้าจอผู้เล่นเท่านั้น
  *
- * [ใหม่] ทุก path ที่ตอบ success (ทั้งเคย Claim ไปแล้วและเพิ่ง Claim ใหม่) จะเรียก
- * markRoundRewardClaimed_() ตั้ง Round.RewardStatus = 'Claimed' เสมอ (เว้นแต่
- * เป็น 'Confirmed' ไปแล้ว — ไม่มีวันลดสถานะกลับ) เพื่อให้หน้า round-summary.vue ที่
- * Poll อยู่ตรวจพบแล้ว redirect ไป /reward-received ได้ทันที
+ * [แก้ไข] เดิม: "ไม่มีระดับรางวัลใดเข้าเกณฑ์เลย" -> ตอบ error กลับไป ทำให้รอบนั้น
+ * ค้างที่ RewardStatus='Pending' ตลอดไป (เจ้าหน้าที่กดยืนยันไม่ได้เลยสักครั้ง เพราะ
+ * ทุกครั้งเจอ error) ผู้เล่นที่คะแนนไม่ถึงเกณฑ์รางวัลใดเลยจึงติดค้างที่หน้า
+ * round-summary.vue (Poll รอ RewardStatus เปลี่ยนเป็น Claimed) ไปตลอดกาล ไม่มีทาง
+ * ไปต่อได้ — ทั้งที่ "Pending" มีความหมายแค่ "จบเกมแล้ว รอเจ้าหน้าที่ยืนยัน" เท่านั้น
+ * ไม่ได้แปลว่า "ต้องมีรางวัลเสมอ"
+ *
+ * ตอนนี้: ไม่มีระดับรางวัลเข้าเกณฑ์เลย -> ยัง "ยืนยันจบขั้นตอนได้" เหมือนเดิมทุก
+ * ประการ เพียงแต่ reward เป็น null (ไม่มีรางวัลให้) — บันทึกแถวลง RewardClaims
+ * ไว้เป็นหลักฐานเช่นกัน (RewardId/RewardName ว่างเปล่า = "ยืนยันแล้วแต่ไม่มีรางวัล")
+ * แล้วเรียก markRoundRewardClaimed_() ต่อเหมือนกรณีมีรางวัลทุกประการ
+ *
+ * ทุก path ที่ตอบ success (เคย Claim ไปแล้ว/เพิ่ง Claim ใหม่ ไม่ว่าจะมีรางวัลหรือ
+ * ไม่มีรางวัลก็ตาม) จะเรียก markRoundRewardClaimed_() ตั้ง Round.RewardStatus =
+ * 'Claimed' เสมอ (เว้นแต่เป็น 'Confirmed' ไปแล้ว — ไม่มีวันลดสถานะกลับ) เพื่อให้
+ * หน้า round-summary.vue ที่ Poll อยู่ตรวจพบแล้ว redirect ไป /reward-received ได้
  *
  * Payload: { action, roundId, userId, displayName }
  */
@@ -347,10 +534,16 @@ function actionClaimReward_(payload) {
   if (!roundId) {
     return {
       success: false,
-      error: "roundId จำเป็นต้องส่งมา (แลกรางวัลได้เฉพาะรอบที่เล่นแบบออนไลน์เท่านั้น)",
+      error:
+        "roundId จำเป็นต้องส่งมา (แลกรางวัลได้เฉพาะรอบที่เล่นแบบออนไลน์เท่านั้น)",
     };
   }
-  const score = computeRoundScore_(roundId, userId);
+  // [ใหม่] ใช้คะแนนที่ Client เคยรายงานไว้ (แคชผ่าน getRewardStatus) ก่อนเสมอ
+  // ถ้ามี — ไม่มีเลย (ไม่เคยเรียก getRewardStatus พร้อม score มาก่อน) -> fallback
+  // ไปคำนวณจาก Journey+Answers ฝั่ง server ตามเดิม (ไม่กระทบ Flow เดิม)
+  const cachedScore = readCachedRoundScore_(roundId, userId);
+  const score =
+    cachedScore !== null ? cachedScore : computeRoundScore_(roundId, userId);
 
   const claimsSheet = getRewardClaimsSheet_();
   const claimRows = getAllRewardClaimRows_(claimsSheet);
@@ -369,17 +562,15 @@ function actionClaimReward_(payload) {
 
   const tiers = getAllRewardRows_(getRewardsSheet_()).map(rowToRewardTier_);
   const tier = findQualifyingRewardTier_(tiers, score);
-  if (!tier) {
-    return { success: false, error: "คะแนนยังไม่ถึงเกณฑ์รับรางวัลใดเลย" };
-  }
-
+  // [แก้ไข] ไม่พบระดับรางวัลที่เข้าเกณฑ์ -> "ไม่ error อีกต่อไป" ยังคงบันทึกการ
+  // ยืนยันจบขั้นตอนไว้ตามปกติ (tier.id/tier.name เป็นค่าว่างในแถว RewardClaims)
   const now = bangkokNow_();
   claimsSheet.appendRow([
     roundId,
     userId,
     normalize_(payload.displayName),
-    tier.id,
-    tier.name,
+    tier ? tier.id : "",
+    tier ? tier.name : "",
     score,
     now,
   ]);
@@ -388,7 +579,7 @@ function actionClaimReward_(payload) {
   return {
     success: true,
     alreadyClaimed: false,
-    reward: { id: tier.id, name: tier.name },
+    reward: tier ? { id: tier.id, name: tier.name } : null,
     claimedAt: now,
   };
 }
@@ -398,6 +589,112 @@ function actionClaimReward_(payload) {
 function actionListRewards_() {
   const tiers = getAllRewardRows_(getRewardsSheet_()).map(rowToRewardTier_);
   return { success: true, rewards: tiers };
+}
+
+/**
+ * [ใหม่] action 'createReward' — สร้างระดับรางวัลใหม่ในชีต "Rewards" (ใช้โดย
+ * หน้า Admin > รางวัล — pages/admin/rewards.vue) โครงสร้างเดียวกับ
+ * actionCreateSideQuest_ ของ SideQuestsService.gs ทุกประการ ไม่ต้องกำหนด
+ * maxScore ก็ได้ (แปลว่า "ไม่มีเพดานบน" — ดู findQualifyingRewardTier_ ด้านบน)
+ */
+function actionCreateReward_(payload) {
+  if (!payload || !normalize_(payload.name)) {
+    return { success: false, error: "name จำเป็นต้องส่งมา" };
+  }
+  const sheet = getRewardsSheet_();
+  const reward = createRewardTier_(sheet, payload, bangkokNow_());
+  return { success: true, reward: reward };
+}
+
+/** [ใหม่] action 'updateReward' — แก้ไขระดับรางวัลด้วย id (รวมถึงสลับ active เปิด/ปิด) */
+function actionUpdateReward_(payload) {
+  if (!payload || !normalize_(payload.id)) {
+    return { success: false, error: "id จำเป็นต้องส่งมา" };
+  }
+  const sheet = getRewardsSheet_();
+  const rowIndex = findRewardRowIndexById_(sheet, payload.id);
+  if (rowIndex === -1) {
+    return { success: false, error: "ไม่พบระดับรางวัลตาม id ที่ระบุ" };
+  }
+  const reward = updateRewardTier_(sheet, rowIndex, payload, bangkokNow_());
+  return { success: true, reward: reward };
+}
+
+/** [ใหม่] action 'deleteReward' — ลบระดับรางวัลด้วย id (ไม่กระทบ RewardClaims
+ * เดิมที่เคยแลกไปแล้วภายใต้ระดับนี้ — ประวัติการแลกยังอยู่ครบ เปลี่ยนแค่คลัง
+ * รางวัลที่ใช้ตัดสินสิทธิ์ของรอบใหม่ ๆ ต่อจากนี้เท่านั้น) */
+function actionDeleteReward_(payload) {
+  if (!payload || !normalize_(payload.id)) {
+    return { success: false, error: "id จำเป็นต้องส่งมา" };
+  }
+  const sheet = getRewardsSheet_();
+  const rowIndex = findRewardRowIndexById_(sheet, payload.id);
+  if (rowIndex === -1) {
+    return { success: false, error: "ไม่พบระดับรางวัลตาม id ที่ระบุ" };
+  }
+  deleteRewardRow_(sheet, rowIndex);
+  return { success: true };
+}
+
+/**
+ * [ใหม่] action 'listPendingRewards' — รายชื่อ "รอบที่จบเกมแล้ว แต่ยังไม่ได้รับ
+ * รางวัล" ทั้งหมด (Round.Status = 'Ended' และ Round.RewardStatus = 'Pending')
+ * ไม่เขียนข้อมูลใด ๆ ใช้แทนการให้เจ้าหน้าที่พิมพ์ roundId/userId เองที่หน้า
+ * pages/admin/redeem.vue — เจ้าหน้าที่เห็นชื่อผู้เล่นที่รอรับรางวัลเป็นรายการ
+ * กดเลือกได้เลย
+ *
+ * สำหรับแต่ละรอบที่ตรงเงื่อนไข คำนวณคะแนนรวมใหม่ฝั่ง server เสมอ
+ * (computeRoundScore_ เดียวกับ actionGetRewardStatus_/actionClaimReward_ —
+ * ไม่มีทางเลขคะแนนเพี้ยนไปจากหน้า /redeem เดิม) แล้วหาระดับรางวัลที่เข้าเกณฑ์
+ * (findQualifyingRewardTier_) ให้ทันที เพื่อให้เจ้าหน้าที่เห็นชื่อรางวัลในรายการ
+ * โดยไม่ต้องกดเข้าไปดูทีละคน
+ *
+ * เรียงผลลัพธ์จาก "จบรอบล่าสุดก่อน" (endTime ใหม่สุดอยู่บนสุด) เพราะเป็นคนที่
+ * กำลังรอเจ้าหน้าที่อยู่หน้าจุดแลกรางวัลตอนนี้พอดี — endTime เก็บเป็น string
+ * รูปแบบ "yyyy-MM-dd HH:mm:ss" (bangkokNow_) เรียงด้วย string compare ตรงตาม
+ * เวลาจริงได้เลยเพราะความยาวคงที่เท่ากันทุกแถว
+ */
+function actionListPendingRewards_() {
+  const roundRows = getAllRoundRows_(getRoundSheet_());
+  const tiers = getAllRewardRows_(getRewardsSheet_()).map(rowToRewardTier_);
+  const claimRows = getAllRewardClaimRows_(getRewardClaimsSheet_());
+
+  const pending = [];
+  for (let i = 0; i < roundRows.length; i++) {
+    const entry = rowToRoundEntry_(roundRows[i]);
+    if (entry.status !== "Ended") continue;
+    if (entry.rewardStatus !== "Pending") continue;
+
+    // [ใหม่] เหมือน actionClaimReward_ — ใช้คะแนนแคชจาก Client ก่อนถ้ามี
+    const cachedScore = readCachedRoundScore_(entry.roundId, entry.userId);
+    const score =
+      cachedScore !== null
+        ? cachedScore
+        : computeRoundScore_(entry.roundId, entry.userId);
+    const tier = findQualifyingRewardTier_(tiers, score);
+    const existing = findExistingRewardClaim_(
+      claimRows,
+      entry.roundId,
+      entry.userId,
+    );
+
+    pending.push({
+      roundId: entry.roundId,
+      userId: entry.userId,
+      firstName: entry.firstName,
+      endTime: entry.endTime,
+      score: score,
+      reward: tier ? { id: tier.id, name: tier.name } : null,
+      alreadyClaimed: !!existing,
+    });
+  }
+
+  pending.sort(function (a, b) {
+    if (a.endTime === b.endTime) return 0;
+    return a.endTime < b.endTime ? 1 : -1;
+  });
+
+  return { success: true, pending: pending };
 }
 
 /**

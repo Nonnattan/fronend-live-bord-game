@@ -8,48 +8,50 @@
  * useStationQuest().answerMission() แล้วส่ง `answer` กลับมาให้ popup นี้แสดงผล)
  * ตอบได้ครั้งเดียว — เมื่อมี `answer` แล้วจะ Lock เป็นหน้าผลลัพธ์ถาวร
  */
-import type { MissionAnswerResult, MissionMockQuestion } from '~/types/stationMission'
-import { MISSION_META } from '~/utils/stationMissionMeta'
+import type {
+  MissionAnswerResult,
+  MissionMockQuestion,
+} from "~/types/stationMission";
+import { MISSION_META } from "~/utils/stationMissionMeta";
 
 const props = defineProps<{
-  open: boolean
-  question: MissionMockQuestion
-  answer: MissionAnswerResult | null
-}>()
+  open: boolean;
+  question: MissionMockQuestion;
+  answer: MissionAnswerResult | null;
+}>();
 
 const emit = defineEmits<{
-  'update:open': [value: boolean]
-  submit: [choiceId: string]
-  close: []
-}>()
+  "update:open": [value: boolean];
+  submit: [choiceId: string];
+  close: [];
+}>();
 
-const selectedChoiceId = ref('')
+const selectedChoiceId = ref("");
 
 watch(
   () => props.question.questionId,
   () => {
-    selectedChoiceId.value = ''
+    selectedChoiceId.value = "";
   },
-)
+);
 
-const hasResult = computed(() => !!props.answer)
-const meta = computed(() => MISSION_META[props.question.kind])
+const hasResult = computed(() => !!props.answer);
+const meta = computed(() => MISSION_META[props.question.kind]);
 
 function selectChoice(choiceId: string): void {
-  if (hasResult.value) return
-  selectedChoiceId.value = choiceId
+  if (hasResult.value) return;
+  selectedChoiceId.value = choiceId;
 }
 
 function handleSubmit(): void {
-  if (hasResult.value || !selectedChoiceId.value) return
-  emit('submit', selectedChoiceId.value)
+  if (hasResult.value || !selectedChoiceId.value) return;
+  emit("submit", selectedChoiceId.value);
 }
 </script>
 
 <template>
   <UModal
     :open="open"
-    :title="hasResult ? (answer!.isCorrect ? '✓ ตอบถูกต้อง' : '✕ ยังไม่ถูกต้อง') : `${meta.icon} ${meta.title}`"
     :dismissible="false"
     :close="false"
     @update:open="(v) => emit('update:open', v)"
@@ -63,7 +65,9 @@ function handleSubmit(): void {
             :key="c.id"
             type="button"
             class="mission-question__choice"
-            :class="{ 'mission-question__choice--selected': selectedChoiceId === c.id }"
+            :class="{
+              'mission-question__choice--selected': selectedChoiceId === c.id,
+            }"
             @click="selectChoice(c.id)"
           >
             {{ c.label }}
@@ -72,21 +76,34 @@ function handleSubmit(): void {
       </div>
 
       <div v-else class="mission-question__result">
+        <!-- แสดงไอคอนเฉพาะตอนที่ตอบถูกเท่านั้น -->
         <UIcon
-          :name="answer!.isCorrect ? 'i-lucide-check-circle-2' : 'i-lucide-x-circle'"
-          class="mission-question__result-icon"
-          :class="{
-            'mission-question__result-icon--correct': answer!.isCorrect,
-            'mission-question__result-icon--wrong': !answer!.isCorrect,
-          }"
+          v-if="answer!.isCorrect"
+          name="i-lucide-check-circle-2"
+          class="mission-question__result-icon mission-question__result-icon--correct"
         />
-        <p v-if="answer!.isCorrect" class="mission-question__result-points">+{{ answer!.pointsEarned }} คะแนน</p>
-        <p v-else class="mission-question__result-note">ไม่ได้คะแนน</p>
+
+        <!-- ใช้คลาสหลักเดียวกันเพื่อให้ขนาดตัวหนังสือเท่ากัน -->
+        <p v-if="answer!.isCorrect" class="mission-question__result-points">
+          +{{ answer!.pointsEarned }} คะแนน
+        </p>
+        <p
+          v-else
+          class="mission-question__result-points mission-question__result-points--wrong"
+        >
+          0 คะแนน
+        </p>
       </div>
     </template>
 
     <template #footer>
-      <UButton v-if="!hasResult" block color="primary" :disabled="!selectedChoiceId" @click="handleSubmit">
+      <UButton
+        v-if="!hasResult"
+        block
+        color="primary"
+        :disabled="!selectedChoiceId"
+        @click="handleSubmit"
+      >
         ยืนยันคำตอบ
       </UButton>
       <UButton v-else block color="primary" @click="emit('close')">ปิด</UButton>
@@ -152,10 +169,6 @@ function handleSubmit(): void {
   color: var(--farm-accent-dark);
 }
 
-.mission-question__result-icon--wrong {
-  color: var(--farm-wood-dark);
-}
-
 .mission-question__result-points {
   margin: 0;
   font-size: 1.3rem;
@@ -163,9 +176,8 @@ function handleSubmit(): void {
   color: var(--farm-accent-dark);
 }
 
-.mission-question__result-note {
-  margin: 0;
-  font-size: 0.9rem;
-  color: var(--farm-text-muted);
+/* เพิ่ม class สำหรับเปลี่ยนสีข้อความ 0 คะแนน (ขนาดเท่ากัน) */
+.mission-question__result-points--wrong {
+  color: var(--farm-wood-dark);
 }
 </style>

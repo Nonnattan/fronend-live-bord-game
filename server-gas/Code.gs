@@ -351,7 +351,9 @@ function normalizePhone_(value) {
   if (!raw) return "";
   const digits = raw.replace(/\D/g, "");
   if (!digits) return "";
-  return digits.length === 9 && digits.charAt(0) !== "0" ? "0" + digits : digits;
+  return digits.length === 9 && digits.charAt(0) !== "0"
+    ? "0" + digits
+    : digits;
 }
 
 /**
@@ -793,7 +795,9 @@ function actionPing_() {
   info.rewardServiceLoaded = typeof actionGetRewardStatus_ === "function";
   info.surveyServiceLoaded = typeof actionSubmitSurvey_ === "function";
   info.photoQuestsSheetFound = !!ss.getSheetByName("PhotoQuests");
-  info.photoQuestCompletionsSheetFound = !!ss.getSheetByName("PhotoQuestCompletions");
+  info.photoQuestCompletionsSheetFound = !!ss.getSheetByName(
+    "PhotoQuestCompletions",
+  );
   info.questionsSheetFound = !!ss.getSheetByName("Questions");
   info.answersSheetFound = !!ss.getSheetByName("Answers");
   info.rewardsSheetFound = !!ss.getSheetByName("Rewards");
@@ -919,6 +923,20 @@ function handleRequest_(payload) {
         return jsonOutput_(actionClaimReward_(payload));
       case "listRewards":
         return jsonOutput_(actionListRewards_());
+      // [ใหม่ — sync จาก backend-liveboradgame/apps-script/RewardService.gs]
+      // จัดการคลังของรางวัล (ชีต "Rewards") จากหน้า Admin > รางวัล
+      // (pages/admin/rewards.vue) — ไฟล์นี้ (server-gas) ขาด 3 case นี้มาก่อน
+      // ทำให้หน้า Admin จัดการรางวัลใช้งานไม่ได้เลยถ้า deploy จากไฟล์ชุดนี้
+      case "createReward":
+        return jsonOutput_(actionCreateReward_(payload));
+      case "updateReward":
+        return jsonOutput_(actionUpdateReward_(payload));
+      case "deleteReward":
+        return jsonOutput_(actionDeleteReward_(payload));
+      // [ใหม่ — sync จาก backend-liveboradgame] รายชื่อรอบที่จบเกมแล้วแต่ยังไม่ได้
+      // รับรางวัล ใช้ที่หน้า pages/admin/redeem.vue ของฝั่ง Admin
+      case "listPendingRewards":
+        return jsonOutput_(actionListPendingRewards_());
       // ไฟล์ใหม่ (รอบนี้): action 'getRoundScores' — คะแนนแยกรายฐานของรอบที่ระบุ
       // (ไม่เขียนข้อมูล) ดู RewardService.gs::actionGetRoundScores_ — ใช้แหล่ง
       // ข้อมูลจริงชุดเดียวกับ getRewardStatus (Journey + Answers) ไม่ใช่คะแนนที่
@@ -927,7 +945,7 @@ function handleRequest_(payload) {
         return jsonOutput_(actionGetRoundScores_(payload));
       default:
         return errorResponse_(
-          "action ไม่ถูกต้องหรือไม่ได้ระบุ ต้องเป็นหนึ่งใน: ping, checkMember, register, login, loginByLine, updateMember, getMember, checkin, getJourney, getScore, getLeaderboard, roundStart, roundEnd, getRound, confirmRound, listStations, createStation, updateStation, deleteStation, verifyStationQr, listSideQuests, createSideQuest, updateSideQuest, deleteSideQuest, submitSurvey, listPhotoQuests, completePhotoQuest, createPhotoQuest, updatePhotoQuest, deletePhotoQuest, listQuestions, submitAnswer, getRoundAnswers, listStationMissions, verifyMissionQr, getRewardStatus, claimReward, listRewards, getRoundScores",
+          "action ไม่ถูกต้องหรือไม่ได้ระบุ ต้องเป็นหนึ่งใน: ping, checkMember, register, login, loginByLine, updateMember, getMember, checkin, getJourney, getScore, getLeaderboard, roundStart, roundEnd, getRound, confirmRound, listStations, createStation, updateStation, deleteStation, verifyStationQr, listSideQuests, createSideQuest, updateSideQuest, deleteSideQuest, submitSurvey, listPhotoQuests, completePhotoQuest, createPhotoQuest, updatePhotoQuest, deletePhotoQuest, listQuestions, submitAnswer, getRoundAnswers, listStationMissions, verifyMissionQr, getRewardStatus, claimReward, listRewards, createReward, updateReward, deleteReward, listPendingRewards, getRoundScores",
         );
     }
   } catch (err) {

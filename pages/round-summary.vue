@@ -51,7 +51,11 @@ const { isOfflineMode, startRound } = useOfflineMode();
 // [ใหม่] ระบบแลกของรางวัล — เช็คสถานะ (getRewardStatus) ทันที 1 ครั้ง + Poll ทุก
 // 10 วินาที (ดู pollRewardStatus() ด้านล่าง) ไม่มีปุ่มยืนยันรับในหน้านี้ (เจ้าหน้าที่
 // กดที่หน้า pages/redeem.vue, ผู้เล่นกด OK ที่หน้า pages/reward-received.vue)
-const { status: rewardStatus, isChecking: isCheckingReward, checkRewardStatus } = useReward();
+const {
+  status: rewardStatus,
+  isChecking: isCheckingReward,
+  checkRewardStatus,
+} = useReward();
 const { clearAllTimers } = useRoundTimer();
 // [ใหม่] คะแนนแยกรายฐานของรอบนี้ "จาก Backend เท่านั้น" (getRoundScores) — ห้ามใช้
 // roundSummary.stations/totalPoint (Snapshot ฝั่ง Client เดิม) เป็นคะแนนของรอบอีก
@@ -115,7 +119,10 @@ async function confirmAndGoHome(): Promise<void> {
  * Backend — เฉพาะฝั่ง Online เท่านั้น (ต้องมี roundId จริง) */
 function loadScores(): void {
   if (isOfflineMode.value) return;
-  void fetchRoundScores(roundSummary.value?.roundId, roundSummary.value?.userId);
+  void fetchRoundScores(
+    roundSummary.value?.roundId,
+    roundSummary.value?.userId,
+  );
 }
 
 /** ดักปุ่ม Back ของเบราว์เซอร์/มือถือ (กลับไปหน้า Scan เดิม) — เตือนก่อนออกเสมอ
@@ -163,9 +170,18 @@ async function pollRewardStatus(): Promise<void> {
   const userId = roundSummary.value?.userId;
   if (!roundId || !userId) return;
 
+  // [ใหม่ — ชั่วคราว/Demo] ส่งคะแนนที่ค้างอยู่ใน LocalStorage (สแนปช็อตตอนจบรอบ —
+  // roundSummary.totalPoint = คะแนนฐาน, roundSummary.questionPoints = คะแนน
+  // คำถามตอบถูก) ไปให้ server "เชื่อตรง ๆ" แทนการรอ Journey/Answers sync ครบ —
+  // ดูคำเตือนเรื่องความปลอดภัยที่ server-gas/RewardService.gs หัวไฟล์ (เหมาะกับ
+  // ช่วง Demo/ทดสอบเท่านั้น) ลบท่อนนี้ทิ้งได้เมื่อพร้อมกลับไปเชื่อ server ล้วน ๆ
+  const localScore =
+    (roundSummary.value?.totalPoint ?? 0) +
+    (roundSummary.value?.questionPoints ?? 0);
+
   pollInFlight = true;
   try {
-    const result = await checkRewardStatus(roundId, userId);
+    const result = await checkRewardStatus(roundId, userId, localScore);
     const status = result?.round?.rewardStatus;
     if (status === "Claimed" || status === "Confirmed") {
       stopPolling();
@@ -234,15 +250,13 @@ onBeforeUnmount(() => {
               class="warning-banner__icon"
             />
             <p class="warning-banner__text">
-              กรุณาอย่าออกจากหน้านี้ จนกว่าท่านจะติดต่อเจ้าหน้าที่เพื่อยืนยันผลการเล่น
+              กรุณาอย่าออกจากหน้านี้
+              จนกว่าท่านจะติดต่อเจ้าหน้าที่เพื่อยืนยันผลการเล่น
             </p>
           </div>
 
           <div class="result-hero">
-            <UIcon
-              name="i-lucide-party-popper"
-              class="result-hero__icon"
-            />
+            <UIcon name="i-lucide-party-popper" class="result-hero__icon" />
             <h1 class="result-hero__title">{{ resultTitle }}</h1>
             <p class="result-hero__prize">
               กรุณาติดต่อเจ้าหน้าที่เพื่อรับรางวัล
@@ -260,7 +274,9 @@ onBeforeUnmount(() => {
               <UIcon name="i-lucide-badge-check" class="info-card__icon" />
               <div class="info-card__text">
                 <p class="info-card__label">รหัสรอบ (roundId)</p>
-                <p class="info-card__value">{{ roundSummary.roundId ?? "-" }}</p>
+                <p class="info-card__value">
+                  {{ roundSummary.roundId ?? "-" }}
+                </p>
               </div>
             </div>
             <div class="info-card__row">
@@ -304,7 +320,7 @@ onBeforeUnmount(() => {
             <!-- [ใหม่] Offline: แสดงชื่อฐานจาก Snapshot เดิมเหมือนเดิมทุกประการ (ไม่มี
                  คะแนน — Offline Mode ไม่มี Round ฝั่ง Backend ให้ดึงคะแนนเลย) -->
             <div v-if="roundSummary.mode === 'offline'" class="info-card">
-              <p class="info-card__list-title">ฐานที่ท่านเล่น</p>
+              <!-- <p class="info-card__list-title">ฐานที่ท่านเล่น</p>
               <ul v-if="roundSummary.stations.length" class="station-list">
                 <li
                   v-for="(station, index) in roundSummary.stations"
@@ -317,19 +333,26 @@ onBeforeUnmount(() => {
               </ul>
               <p v-else class="empty-state__desc">
                 ยังไม่ได้เข้าฐานใดเลยในรอบนี้
-              </p>
+              </p> -->
             </div>
 
             <!-- [ใหม่] Online: คะแนนต้อง "มาจาก Backend เท่านั้น" (getRoundScores)
                  ห้ามใช้ Snapshot ฝั่ง Client คำนวณเอง — loading/error/retry ครบ -->
             <template v-else>
-              <div v-if="isLoadingScores" class="reward-card reward-card--loading">
-                <UIcon name="i-lucide-loader-2" class="reward-card__spinner" />
-                กำลังโหลดคะแนนของรอบนี้...
+              <div
+                v-if="isLoadingScores"
+                class="reward-card reward-card--loading"
+              >
+                <UIcon name="i-lucide-clock" class="reward-card__spinner-static" />
+                รอเจ้าหน้าที่ตรวจสอบคะแนน
               </div>
               <div v-else-if="scoresError" class="empty-state">
                 <p class="empty-state__desc">{{ scoresError }}</p>
-                <UButton block color="primary" variant="soft" @click="loadScores"
+                <UButton
+                  block
+                  color="primary"
+                  variant="soft"
+                  @click="loadScores"
                   >ลองอีกครั้ง</UButton
                 >
               </div>
@@ -343,7 +366,9 @@ onBeforeUnmount(() => {
                       class="station-list__item"
                     >
                       <span class="station-list__index">{{ index + 1 }}</span>
-                      <span class="station-list__name">{{ station.stationName }}</span>
+                      <span class="station-list__name">{{
+                        station.stationName
+                      }}</span>
                       <span class="station-list__points"
                         >+{{ station.point + station.questionPoint }}</span
                       >
@@ -357,13 +382,20 @@ onBeforeUnmount(() => {
                 <div class="total-card">
                   <p class="total-card__label">คะแนนรวมของรอบนี้</p>
                   <p class="total-card__value">
-                    <span class="total-card__value-num">{{ backendTotalScore }}</span>
+                    <span class="total-card__value-num">{{
+                      backendTotalScore
+                    }}</span>
                     <span class="total-card__unit">Point</span>
                   </p>
                   <!-- [ใหม่] แยกให้เห็นว่าคะแนนมาจาก 2 ทาง — สแกนฐาน + ตอบคำถามถูก
                        (ตามกติกาที่ตกลงกันไว้ "ได้ทั้งสแกนและตอบถูก") -->
-                  <p v-if="backendTotalQuestionPoint" class="total-card__breakdown">
-                    (ฐาน {{ backendTotalPoint }} + ตอบคำถามถูก +{{ backendTotalQuestionPoint }})
+                  <p
+                    v-if="backendTotalQuestionPoint"
+                    class="total-card__breakdown"
+                  >
+                    (ฐาน {{ backendTotalPoint }} + ตอบคำถามถูก +{{
+                      backendTotalQuestionPoint
+                    }})
                   </p>
                 </div>
               </template>
@@ -371,7 +403,10 @@ onBeforeUnmount(() => {
 
             <!-- [ใหม่] สถานะสิทธิ์รางวัล — แสดงอย่างเดียว ไม่มีปุ่มยืนยันในหน้านี้
                  (เจ้าหน้าที่กดยืนยันที่หน้า /redeem เท่านั้น ตามที่ตกลงกันไว้) -->
-            <div v-if="isCheckingReward" class="reward-card reward-card--loading">
+            <div
+              v-if="isCheckingReward"
+              class="reward-card reward-card--loading"
+            >
               <UIcon name="i-lucide-loader-2" class="reward-card__spinner" />
               กำลังตรวจสอบสิทธิ์รางวัล...
             </div>
@@ -379,7 +414,10 @@ onBeforeUnmount(() => {
               <UIcon name="i-lucide-gift" class="reward-card__icon" />
               <p class="reward-card__label">รางวัลของคุณ</p>
               <p class="reward-card__name">{{ rewardStatus.reward.name }}</p>
-              <p v-if="rewardStatus.alreadyClaimed" class="reward-card__status reward-card__status--done">
+              <p
+                v-if="rewardStatus.alreadyClaimed"
+                class="reward-card__status reward-card__status--done"
+              >
                 <UIcon name="i-lucide-check-circle-2" />
                 รับแล้ว {{ formatDateTime(rewardStatus.claimedAt) }}
               </p>
@@ -406,8 +444,13 @@ onBeforeUnmount(() => {
               ติดต่อเจ้าหน้าที่แล้ว / กลับสู่หน้าหลัก
             </UButton>
             <div v-else class="waiting-indicator">
-              <UIcon name="i-lucide-loader-2" class="waiting-indicator__spinner" />
-              <p class="waiting-indicator__text">กำลังรอเจ้าหน้าที่ยืนยันการรับรางวัล...</p>
+              <UIcon
+                name="i-lucide-loader-2"
+                class="waiting-indicator__spinner"
+              />
+              <p class="waiting-indicator__text">
+                กำลังรอเจ้าหน้าที่ยืนยันการรับรางวัล...
+              </p>
             </div>
           </template>
         </div>
@@ -733,6 +776,11 @@ onBeforeUnmount(() => {
   width: 1.1rem;
   height: 1.1rem;
   animation: spin 1s linear infinite;
+}
+
+.reward-card__spinner-static {
+  width: 1.1rem;
+  height: 1.1rem;
 }
 
 .reward-card__icon {

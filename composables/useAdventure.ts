@@ -190,6 +190,16 @@ export const ADVENTURE_STATION_POSITIONS: Record<string, { x: number; y: number 
   milk: { x: 47, y: 80 },
 }
 
+/**
+ * [ใหม่] ตำแหน่ง % (X-Y) ของ "จุดเริ่มต้น" — จุดคงที่จุดเดียวบนภาพพื้นหลัง
+ * เดียวกับ ADVENTURE_STATION_POSITIONS ด้านบน แสดงตลอดเวลาไม่ว่าจะผ่านฐานไหน
+ * มาแล้วหรือยัง (ไม่ใช่ ✓ ที่โผล่ตามสถานะเหมือนฐาน) ใช้บอกผู้เล่นว่าเดินเริ่ม
+ * จากจุดไหนของเกาะ — วางไว้บริเวณโซนคอกสัตว์/ทางเข้าด้านล่างซ้ายของภาพ ปรับ
+ * พิกัดตรงนี้จุดเดียวได้เลยถ้าตำแหน่งจริงไม่ตรงกับจุดเริ่มบนพื้นที่จริง (ดู
+ * components/map/AdventureMap.vue สำหรับส่วนที่ render จุดนี้)
+ */
+export const ADVENTURE_START_POINT: { x: number; y: number } = { x: 12, y: 90 }
+
 /** ค่าตั้งต้นสำหรับ Demo Mockup: ผ่านฐานแรก (ข้าวโพด) แล้ว 1 ฐาน */
 const DEFAULT_VISITED: string[] = []
 

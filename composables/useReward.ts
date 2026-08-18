@@ -35,7 +35,11 @@ export function useReward() {
    * [ใหม่] result.round (roundId/status/rewardStatus จากชีต "Round" โดยตรง) ถูก
    * เก็บไว้ใน status.value ด้วย — pages/round-summary.vue ใช้ค่านี้ตัดสินใจ
    * Poll ต่อ/redirect (ดู doc comment ด้านบนไฟล์) */
-  async function checkRewardStatus(roundId: string | null, userId: string): Promise<RewardStatus | null> {
+  /** [ใหม่ — ชั่วคราว/Demo] `score` (ไม่บังคับ) = คะแนนที่คำนวณจาก LocalStorage
+   * ฝั่งเครื่อง (ผู้เรียก — pages/round-summary.vue — เป็นคนรวม totalPoint (ฐาน)
+   * + questionPoints (คำถามตอบถูก) มาให้) ส่งต่อไป getRewardStatus() เฉย ๆ ดู
+   * คำเตือนเรื่องความปลอดภัยที่ server-gas/RewardService.gs หัวไฟล์ */
+  async function checkRewardStatus(roundId: string | null, userId: string, score?: number): Promise<RewardStatus | null> {
     if (!import.meta.client || !roundId || !userId) {
       status.value = null
       return null
@@ -44,7 +48,7 @@ export function useReward() {
     error.value = ''
     try {
       const { getRewardStatus } = useMemberApi()
-      const res = await getRewardStatus(roundId, userId)
+      const res = await getRewardStatus(roundId, userId, score)
       if (res.success) {
         status.value = {
           round: res.round ?? null,

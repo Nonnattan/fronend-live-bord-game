@@ -698,10 +698,15 @@ export function useMemberApi() {
   /** ไฟล์ใหม่ (ระบบแลกของรางวัล) — action 'getRewardStatus' ตรวจสอบสิทธิ์รางวัล
    * ของรอบที่ระบุ (ไม่เขียนข้อมูล) ใช้จากหน้าสรุปผลของผู้เล่นเอง (ดู
    * pages/round-summary.vue) เพื่อโชว์ว่ามีสิทธิ์รางวัลอะไร + เจ้าหน้าที่ยืนยัน
-   * ให้แล้วหรือยัง — ไม่มีปุ่มยืนยันในหน้านั้น (ดู claimReward ด้านล่าง) คะแนน
-   * คำนวณจาก Journey+Answers ฝั่ง server เอง ไม่ต้องส่งมาจาก client */
-  function getRewardStatus(roundId: string | null, userId: string): Promise<RewardStatusResponse> {
-    return callApi<RewardStatusResponse>('getRewardStatus', { roundId, userId })
+   * ให้แล้วหรือยัง — ไม่มีปุ่มยืนยันในหน้านั้น (ดู claimReward ด้านล่าง)
+   *
+   * [ใหม่ — ชั่วคราว/Demo] `score` (ไม่บังคับ) = คะแนนที่ฝั่ง client คำนวณเอง
+   * จาก LocalStorage (ฐานที่ผ่าน + คำถามตอบถูก) ส่งมาด้วยได้ — ถ้าส่งมา server
+   * จะ "เชื่อค่านี้ตรง ๆ" แทนการคำนวณจาก Journey+Answers เอง (ดู
+   * server-gas/RewardService.gs::actionGetRewardStatus_) ไม่ส่งมา (undefined)
+   * -> พฤติกรรมเดิมทุกประการ */
+  function getRewardStatus(roundId: string | null, userId: string, score?: number): Promise<RewardStatusResponse> {
+    return callApi<RewardStatusResponse>('getRewardStatus', { roundId, userId, score })
   }
 
   /** ไฟล์ใหม่ (ระบบแลกของรางวัล) — action 'claimReward' เจ้าหน้าที่กดยืนยันรับ

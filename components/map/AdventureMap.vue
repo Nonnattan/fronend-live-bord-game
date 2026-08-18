@@ -21,7 +21,7 @@
  */
 
 import type { AdventureStation } from "~/composables/useAdventure";
-import { ADVENTURE_STATION_POSITIONS } from "~/composables/useAdventure";
+import { ADVENTURE_STATION_POSITIONS, ADVENTURE_START_POINT } from "~/composables/useAdventure";
 
 const props = defineProps<{
   stations: AdventureStation[];
@@ -57,6 +57,18 @@ function positionOf(station: AdventureStation): { x: number; y: number } {
       <span v-if="isVisited(station.id)" class="station-check" :aria-label="`${station.name}: ผ่านแล้ว`">
         <UIcon name="i-lucide-check" class="station-check__icon" />
       </span>
+    </div>
+
+    <!-- [ใหม่] จุดเริ่มต้น — หมุดคงที่ แสดงตลอดเวลา ไม่ผูกกับ visitedIds
+         (ต่างจากติ๊กถูกด้านบนที่โผล่ตามสถานะ) บอกผู้เล่นว่าเริ่มเดินจากตรงนี้ -->
+    <div
+      class="start-point"
+      :style="{ left: `${ADVENTURE_START_POINT.x}%`, top: `${ADVENTURE_START_POINT.y}%` }"
+    >
+      <span class="start-point__badge" aria-label="จุดที่ท่านเริ่มเล่น">
+        <UIcon name="i-lucide-flag" class="start-point__icon" />
+      </span>
+      <span class="start-point__label">จุดเริ่มต้น</span>
     </div>
   </div>
 </template>
@@ -112,5 +124,45 @@ function positionOf(station: AdventureStation): { x: number; y: number } {
   width: 0.9rem;
   height: 0.9rem;
   color: #fff;
+}
+
+/* [ใหม่] จุดเริ่มต้น — หมุดคงที่ + ป้ายชื่อเล็ก ๆ ใต้หมุด แสดงตลอดเวลา */
+.start-point {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  pointer-events: none;
+}
+
+.start-point__badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  background: var(--farm-accent-dark);
+  border: 2.5px solid #fff8ec;
+  box-shadow: 0 3px 6px rgba(74, 47, 24, 0.5);
+}
+
+.start-point__icon {
+  width: 1rem;
+  height: 1rem;
+  color: #fff;
+}
+
+.start-point__label {
+  padding: 0.1rem 0.45rem;
+  border-radius: 0.4rem;
+  background: rgba(74, 47, 24, 0.75);
+  color: #fff8ec;
+  font-size: 0.6rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
 </style>

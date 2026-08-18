@@ -88,7 +88,7 @@ function handleContinue(): void {
 <template>
   <UModal
     :open="open"
-    :title="hasResult ? (answered!.isCorrect ? 'ตอบถูกต้อง!' : 'ตอบไม่ถูกต้อง') : `ภารกิจประจำ${stationName}`"
+    :title="hasResult ? 'ผลคำตอบ' : `ภารกิจประจำ${stationName}`"
     :dismissible="false"
     :close="false"
     @update:open="(v) => emit('update:open', v)"
@@ -130,22 +130,12 @@ function handleContinue(): void {
         <p v-if="validationError" class="mission-question__error">{{ validationError }}</p>
       </div>
 
-      <!-- ตอบแล้ว: แสดงผลลัพธ์ -->
+      <!-- ตอบแล้ว: แสดงผลลัพธ์ — ตั้งใจไม่บอกว่าถูก/ผิด บอกแค่ได้กี่คะแนน
+           (0 คะแนน = ตอบผิด แต่ไม่ประกาศตรง ๆ ว่าผิด) -->
       <div v-else class="mission-question__result">
-        <UIcon
-          :name="answered!.isCorrect ? 'i-lucide-check-circle-2' : 'i-lucide-x-circle'"
-          class="mission-question__result-icon"
-          :class="{
-            'mission-question__result-icon--correct': answered!.isCorrect,
-            'mission-question__result-icon--wrong': !answered!.isCorrect,
-          }"
-        />
+        <UIcon name="i-lucide-sparkles" class="mission-question__result-icon" />
         <p class="mission-question__result-answer">คำตอบของคุณ: {{ answered!.answer }}</p>
-        <p v-if="answered!.isCorrect" class="mission-question__result-points">
-          +{{ answered!.pointsEarned }} คะแนน
-        </p>
-        <p v-else class="mission-question__result-note">ไม่ได้คะแนนจากข้อนี้ — ตอบได้ครั้งเดียวต่อฐาน</p>
-        <p v-if="question.explanation" class="mission-question__explanation">{{ question.explanation }}</p>
+        <p class="mission-question__result-points">ได้ {{ answered!.pointsEarned }} คะแนน</p>
       </div>
     </template>
 
@@ -242,14 +232,7 @@ function handleContinue(): void {
 .mission-question__result-icon {
   width: 3rem;
   height: 3rem;
-}
-
-.mission-question__result-icon--correct {
   color: var(--farm-accent-dark);
-}
-
-.mission-question__result-icon--wrong {
-  color: var(--farm-wood-dark);
 }
 
 .mission-question__result-answer {
@@ -263,18 +246,5 @@ function handleContinue(): void {
   font-size: 1.3rem;
   font-weight: 800;
   color: var(--farm-accent-dark);
-}
-
-.mission-question__result-note {
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--farm-text-muted);
-}
-
-.mission-question__explanation {
-  margin: 0.3rem 0 0;
-  font-size: 0.8rem;
-  color: var(--farm-text-muted);
-  font-style: italic;
 }
 </style>

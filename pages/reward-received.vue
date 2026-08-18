@@ -29,33 +29,36 @@ definePageMeta({ layout: false });
 
 const { profile, initProfile, hasProfile } = useProfile();
 const { roundSummary, loadRoundSummary, clearRoundSummary } = useRoundSummary();
-const { status, isConfirming, error, checkRewardStatus, confirmRoundReceived } = useReward();
+const { status, isConfirming, error, checkRewardStatus, confirmRoundReceived } =
+  useReward();
 const { resetJourney } = useAdventure();
 const { resetAnswered } = useQuestion();
 const { clearAllTimers } = useRoundTimer();
-// [ใหม่] คะแนนแยกรายฐานของรอบนี้ "จาก Backend เท่านั้น" (getRoundScores) — ดู
-// composables/useRoundScores.ts (เหตุผลเดียวกับ pages/round-summary.vue ทุก
-// ประการ) โหลดของตัวเองที่นี่ซ้ำอีกครั้ง (hard-refresh-safe เหมือน checkRewardStatus
-// ด้านบน) ไม่พึ่งพาว่าหน้า /round-summary เคยโหลดไว้ก่อนหน้าหรือยัง
-const {
-  stations: roundScoreStations,
-  totalScore: backendTotalScore,
-  totalPoint: backendTotalPoint,
-  totalQuestionPoint: backendTotalQuestionPoint,
-  isLoading: isLoadingScores,
-  error: scoresError,
-  loaded: scoresLoaded,
-  fetchRoundScores,
-  resetRoundScores,
-} = useRoundScores();
 
 const isReady = ref(false);
 /** true เฉพาะหลังกด OK สำเร็จเท่านั้น — จุดเดียวที่อนุญาตให้ออกจากหน้านี้ได้
  * โดยไม่มีคำเตือนซ้ำ (เหมือน pages/round-summary.vue ทุกประการ) */
 const confirmedLeave = ref(false);
 
-const hasValidRound = computed(() => !!roundSummary.value?.roundId && !!roundSummary.value?.userId);
+const hasValidRound = computed(
+  () => !!roundSummary.value?.roundId && !!roundSummary.value?.userId,
+);
 const rewardName = computed(() => status.value?.reward?.name ?? "-");
+
+// [แก้ไข] คะแนนของรอบนี้ "อ่านจาก LocalStorage โดยตรง" (roundSummary — สแนปช็อต
+// ที่บันทึกไว้ตอนจบเกม ดู composables/useRoundSummary.ts) แทนการยิง getRoundScores
+// ไปหา Backend เหมือนเดิม — เหตุผล: Backend คำนวณจาก Journey+Answers sheet ซึ่ง
+// sync ช้ากว่า/ไม่ครบ ทำให้คะแนนที่หน้านี้เคยแสดงเป็น 0 ทั้งที่ผู้เล่นทำภารกิจมาแล้ว
+// จริง ๆ ตอนนี้เป็นค่า sync (อ่านจาก useState/LocalStorage ได้ทันที ไม่ต้องรอ
+// เน็ต/ไม่มีสถานะ Loading ให้สับสนอีกต่อไป) ตรงกับคะแนนที่ผู้เล่นเห็นมาตั้งแต่หน้า
+// /round-summary ทุกประการ
+const localQuestionPoints = computed(
+  () => roundSummary.value?.questionPoints ?? 0,
+);
+const localTotalScore = computed(
+  () => (roundSummary.value?.totalPoint ?? 0) + localQuestionPoints.value,
+);
+const localStations = computed(() => roundSummary.value?.stations ?? []);
 
 onMounted(async () => {
   try {
@@ -68,7 +71,10 @@ onMounted(async () => {
     loadRoundSummary();
 
     if (hasValidRound.value) {
-      const result = await checkRewardStatus(roundSummary.value!.roundId!, roundSummary.value!.userId!);
+      const result = await checkRewardStatus(
+        roundSummary.value!.roundId!,
+        roundSummary.value!.userId!,
+      );
       // [Allowlist ไม่ใช่ Denylist] แสดงหน้านี้ "เฉพาะ" ตอนมีการยืนยันชัดเจนว่า
       // rewardStatus เป็น Claimed/Confirmed แล้วเท่านั้น — กรณีอื่นทั้งหมด (ยังเป็น
       // Pending, พิมพ์ URL เข้ามาตรง ๆ ก่อนเจ้าหน้าที่ยืนยัน, หรือ round เป็น
@@ -86,9 +92,8 @@ onMounted(async () => {
         return;
       }
       // [ใหม่] มาถึงตรงนี้แปลว่ามี Round จริง + RewardStatus เป็น Claimed/Confirmed
-      // แล้วแน่นอน — โหลดคะแนนแยกรายฐานจาก Backend มาแสดงคู่กับรางวัล (ไม่ await
-      // ให้บล็อก isReady — ให้หน้าโชว์ก่อนแล้วค่อยเห็น Loading ของการ์ดคะแนนแยกต่างหาก)
-      loadScores();
+      // แล้วแน่นอน — คะแนนอ่านจาก LocalStorage (roundSummary) โดยตรงแล้ว (ดู
+      // localTotalScore ด้านบน) ไม่ต้องยิง API เพิ่มอีกจุดนึงแล้ว
     }
   } catch (err) {
     console.error("[reward-received] failed to load", err);
@@ -104,20 +109,15 @@ onBeforeUnmount(() => {
 /** ดักปุ่ม Back ของเบราว์เซอร์/มือถือ — เตือนก่อนออกเสมอ ยกเว้นกด OK สำเร็จแล้ว */
 onBeforeRouteLeave(() => {
   if (confirmedLeave.value || !import.meta.client) return true;
-  return window.confirm("คุณยังไม่ได้กด OK ยืนยันรับรางวัล — ต้องการออกจากหน้านี้เลยหรือไม่?");
+  return window.confirm(
+    "คุณยังไม่ได้กด OK ยืนยันรับรางวัล — ต้องการออกจากหน้านี้เลยหรือไม่?",
+  );
 });
 
 function handleBeforeUnload(event: BeforeUnloadEvent): void {
   if (confirmedLeave.value) return;
   event.preventDefault();
   event.returnValue = "";
-}
-
-/** [ใหม่] โหลด/ลองโหลดใหม่ (ปุ่ม "ลองอีกครั้ง" ของการ์ดคะแนน) คะแนนแยกรายฐาน
- * ของรอบนี้จาก Backend */
-function loadScores(): void {
-  if (!hasValidRound.value) return;
-  void fetchRoundScores(roundSummary.value!.roundId, roundSummary.value!.userId);
 }
 
 /**
@@ -130,14 +130,16 @@ function loadScores(): void {
  */
 async function handleOk(): Promise<void> {
   if (!hasValidRound.value || isConfirming.value) return;
-  const ok = await confirmRoundReceived(roundSummary.value!.roundId!, roundSummary.value!.userId!);
+  const ok = await confirmRoundReceived(
+    roundSummary.value!.roundId!,
+    roundSummary.value!.userId!,
+  );
   if (!ok) return;
 
   confirmedLeave.value = true;
   resetJourney();
   resetAnswered();
   clearAllTimers();
-  resetRoundScores();
   clearRoundSummary();
   await navigateTo("/home");
 }
@@ -156,13 +158,15 @@ async function handleGoHomeFromEmptyState(): Promise<void> {
   <div class="phone-shell">
     <div class="phone-frame">
       <div v-if="!isReady" class="loading">
-        <UIcon name="i-lucide-loader-2" class="loading__spinner" />
+        <p class="loading__text">กรุณารอสักครู่...</p>
       </div>
 
       <div v-else class="content">
         <div v-if="!hasValidRound" class="empty-state">
           <p class="empty-state__desc">ไม่พบข้อมูลรางวัลของรอบนี้</p>
-          <UButton block color="primary" @click="handleGoHomeFromEmptyState">กลับสู่หน้าหลัก</UButton>
+          <UButton block color="primary" @click="handleGoHomeFromEmptyState"
+            >กลับสู่หน้าหลัก</UButton
+          >
         </div>
 
         <template v-else>
@@ -179,7 +183,9 @@ async function handleGoHomeFromEmptyState(): Promise<void> {
               <UIcon name="i-lucide-gift" class="info-card__icon" />
               <div class="info-card__text">
                 <p class="info-card__label">รางวัลที่ได้รับ</p>
-                <p class="info-card__value info-card__value--reward">{{ rewardName }}</p>
+                <p class="info-card__value info-card__value--reward">
+                  {{ rewardName }}
+                </p>
               </div>
             </div>
             <div class="info-card__row">
@@ -194,39 +200,40 @@ async function handleGoHomeFromEmptyState(): Promise<void> {
               <UIcon name="i-lucide-check-circle-2" class="info-card__icon" />
               <div class="info-card__text">
                 <p class="info-card__label">สถานะ</p>
-                <p class="info-card__value">เจ้าหน้าที่ยืนยันมอบรางวัลแล้ว — กรุณากด OK เพื่อยืนยันรับรางวัล</p>
+                <p class="info-card__value">
+                  เจ้าหน้าที่ยืนยันมอบรางวัลแล้ว — กรุณากด OK
+                  เพื่อยืนยันรับรางวัล
+                </p>
               </div>
             </div>
           </div>
 
-          <!-- [ใหม่] คะแนนแยกรายฐานของรอบนี้ "จาก Backend เท่านั้น" (getRoundScores)
-               เหตุผลเดียวกับ pages/round-summary.vue ทุกประการ -->
-          <div v-if="isLoadingScores" class="score-card score-card--loading">
-            <UIcon name="i-lucide-loader-2" class="score-card__spinner" />
-            กำลังโหลดคะแนนของรอบนี้...
+          <!-- [แก้ไข] คะแนนของรอบนี้ "อ่านจาก LocalStorage โดยตรง" (roundSummary)
+               แสดงได้ทันที ไม่ต้องรอเน็ต/ไม่มีสถานะ Loading ให้สับสนอีกต่อไป
+               (เดิมยิง getRoundScores ไปหา Backend ซึ่ง sync ช้ากว่า ทำให้บางครั้ง
+               ขึ้น 0 ทั้งที่เล่นจริง) -->
+          <div class="info-card">
+            <p class="info-card__list-title">คะแนนรวมของรอบนี้</p>
+            <ul v-if="localStations.length" class="station-list">
+              <li
+                v-for="(station, idx) in localStations"
+                :key="idx"
+                class="station-list__item"
+              >
+                <span class="station-list__name">{{ station.name }}</span>
+                <span class="station-list__points">+{{ station.points }}</span>
+              </li>
+            </ul>
+            <p class="score-card__total">
+              <span class="score-card__total-num">{{ localTotalScore }}</span>
+              <span class="score-card__total-unit">Point</span>
+            </p>
+            <p v-if="localQuestionPoints" class="total-card__breakdown">
+              (ฐาน {{ roundSummary?.totalPoint ?? 0 }} + ตอบคำถามถูก +{{
+                localQuestionPoints
+              }})
+            </p>
           </div>
-          <div v-else-if="scoresError" class="empty-state">
-            <p class="empty-state__desc">{{ scoresError }}</p>
-            <UButton block color="primary" variant="soft" @click="loadScores">ลองอีกครั้ง</UButton>
-          </div>
-          <template v-else-if="scoresLoaded">
-            <div class="info-card">
-              <p class="info-card__list-title">คะแนนรวมของรอบนี้</p>
-              <ul v-if="roundScoreStations.length" class="station-list">
-                <li v-for="station in roundScoreStations" :key="station.stationId" class="station-list__item">
-                  <span class="station-list__name">{{ station.stationName }}</span>
-                  <span class="station-list__points">+{{ station.point + station.questionPoint }}</span>
-                </li>
-              </ul>
-              <p class="score-card__total">
-                <span class="score-card__total-num">{{ backendTotalScore }}</span>
-                <span class="score-card__total-unit">Point</span>
-              </p>
-              <p v-if="backendTotalQuestionPoint" class="total-card__breakdown">
-                (ฐาน {{ backendTotalPoint }} + ตอบคำถามถูก +{{ backendTotalQuestionPoint }})
-              </p>
-            </div>
-          </template>
 
           <p v-if="error" class="error-text">{{ error }}</p>
 
@@ -280,11 +287,11 @@ async function handleGoHomeFromEmptyState(): Promise<void> {
   justify-content: center;
 }
 
-.loading__spinner {
-  width: 2rem;
-  height: 2rem;
-  color: var(--farm-accent-dark);
-  animation: spin 1s linear infinite;
+.loading__text {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--farm-text-muted);
+  margin: 0;
 }
 
 @keyframes spin {
@@ -353,7 +360,11 @@ async function handleGoHomeFromEmptyState(): Promise<void> {
   gap: 0.75rem;
   padding: 1rem;
   border-radius: 1rem;
-  background: linear-gradient(160deg, var(--farm-cream) 0%, var(--farm-cream-dark) 100%);
+  background: linear-gradient(
+    160deg,
+    var(--farm-cream) 0%,
+    var(--farm-cream-dark) 100%
+  );
   border: 2px solid var(--farm-accent-dark);
 }
 
