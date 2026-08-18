@@ -844,6 +844,13 @@ function handleRequest_(payload) {
         return jsonOutput_(actionRoundEnd_(payload));
       case "getRound":
         return jsonOutput_(actionGetRound_(payload));
+      // ไฟล์ใหม่ (รอบนี้): action 'confirmRound' — ผู้เล่นกด "OK" ที่หน้า
+      // pages/reward-received.vue ยืนยันว่าได้รับรางวัลจริงแล้ว ปิดรอบให้สมบูรณ์
+      // (RewardStatus: Claimed -> Confirmed) ดู actionConfirmRound_ ใน
+      // RoundService.gs — validate จาก Backend เสมอ (Status ต้อง Ended,
+      // RewardStatus ต้อง Claimed มาก่อน) ไม่เชื่อ Frontend ตรง ๆ
+      case "confirmRound":
+        return jsonOutput_(actionConfirmRound_(payload));
       case "listStations":
         return jsonOutput_(actionListStations_());
       case "createStation":
@@ -912,9 +919,15 @@ function handleRequest_(payload) {
         return jsonOutput_(actionClaimReward_(payload));
       case "listRewards":
         return jsonOutput_(actionListRewards_());
+      // ไฟล์ใหม่ (รอบนี้): action 'getRoundScores' — คะแนนแยกรายฐานของรอบที่ระบุ
+      // (ไม่เขียนข้อมูล) ดู RewardService.gs::actionGetRoundScores_ — ใช้แหล่ง
+      // ข้อมูลจริงชุดเดียวกับ getRewardStatus (Journey + Answers) ไม่ใช่คะแนนที่
+      // Client คำนวณ/ส่งมาเอง
+      case "getRoundScores":
+        return jsonOutput_(actionGetRoundScores_(payload));
       default:
         return errorResponse_(
-          "action ไม่ถูกต้องหรือไม่ได้ระบุ ต้องเป็นหนึ่งใน: ping, checkMember, register, login, loginByLine, updateMember, getMember, checkin, getJourney, getScore, getLeaderboard, roundStart, roundEnd, getRound, listStations, createStation, updateStation, deleteStation, verifyStationQr, listSideQuests, createSideQuest, updateSideQuest, deleteSideQuest, submitSurvey, listPhotoQuests, completePhotoQuest, createPhotoQuest, updatePhotoQuest, deletePhotoQuest, listQuestions, submitAnswer, getRoundAnswers, listStationMissions, verifyMissionQr, getRewardStatus, claimReward, listRewards",
+          "action ไม่ถูกต้องหรือไม่ได้ระบุ ต้องเป็นหนึ่งใน: ping, checkMember, register, login, loginByLine, updateMember, getMember, checkin, getJourney, getScore, getLeaderboard, roundStart, roundEnd, getRound, confirmRound, listStations, createStation, updateStation, deleteStation, verifyStationQr, listSideQuests, createSideQuest, updateSideQuest, deleteSideQuest, submitSurvey, listPhotoQuests, completePhotoQuest, createPhotoQuest, updatePhotoQuest, deletePhotoQuest, listQuestions, submitAnswer, getRoundAnswers, listStationMissions, verifyMissionQr, getRewardStatus, claimReward, listRewards, getRoundScores",
         );
     }
   } catch (err) {

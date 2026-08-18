@@ -9,14 +9,25 @@
  * ScoreService.gs เดิม)
  *
  * โครงสร้างชีต "Round" (สร้างอัตโนมัติเมื่อเรียกใช้งานครั้งแรก ไม่ต้องสร้างมือ):
- * RoundId | UserId | FirstName | StartTime | EndTime | Status
+ * RoundId | UserId | FirstName | StartTime | EndTime | Status | RewardStatus
  *
  * FirstName: ชื่อจริงจากฟอร์มโปรไฟล์ (profile.firstName ฝั่ง frontend) — ใช้แทน
  * DisplayName (LINE profile) เดิม เพราะผู้ใช้ที่ไม่ได้ Login ผ่าน LINE (Guest/
  * กรอกฟอร์มเอง) ไม่มีค่า DisplayName เลย แต่ firstName เป็นฟิลด์บังคับกรอกของ
  * ทุกคนเสมอ (ดู types/profile.ts -> UserProfile.firstName)
  *
- * Status: 'Started' (เริ่มรอบแล้ว ยังไม่จบ) / 'Ended' (จบรอบแล้ว)
+ * Status: 'Started' (เริ่มรอบแล้ว ยังไม่จบ) / 'Ended' (จบรอบแล้ว) — ห้ามเปลี่ยน
+ * ความหมายเดิมนี้เด็ดขาด (RewardStatus ด้านล่างเป็นคนละแกนที่แยกต่างหากทั้งหมด)
+ *
+ * [ใหม่] RewardStatus: 'Pending' (จบเกมแล้ว แต่ยังไม่ได้รับรางวัล) / 'Claimed'
+ * (เจ้าหน้าที่ยืนยันว่าผู้เล่นได้รับรางวัลแล้ว — ดู actionClaimReward_ ใน
+ * RewardService.gs) / 'Confirmed' (ผู้เล่นกด OK ยืนยันแล้วที่หน้า
+ * pages/reward-received.vue — ดู actionConfirmRound_ ด้านล่าง ปิดรอบสมบูรณ์)
+ * ตั้งค่าเริ่มต้นเป็น 'Pending' ตอน actionRoundEnd_ จบรอบครั้งแรกเท่านั้น
+ *
+ * ข้อมูลเก่าที่ไม่มีคอลัมน์นี้เลย (แถวสั้นกว่า ROUND_HEADERS.length) จะอ่านได้
+ * ค่าว่างเปล่าจาก getValues() เสมอ — rowToRoundEntry_() ด้านล่าง treat ค่าว่าง
+ * เป็น 'Pending' โดยอัตโนมัติ ไม่ต้อง migrate ข้อมูลเก่าทั้งหมดแบบ destructive
  *
  * กันข้อมูลซ้ำ (Duplicate) ด้วย RoundId เป็น idempotency key — RoundId สร้าง
  * ฝั่ง client เพียงครั้งเดียวต่อ 1 รอบ (UUID) แล้วใช้ซ้ำตลอดทั้งรอบ (ทั้งตอน
@@ -26,7 +37,7 @@
  */
 
 const ROUND_SHEET_NAME = 'Round'
-const ROUND_HEADERS = ['RoundId', 'UserId', 'FirstName', 'StartTime', 'EndTime', 'Status']
+const ROUND_HEADERS = ['RoundId', 'UserId', 'FirstName', 'StartTime', 'EndTime', 'Status', 'RewardStatus']
 
 /** คืนค่าชีต "Round" — สร้างชีตใหม่ + ใส่หัวตารางให้อัตโนมัติถ้ายังไม่มี
  * (ไม่แตะต้องชีตอื่นใดในสเปรดชีตเดียวกันเลย) */
@@ -62,6 +73,8 @@ function rowToRoundEntry_(row) {
     startTime: row[3],
     endTime: row[4] || null,
     status: row[5],
+    // [ใหม่] ข้อมูลเก่า/แถวที่ยังไม่เคยจบรอบเลย ไม่มีค่านี้ -> ถือเป็น 'Pending' เสมอ
+    rewardStatus: row[6] || 'Pending',
   }
 }
 
@@ -136,8 +149,64 @@ function actionRoundEnd_(payload) {
 
   row[4] = bangkokNow_()
   row[5] = 'Ended'
+  // [ใหม่] เริ่มสถานะรางวัลของรอบนี้เป็น 'Pending' ตอนจบรอบครั้งแรกเท่านั้น (ไม่มี
+  // ทางเข้าเงื่อนไขนี้ซ้ำอีกจาก branch alreadyEnded ด้านบน จึงไม่มีวันเขียนทับ
+  // RewardStatus ที่อาจเดินหน้าไปเป็น Claimed/Confirmed แล้วโดยไม่ตั้งใจ)
+  row[6] = 'Pending'
   sheet.getRange(rowIndex, 1, 1, ROUND_HEADERS.length).setValues([row])
   return { success: true, alreadyEnded: false, round: rowToRoundEntry_(row) }
+}
+
+/**
+ * action 'confirmRound' — ผู้เล่นกด "OK" ที่หน้า pages/reward-received.vue เพื่อ
+ * ยืนยันว่าได้รับรางวัลจริงแล้ว ปิดรอบให้สมบูรณ์ (RewardStatus: Claimed -> Confirmed)
+ * Payload: { roundId, userId }
+ *
+ * ใช้ RoundId เป็นตัวอ้างอิงหลักเสมอ (ห้ามค้นหาด้วย UserId อย่างเดียว เพราะ User
+ * คนเดียวมีหลาย Round ได้) userId ที่ส่งมาต้องตรงกับเจ้าของ RoundId นี้ด้วย (กัน
+ * ส่ง roundId ของคนอื่นมายืนยันมั่ว ๆ)
+ *
+ * Idempotent: เรียกซ้ำตอน RewardStatus เป็น 'Confirmed' อยู่แล้ว (เช่น กด OK ซ้ำ/
+ * เน็ตหลุดแล้ว retry) -> ถือว่า success ทันที ไม่เขียนทับซ้ำ
+ *
+ * Validate ตามลำดับก่อนยอมเปลี่ยนสถานะจริง: ต้องพบ RoundId นี้ + Status ต้องเป็น
+ * 'Ended' (ยังไม่จบรอบเลย ไม่ให้ยืนยันข้าม) + RewardStatus ต้องเป็น 'Claimed' มา
+ * ก่อนแล้ว (เจ้าหน้าที่ยังไม่ได้ยืนยันมอบรางวัลเลย ไม่ให้ผู้เล่นยืนยันเองได้)
+ * ไม่มีทางสร้าง Round ใหม่/ไม่มีทางเปลี่ยน Status กลับเป็น 'Started' จากที่นี่เลย
+ */
+function actionConfirmRound_(payload) {
+  if (!payload || !normalize_(payload.roundId) || !normalize_(payload.userId)) {
+    return { success: false, error: 'roundId และ userId จำเป็นต้องส่งมา' }
+  }
+
+  const sheet = getRoundSheet_()
+  const rowIndex = findRoundRowIndexById_(sheet, payload.roundId)
+  if (rowIndex === -1) {
+    return { success: false, error: 'ไม่พบ roundId นี้' }
+  }
+
+  const row = sheet.getRange(rowIndex, 1, 1, ROUND_HEADERS.length).getValues()[0]
+  const entry = rowToRoundEntry_(row)
+
+  if (normalize_(entry.userId) !== normalize_(payload.userId)) {
+    return { success: false, error: 'userId ไม่ตรงกับเจ้าของ roundId นี้' }
+  }
+  if (entry.rewardStatus === 'Confirmed') {
+    return { success: true, alreadyConfirmed: true, round: entry }
+  }
+  if (entry.status !== 'Ended') {
+    return { success: false, error: 'Round นี้ยังไม่จบ (Status ต้องเป็น Ended ก่อน)' }
+  }
+  if (entry.rewardStatus !== 'Claimed') {
+    return {
+      success: false,
+      error: 'เจ้าหน้าที่ยังไม่ได้ยืนยันมอบรางวัล (RewardStatus ต้องเป็น Claimed ก่อน)',
+    }
+  }
+
+  row[6] = 'Confirmed'
+  sheet.getRange(rowIndex, 1, 1, ROUND_HEADERS.length).setValues([row])
+  return { success: true, alreadyConfirmed: false, round: rowToRoundEntry_(row) }
 }
 
 /** action 'getRound' — ดึงรอบล่าสุดของผู้เล่น 1 คน (ไม่เขียนข้อมูล) เผื่อใช้

@@ -5,15 +5,28 @@
  * หน้าสรุปผล "หลังจบเกม" — เข้ามาจาก pages/scan.vue เท่านั้น (ทั้ง 2 ทาง):
  *   1) ฝั่ง Online: กด "จบเกม" ที่ Popup ฐานนม -> endGameAfterFinalStation()
  *   2) ฝั่ง Offline: สแกนครบทั้ง 4 ฐาน -> completeStationVisit() (branch Offline Mode)
- * ทั้ง 2 จุด ปิดกล้อง (stopCamera) + resetJourney() (รีเซ็ตฐาน/คะแนนกลับเป็น 0
- * ทันที) ก่อน navigateTo หน้านี้เรียบร้อยแล้ว — หน้านี้มีหน้าที่แค่ "แสดงสำเนา
- * สรุปผล" ที่ถูกเก็บไว้ก่อนรีเซ็ต (ดู composables/useRoundSummary.ts) เท่านั้น
+ * ทั้ง 2 จุด ปิดกล้อง (stopCamera) ก่อน navigateTo หน้านี้เรียบร้อยแล้ว — หน้านี้
+ * แสดง "สำเนาสรุปผล" ที่ถูกเก็บไว้ (ดู composables/useRoundSummary.ts)
  *
- * ตั้งใจ "ไม่ใช้ Layout 'app'" (ไม่มี BottomNav ติดจอ) เพื่อไม่ให้ผู้เล่นกดเปลี่ยน
- * หน้าเล่นต่อโดยไม่ตั้งใจก่อนติดต่อเจ้าหน้าที่ ตามที่ขอ — มีแบนเนอร์เตือนค้างไว้
- * ด้านบนเสมอ + ดักการออกจากหน้า (ปุ่ม Back/ปิดแท็บ) ด้วย onBeforeRouteLeave +
- * beforeunload ให้เตือนซ้ำอีกชั้น ทางออกปกติมีทางเดียวคือกดปุ่ม "ติดต่อเจ้าหน้าที่
- * แล้ว" ด้านล่างเท่านั้น
+ * [แก้ไข] หน้านี้ "ไม่ reset อะไรเองอีกต่อไปเด็ดขาด" — เดิมปุ่ม "ติดต่อเจ้าหน้าที่
+ * แล้ว / กลับสู่หน้าหลัก" กด reset ทันที (resetJourney/resetAnswered/
+ * clearAllTimers/clearRoundSummary) โดยไม่สนใจว่าเจ้าหน้าที่ยืนยันมอบรางวัลจริง
+ * หรือยัง — ตามสเปกใหม่ "RoundId เป็นตัวอ้างอิงหลัก + RewardStatus (Pending/
+ * Claimed/Confirmed)" การ reset ต้องเกิด "หลังจากผู้เล่นกด OK ที่หน้า
+ * pages/reward-received.vue สำเร็จเท่านั้น" หน้านี้จึงเหลือหน้าที่แค่:
+ *   1) เช็ค API (getRewardStatus) ทันที 1 ครั้ง แล้ว Poll ซ้ำทุก 10 วินาที
+ *      (เทียบ round.rewardStatus ของ RoundId ปัจจุบันเท่านั้น — ไม่ใช้ UserId
+ *      ตัดสินเด็ดขาด เพราะ User คนเดียวมีหลาย Round ได้)
+ *   2) เจอ 'Claimed' (หรือ 'Confirmed' เผื่อกรณี Refresh มาเจอทีหลัง) -> หยุด
+ *      Poll แล้ว navigateTo('/reward-received') ทันที (อัตโนมัติ ไม่ต้องกดปุ่ม)
+ * ระบบรางวัลนี้ผูกกับ RoundId ฝั่ง Online เท่านั้น (Offline Mode ไม่มี Round ฝั่ง
+ * Backend ให้ Poll ตั้งแต่ต้น — ดู server-gas/RewardService.gs หัวไฟล์) จึงยังคง
+ * ปุ่ม "ติดต่อเจ้าหน้าที่แล้ว / กลับสู่หน้าหลัก" เดิมไว้ "เฉพาะฝั่ง Offline" เท่านั้น
+ * (ไม่กระทบ Flow เดิมของ Offline Mode ที่ไม่เกี่ยวกับรางวัลเลย)
+ * ยังคงมีแบนเนอร์เตือนค้างไว้ด้านบนเสมอ + ดักการออกจากหน้า (ปุ่ม Back/ปิดแท็บ)
+ * ด้วย onBeforeRouteLeave + beforeunload เหมือนเดิมทุกประการ (ยกเว้นตอน redirect
+ * ไป /reward-received เอง ซึ่งตั้ง confirmedLeave ก่อนเสมอ กันไม่ให้ Guard เด้ง
+ * ถามซ้ำตอนที่ระบบพาไปเอง ไม่ใช่ผู้เล่นกดออกเอง)
  *
  * ไม่ใช้ useRequireProfile() (Guard ปกติของทุกหน้า) เพราะ Guard นั้นเรียก
  * ensureRoundStarted() ทุกครั้งที่หน้า mount ซึ่งจะไปเริ่ม "รอบใหม่" ทันทีที่เข้า
@@ -21,45 +34,42 @@
  * ควรเริ่มก็ต่อเมื่อกลับไปหน้า Home/Map/Scan อีกครั้ง) — เช็คแค่ว่ามีโปรไฟล์อยู่
  * แล้วหรือไม่ (เด้งกลับ "/" ถ้าไม่มี) เหมือน Guard เดิม ตัดแค่ ensureRoundStarted()
  * ออกไปเท่านั้น ไม่แตะ Logic Round/Journey/Score อื่นใดเลย
+ *
+ * Refresh หน้านี้กลางคัน: loadRoundSummary() อ่าน RoundId เดิมจาก LocalStorage
+ * เสมอ (ไม่สร้าง Round ใหม่) แล้วเริ่ม Poll ใหม่จาก RoundId เดิมนั้นต่อทันที
  */
 
 definePageMeta({ layout: false });
 
 const { profile, initProfile, hasProfile } = useProfile();
 const { roundSummary, loadRoundSummary, clearRoundSummary } = useRoundSummary();
-// [Fix] ล้าง Current Round Frontend ทั้งหมด (visitedIds/roundId/score/progress/
-// station ticks — ดู composables/useAdventure.ts::resetJourney()) "ที่นี่เท่านั้น"
-// ตอนกดปุ่ม "ติดต่อเจ้าหน้าที่แล้ว" — ย้ายมาจาก pages/scan.vue ตามสเปก "หลังจบเกม
-// ห้ามล้างข้อมูลก่อนหน้า /round-summary" หน้านี้เองอ่านจาก roundSummary:last
-// (สแนปช็อต) เท่านั้นอยู่แล้ว ไม่กระทบการแสดงผลของหน้านี้แม้แต่น้อย
+// [เดิม — คงไว้เฉพาะสำหรับปุ่ม "กลับสู่หน้าหลัก" ของ empty-state (ไม่พบข้อมูลสรุปผล
+// เลย) ด้านล่างเท่านั้น] ไม่ถูกเรียกจาก Flow หลักอีกต่อไป (ดู confirmAndGoHome())
 const { resetJourney } = useAdventure();
-// [ใหม่] ล้างสถานะ "ตอบคำถามไปแล้วบ้าง" ของระบบภารกิจ+คำถาม (ระบบขนาน — ดู
-// composables/useQuestion.ts) คู่กับ resetJourney() เดิมเสมอ ที่จุดเดียวกันนี้
-// เพื่อไม่ให้คำตอบของรอบที่จบไปแล้วค้างข้ามมารอบใหม่ ไม่แตะ useAdventure.ts เลย
 const { resetAnswered } = useQuestion();
-// [Fix] รอบ Offline Mode ก็ต้องเริ่ม Round Data ใหม่ (composables/useOfflineMode.ts)
-// ตรงจุดเดียวกันนี้เช่นกัน (เดิม startRound() ถูกเรียกทันทีหลังจบเกมที่ scan.vue —
-// ย้ายมาไว้ที่นี่ให้สอดคล้องกับจุด reset เดียวของทั้งแอป)
 const { isOfflineMode, startRound } = useOfflineMode();
-// [ใหม่] ระบบแลกของรางวัล — ดูสถานะอย่างเดียว (ไม่มีปุ่มยืนยันรับในหน้านี้ ตามที่
-// ตกลงกันไว้ว่าเจ้าหน้าที่เป็นคนกดที่หน้า pages/redeem.vue เท่านั้น)
+// [ใหม่] ระบบแลกของรางวัล — เช็คสถานะ (getRewardStatus) ทันที 1 ครั้ง + Poll ทุก
+// 10 วินาที (ดู pollRewardStatus() ด้านล่าง) ไม่มีปุ่มยืนยันรับในหน้านี้ (เจ้าหน้าที่
+// กดที่หน้า pages/redeem.vue, ผู้เล่นกด OK ที่หน้า pages/reward-received.vue)
 const { status: rewardStatus, isChecking: isCheckingReward, checkRewardStatus } = useReward();
-// [ใหม่] เคลียร์ Timer รอบ/เผ่า (composables/useRoundTimer.ts) คู่กับ resetJourney()
-// เสมอ ที่จุดเดียวกันนี้ — ตามสเปก "จบเกมแล้วต้องกลับไปเจอหน้า GO อีกครั้ง" (ดู
-// pages/home.vue::go-gate ที่โชว์ตาม hasActiveRoundTimer) เดิมไม่มีจุดไหนเรียก
-// clearAllTimers() เลยสักที่ ทำให้ roundEndsAt ค้างอยู่ใน LocalStorage ข้ามรอบ
-// กลับไปหน้า Home แล้วเห็นเนื้อหาปกติ (Summary Card ฯลฯ) ทันทีแทนที่จะเจอปุ่ม GO
 const { clearAllTimers } = useRoundTimer();
+// [ใหม่] คะแนนแยกรายฐานของรอบนี้ "จาก Backend เท่านั้น" (getRoundScores) — ห้ามใช้
+// roundSummary.stations/totalPoint (Snapshot ฝั่ง Client เดิม) เป็นคะแนนของรอบอีก
+// ต่อไปตามสเปก ใช้แสดงเฉพาะฝั่ง Online เท่านั้น (ดู loadScores() ด้านล่าง) — ฝั่ง
+// Offline ยังคงแสดงชื่อฐานจาก Snapshot เดิมต่อไป (ไม่มีคะแนนอยู่แล้วตามกติกาเดิม)
+const {
+  stations: roundScoreStations,
+  totalPoint: backendTotalPoint,
+  totalQuestionPoint: backendTotalQuestionPoint,
+  totalScore: backendTotalScore,
+  isLoading: isLoadingScores,
+  error: scoresError,
+  loaded: scoresLoaded,
+  fetchRoundScores,
+  resetRoundScores,
+} = useRoundScores();
 
 const isReady = ref(false);
-
-/** คะแนนรวม "ของรอบนี้" ที่แสดงผลจริง — รวมแต้มฐาน (totalPoint) + แต้มคำถามถูก
- * (questionPoints ระบบใหม่ คนละก้อนกับ totalPoint) เข้าด้วยกัน null เฉพาะกรณี
- * Offline Mode (ตามกติกาเดิม "ห้ามแสดงคะแนน" เท่านั้น) */
-const combinedTotalPoint = computed(() => {
-  if (!roundSummary.value || roundSummary.value.totalPoint === null) return null;
-  return roundSummary.value.totalPoint + (roundSummary.value.questionPoints ?? 0);
-});
 
 /** ข้อความหัวเรื่อง — ปรับให้ตรงสาเหตุจริงที่จบรอบ (ตามที่ scan.vue บันทึกไว้ผ่าน
  * endedReason ดู composables/useForceEndRound.ts) ไม่ใช่ "จบการเล่น" เสมอไป */
@@ -69,8 +79,9 @@ const resultTitle = computed(() => {
   if (reason === "station-timeout") return "หมดเวลาทำภารกิจ";
   return "จบการเล่น";
 });
-/** true เฉพาะตอนกดปุ่ม "ติดต่อเจ้าหน้าที่แล้ว" เท่านั้น — จุดเดียวที่อนุญาตให้
- * ออกจากหน้านี้ได้โดยไม่มีคำเตือนซ้ำ */
+/** true เมื่อระบบพาออกจากหน้านี้เอง (Poll เจอ Claimed แล้ว redirect ไป
+ * /reward-received) หรือกดปุ่มของ empty-state — จุดเดียวที่อนุญาตให้ออกจากหน้า
+ * นี้ได้โดยไม่มีคำเตือนซ้ำ (ผู้เล่นเองไม่มีปุ่มกดออกด้วยตัวเองแล้วในกรณีปกติ) */
 const confirmedLeave = ref(false);
 
 function formatDateTime(value: string | null): string {
@@ -83,20 +94,15 @@ function formatDateTime(value: string | null): string {
   });
 }
 
-/** ปุ่ม "ติดต่อเจ้าหน้าที่แล้ว" — ล้างสแนปช็อตทิ้ง (ใช้ครั้งเดียวจบต่อ 1 รอบ)
- * แล้วพากลับหน้า Home ตามปกติ (Home/Map/Scan จะเริ่มรอบใหม่ให้อัตโนมัติเองผ่าน
- * ensureRoundStarted() เดิมตอนเข้าไปครั้งถัดไป) */
+/** ปุ่ม "กลับสู่หน้าหลัก" ของ empty-state เท่านั้น (ไม่พบข้อมูลสรุปผลของรอบนี้
+ * เลย — ไม่มี Round ให้ Poll/รอรางวัลอะไรอยู่แล้ว) ไม่ได้ใช้จาก Flow หลักอีก
+ * ต่อไป (ดู pollRewardStatus() ด้านล่าง ที่เป็นคนพาไป /reward-received แทน) */
 async function confirmAndGoHome(): Promise<void> {
   confirmedLeave.value = true;
-
-  // [Fix] ล้าง Current Round Frontend ทั้งหมดที่นี่ "จุดเดียว" ก่อนกลับ Home เสมอ
-  // (adventureVisitedStations/roundId ผ่าน resetJourney() ซึ่งครอบคะแนน/progress/
-  // station ticks ให้อัตโนมัติเพราะทุกอย่างคำนวณจาก visitedIds เดียวกัน) — ไม่ใช้
-  // localStorage.clear() เด็ดขาด (จะล้าง Login/Profile ไปด้วย) แตะเฉพาะ key ของ
-  // Current Round เท่านั้น
   resetJourney();
   resetAnswered();
   clearAllTimers();
+  resetRoundScores();
   if (isOfflineMode.value && profile.value?.uid) {
     startRound(profile.value.uid);
   }
@@ -105,12 +111,19 @@ async function confirmAndGoHome(): Promise<void> {
   await navigateTo("/home");
 }
 
+/** [ใหม่] โหลด/ลองโหลดใหม่ (ปุ่ม "ลองอีกครั้ง") คะแนนแยกรายฐานของรอบนี้จาก
+ * Backend — เฉพาะฝั่ง Online เท่านั้น (ต้องมี roundId จริง) */
+function loadScores(): void {
+  if (isOfflineMode.value) return;
+  void fetchRoundScores(roundSummary.value?.roundId, roundSummary.value?.userId);
+}
+
 /** ดักปุ่ม Back ของเบราว์เซอร์/มือถือ (กลับไปหน้า Scan เดิม) — เตือนก่อนออกเสมอ
- * ยกเว้นออกผ่านปุ่ม "ติดต่อเจ้าหน้าที่แล้ว" ด้านบนเท่านั้น */
+ * ยกเว้นระบบพาออกไปเอง (Poll เจอ Claimed) หรือ empty-state เท่านั้น */
 onBeforeRouteLeave(() => {
   if (confirmedLeave.value || !import.meta.client) return true;
   return window.confirm(
-    "คุณยังไม่ได้ติดต่อเจ้าหน้าที่ — ต้องการออกจากหน้านี้เลยหรือไม่?",
+    "ยังไม่เสร็จสิ้นขั้นตอนรับรางวัล — ต้องการออกจากหน้านี้เลยหรือไม่?",
   );
 });
 
@@ -122,6 +135,48 @@ function handleBeforeUnload(event: BeforeUnloadEvent): void {
   event.returnValue = "";
 }
 
+/**
+ * [ใหม่] Poll สถานะรางวัลของ RoundId ปัจจุบันทุก 10 วินาที — เช็คทันที 1 ครั้ง
+ * ก่อนเสมอ (ตอน onMounted) แล้วค่อยเริ่ม setInterval ต่อ เจอ round.rewardStatus
+ * เป็น 'Claimed' (เจ้าหน้าที่ยืนยันมอบรางวัลแล้ว) หรือ 'Confirmed' (เผื่อ Refresh
+ * มาเจอทีหลัง) -> หยุด Poll ทันทีแล้วพาไปหน้า /reward-received โดยอัตโนมัติ
+ * (ไม่ต้องกดปุ่มใด ๆ) 'Pending' -> อยู่หน้าเดิมต่อไป
+ *
+ * pollTimer/pollInFlight เป็นตัวแปรระดับ component (ไม่ใช่ module-level) กัน
+ * สร้าง Interval ซ้อนหลายตัวข้ามการ mount ของหน้านี้คนละครั้ง + pollInFlight กัน
+ * เรียกซ้อนกันเองถ้า Network ตอบช้ากว่า 10 วินาที (ไม่น่าเกิดขึ้นแต่กันไว้)
+ */
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+let pollInFlight = false;
+const POLL_INTERVAL_MS = 10_000;
+
+function stopPolling(): void {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+async function pollRewardStatus(): Promise<void> {
+  if (pollInFlight) return;
+  const roundId = roundSummary.value?.roundId;
+  const userId = roundSummary.value?.userId;
+  if (!roundId || !userId) return;
+
+  pollInFlight = true;
+  try {
+    const result = await checkRewardStatus(roundId, userId);
+    const status = result?.round?.rewardStatus;
+    if (status === "Claimed" || status === "Confirmed") {
+      stopPolling();
+      confirmedLeave.value = true;
+      await navigateTo("/reward-received");
+    }
+  } finally {
+    pollInFlight = false;
+  }
+}
+
 onMounted(() => {
   // [Fix] ครอบ try/catch — กันหน้านี้ค้างที่ Loading Spinner ตลอดไปถ้า
   // initProfile()/loadRoundSummary() (อ่าน LocalStorage) throw โดยไม่คาดคิด
@@ -129,6 +184,10 @@ onMounted(() => {
   try {
     initProfile();
     if (!hasProfile.value) {
+      // [Fix] ตั้ง confirmedLeave ก่อนเสมอ ไม่งั้น onBeforeRouteLeave guard ด้านล่าง
+      // จะดัก navigateTo() อัตโนมัตินี้ไว้ด้วย (โชว์ confirm() ถามซ้ำโดยไม่จำเป็น
+      // ทั้งที่เป็นแค่ Guard เด้งกลับเพราะไม่มีโปรไฟล์ ไม่ใช่ผู้เล่นกดออกเอง)
+      confirmedLeave.value = true;
       void navigateTo("/");
       return;
     }
@@ -139,16 +198,24 @@ onMounted(() => {
   isReady.value = true;
   window.addEventListener("beforeunload", handleBeforeUnload);
 
-  // [ใหม่] ตรวจสอบสิทธิ์รางวัลของรอบนี้ (อ่านอย่างเดียว ไม่บล็อกหน้าถ้าล้มเหลว) —
-  // ต้องมี roundId จริง (Online เท่านั้น — Offline Mode ไม่มี Round ฝั่ง Backend
-  // ให้ตรวจสอบ ดูเหตุผลเต็ม ๆ ที่ server-gas/RewardService.gs)
+  // [ใหม่] ตรวจสอบสิทธิ์รางวัลของรอบนี้ทันที 1 ครั้ง แล้ว Poll ซ้ำทุก 10 วินาที
+  // ต่อ — ต้องมี roundId จริง (Online เท่านั้น — Offline Mode ไม่มี Round ฝั่ง
+  // Backend ให้ตรวจสอบ ดูเหตุผลเต็ม ๆ ที่ server-gas/RewardService.gs)
   if (roundSummary.value?.roundId && roundSummary.value?.userId) {
-    void checkRewardStatus(roundSummary.value.roundId, roundSummary.value.userId);
+    void pollRewardStatus();
+    pollTimer = setInterval(() => {
+      void pollRewardStatus();
+    }, POLL_INTERVAL_MS);
   }
+
+  // [ใหม่] โหลดคะแนนแยกรายฐานจาก Backend ครั้งเดียว (ไม่ผูกกับ Poll ทุก 10 วินาที
+  // ด้านบน — คนละเรื่องกับสถานะรางวัล) เฉพาะฝั่ง Online เท่านั้น (ดู loadScores())
+  loadScores();
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("beforeunload", handleBeforeUnload);
+  stopPolling();
 });
 </script>
 
@@ -234,7 +301,9 @@ onBeforeUnmount(() => {
               </div>
             </div>
 
-            <div class="info-card">
+            <!-- [ใหม่] Offline: แสดงชื่อฐานจาก Snapshot เดิมเหมือนเดิมทุกประการ (ไม่มี
+                 คะแนน — Offline Mode ไม่มี Round ฝั่ง Backend ให้ดึงคะแนนเลย) -->
+            <div v-if="roundSummary.mode === 'offline'" class="info-card">
               <p class="info-card__list-title">ฐานที่ท่านเล่น</p>
               <ul v-if="roundSummary.stations.length" class="station-list">
                 <li
@@ -244,11 +313,6 @@ onBeforeUnmount(() => {
                 >
                   <span class="station-list__index">{{ index + 1 }}</span>
                   <span class="station-list__name">{{ station.name }}</span>
-                  <span
-                    v-if="roundSummary.totalPoint !== null"
-                    class="station-list__points"
-                    >+{{ station.points }}</span
-                  >
                 </li>
               </ul>
               <p v-else class="empty-state__desc">
@@ -256,22 +320,54 @@ onBeforeUnmount(() => {
               </p>
             </div>
 
-            <div v-if="combinedTotalPoint !== null" class="total-card">
-              <p class="total-card__label">คะแนนรวมของรอบนี้</p>
-              <p class="total-card__value">
-                <span class="total-card__value-num">{{ combinedTotalPoint }}</span>
-                <span class="total-card__unit">Point</span>
-              </p>
-              <!-- [ใหม่] แยกให้เห็นว่าคะแนนมาจาก 2 ทาง — สแกนฐาน + ตอบคำถามถูก
-                   (ตามกติกาที่ตกลงกันไว้ "ได้ทั้งสแกนและตอบถูก") -->
-              <p
-                v-if="roundSummary.questionPoints"
-                class="total-card__breakdown"
-              >
-                (ฐาน {{ roundSummary.totalPoint }} + ตอบคำถามถูก
-                {{ roundSummary.questionCorrectCount ?? 0 }} ข้อ +{{ roundSummary.questionPoints }})
-              </p>
-            </div>
+            <!-- [ใหม่] Online: คะแนนต้อง "มาจาก Backend เท่านั้น" (getRoundScores)
+                 ห้ามใช้ Snapshot ฝั่ง Client คำนวณเอง — loading/error/retry ครบ -->
+            <template v-else>
+              <div v-if="isLoadingScores" class="reward-card reward-card--loading">
+                <UIcon name="i-lucide-loader-2" class="reward-card__spinner" />
+                กำลังโหลดคะแนนของรอบนี้...
+              </div>
+              <div v-else-if="scoresError" class="empty-state">
+                <p class="empty-state__desc">{{ scoresError }}</p>
+                <UButton block color="primary" variant="soft" @click="loadScores"
+                  >ลองอีกครั้ง</UButton
+                >
+              </div>
+              <template v-else-if="scoresLoaded">
+                <div class="info-card">
+                  <p class="info-card__list-title">ฐานที่ท่านเล่น</p>
+                  <ul v-if="roundScoreStations.length" class="station-list">
+                    <li
+                      v-for="(station, index) in roundScoreStations"
+                      :key="station.stationId"
+                      class="station-list__item"
+                    >
+                      <span class="station-list__index">{{ index + 1 }}</span>
+                      <span class="station-list__name">{{ station.stationName }}</span>
+                      <span class="station-list__points"
+                        >+{{ station.point + station.questionPoint }}</span
+                      >
+                    </li>
+                  </ul>
+                  <p v-else class="empty-state__desc">
+                    ยังไม่ได้เข้าฐานใดเลยในรอบนี้
+                  </p>
+                </div>
+
+                <div class="total-card">
+                  <p class="total-card__label">คะแนนรวมของรอบนี้</p>
+                  <p class="total-card__value">
+                    <span class="total-card__value-num">{{ backendTotalScore }}</span>
+                    <span class="total-card__unit">Point</span>
+                  </p>
+                  <!-- [ใหม่] แยกให้เห็นว่าคะแนนมาจาก 2 ทาง — สแกนฐาน + ตอบคำถามถูก
+                       (ตามกติกาที่ตกลงกันไว้ "ได้ทั้งสแกนและตอบถูก") -->
+                  <p v-if="backendTotalQuestionPoint" class="total-card__breakdown">
+                    (ฐาน {{ backendTotalPoint }} + ตอบคำถามถูก +{{ backendTotalQuestionPoint }})
+                  </p>
+                </div>
+              </template>
+            </template>
 
             <!-- [ใหม่] สถานะสิทธิ์รางวัล — แสดงอย่างเดียว ไม่มีปุ่มยืนยันในหน้านี้
                  (เจ้าหน้าที่กดยืนยันที่หน้า /redeem เท่านั้น ตามที่ตกลงกันไว้) -->
@@ -292,7 +388,15 @@ onBeforeUnmount(() => {
               </p>
             </div>
 
+            <!-- [ใหม่] ระบบรางวัล (Pending/Claimed/Confirmed) ผูกกับ RoundId ฝั่ง
+                 Online เท่านั้น (Offline Mode ไม่มี Round ฝั่ง Backend ให้ Poll
+                 เลยตั้งแต่ต้น — ดู server-gas/RewardService.gs หัวไฟล์) จึงคง
+                 ปุ่มเดิมไว้ "เฉพาะฝั่ง Offline" เท่านั้น (ไม่กระทบ Flow เดิมของ
+                 Offline Mode ที่ไม่เกี่ยวกับรางวัลเลย) ฝั่ง Online แทนที่ด้วย
+                 Indicator รอ Poll (round.rewardStatus เจอ Claimed จะพาไปหน้า
+                 /reward-received ให้อัตโนมัติทันที ไม่ต้องกดอะไรที่นี่แล้ว) -->
             <UButton
+              v-if="isOfflineMode"
               block
               size="xl"
               color="primary"
@@ -301,6 +405,10 @@ onBeforeUnmount(() => {
             >
               ติดต่อเจ้าหน้าที่แล้ว / กลับสู่หน้าหลัก
             </UButton>
+            <div v-else class="waiting-indicator">
+              <UIcon name="i-lucide-loader-2" class="waiting-indicator__spinner" />
+              <p class="waiting-indicator__text">กำลังรอเจ้าหน้าที่ยืนยันการรับรางวัล...</p>
+            </div>
           </template>
         </div>
       </div>
@@ -660,5 +768,33 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 0.3rem;
   color: var(--farm-accent-dark);
+}
+
+/* --------------------------- Waiting Indicator (ใหม่) --------------------------- */
+
+.waiting-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.9rem;
+  border-radius: 0.9rem;
+  background: var(--farm-cream);
+  border: 2px solid var(--farm-wood);
+}
+
+.waiting-indicator__spinner {
+  width: 1.2rem;
+  height: 1.2rem;
+  flex-shrink: 0;
+  color: var(--farm-accent-dark);
+  animation: spin 1s linear infinite;
+}
+
+.waiting-indicator__text {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--farm-text-dark);
 }
 </style>

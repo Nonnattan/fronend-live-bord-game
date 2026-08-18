@@ -91,4 +91,10 @@ export interface StationQuestProgress {
    * ใน composables/useStationQuest.ts) รีเซ็ตเป็น false เองอัตโนมัติเมื่อ Round
    * เปลี่ยน (ส่วนหนึ่งของ createEmptyProgress() เหมือน field อื่นทุกตัว) */
   gameCompleted: boolean
+  /** [ใหม่] ฐานที่เคยยิง check-in จริงขึ้น Backend ไปแล้วใน Round นี้ (ดู
+   * composables/useStationQuest.ts::recordRealCheckinIfComplete()) — กัน queueCheckin()
+   * ซ้ำซ้อนจาก lifecycle (re-mount/re-render) โดยไม่จำเป็น เป็นเพียง "ตัวช่วยกัน
+   * ซ้ำฝั่ง Client" เท่านั้น ตัวกันซ้ำจริงอยู่ที่ Backend (RoundId+UserId+StationId
+   * — ดู server-gas/JourneyService.gs::hasVisitedStation_) เสมอ */
+  checkinRecorded: Partial<Record<StationType, boolean>>
 }

@@ -90,14 +90,18 @@ export default defineNuxtConfig({
       // ไม่ได้ (ไม่รู้ id ตอน build) — ผู้เล่นเข้าหน้ารายการก่อนเสมออยู่แล้ว
       // และ Shell ของหน้า [id] จะถูก NetworkFirst (html-cache) เก็บให้เองตอน
       // เข้าครั้งแรกที่ยังออนไลน์ ตามพฤติกรรมเดิมของ service-worker/sw.ts
-      // [Fix] เพิ่ม '/redeem' — หน้าใหม่ "จุดแลกรางวัล" สำหรับเจ้าหน้าที่ (ระบบ
-      // แลกของรางวัล) เหตุผลเดียวกับหน้าอื่น ๆ ในลิสต์นี้ทุกประการ
+      // [ลบ] '/redeem' ถูกถอดออกจากลิสต์นี้แล้ว — หน้า "จุดแลกรางวัล" สำหรับ
+      // เจ้าหน้าที่ถูกย้ายไปสร้างที่แอป Admin (backend-liveboradgame) แทน
+      // ไฟล์ pages/redeem.vue ในโปรเจกต์นี้ถูกลบทิ้งแล้ว (ดู useReward.ts)
       // [ใหม่] '/stations' + '/evaluation' — หน้าเต็มของ Flow ปลดล็อคฐาน + ภารกิจ
       // (เดิม '/station-quest' หน้าเดียวแบบ Mockup แยก — ถูกลบทิ้งแล้วเพราะ Flow
       // จริงถูกรวมเข้า /scan หมดแล้ว) หมายเหตุ: '/station/[stationId]' เป็น
       // Dynamic Route จึง Prerender ล่วงหน้าไม่ได้ (เหตุผลเดียวกับ '/photo-quest/[id]'
       // ด้านบน) — Shell จะถูก NetworkFirst (html-cache) เก็บให้เองตอนเข้าครั้งแรก
-      routes: ['/', '/offline', '/home', '/map', '/scan', '/profile', '/info', '/history', '/reservation', '/round-summary', '/photo-quest', '/redeem', '/stations', '/evaluation'],
+      // [ใหม่] '/reward-received' — หน้าใหม่ "ได้รับรางวัลแล้ว" (ระบบ RoundId +
+      // RewardStatus) เหตุผลเดียวกับ '/round-summary' ด้านบนเป๊ะ ๆ (ผู้เล่นอาจ
+      // Refresh หน้านี้กลางคันก่อนกด OK ตอนไม่มีอินเทอร์เน็ตได้เช่นกัน)
+      routes: ['/', '/offline', '/home', '/map', '/scan', '/profile', '/info', '/history', '/reservation', '/round-summary', '/reward-received', '/photo-quest', '/stations', '/evaluation'],
       failOnError: false,
       // Crawl ลิงก์จากหน้าที่ Prerender ไว้ต่อเองด้วย (กันตกหล่นถ้ามีหน้าใหม่
       // ถูกเพิ่มมาทีหลังแล้วลืมเติมใน routes ด้านบน) ไม่กระทบของเดิมเพราะทุก

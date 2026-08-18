@@ -135,8 +135,16 @@ interface GetScoreResponse {
   error?: string
 }
 
+/** สถานะการรับรางวัลของ 1 รอบการเล่น — ดู server-gas/RoundService.gs
+ * (คอลัมน์ RewardStatus ในชีต "Round"):
+ *   Pending   = เกมจบแล้ว แต่ยังไม่ได้รับรางวัล
+ *   Claimed   = เจ้าหน้าที่ยืนยันว่าผู้เล่นได้รับรางวัลแล้ว (ดู pages/redeem.vue)
+ *   Confirmed = ผู้เล่นกด OK ยืนยันแล้วที่หน้า pages/reward-received.vue ปิดรอบสมบูรณ์ */
+export type RoundRewardStatus = 'Pending' | 'Claimed' | 'Confirmed'
+
 /** 1 รอบการเล่น (ชีต "Round" ฝั่ง server-gas — ดู server-gas/RoundService.gs)
- * status: 'Started' (เริ่มรอบแล้ว ยังไม่จบ) / 'Ended' (จบรอบแล้ว)
+ * status: 'Started' (เริ่มรอบแล้ว ยังไม่จบ) / 'Ended' (จบรอบแล้ว) — คนละแกนกับ
+ * rewardStatus ด้านบนโดยสิ้นเชิง ห้ามสับสน/ปนกัน
  * firstName: ดูหมายเหตุเดียวกับ JourneyEntry ด้านบน (types/useMemberApi.ts) */
 export interface RoundEntry {
   roundId: string
@@ -145,6 +153,9 @@ export interface RoundEntry {
   startTime: string
   endTime: string | null
   status: string
+  /** [ใหม่] ข้อมูลรอบเก่าที่ backend ยังไม่เคยเขียนคอลัมน์นี้ จะได้ค่า 'Pending'
+   * เสมอ (backend เป็นคน default ให้ ไม่ใช่ frontend) — ไม่มีวันเป็น undefined */
+  rewardStatus: RoundRewardStatus
 }
 
 /** Payload ที่ส่งไปกับ action 'roundStart' — roundId สร้างฝั่ง client (UUID) ครั้งเดียว
@@ -172,6 +183,14 @@ interface RoundEndResponse {
 interface GetRoundResponse {
   success: boolean
   round?: RoundEntry | null
+  error?: string
+}
+
+/** [ใหม่] response ของ action 'confirmRound' — ดู server-gas/RoundService.gs::actionConfirmRound_ */
+interface ConfirmRoundResponse {
+  success: boolean
+  alreadyConfirmed?: boolean
+  round?: RoundEntry
   error?: string
 }
 
@@ -358,6 +377,36 @@ interface RewardStatusResponse extends RewardStatus {
   /** คะแนนรวมของรอบนี้ที่ server คำนวณเอง (Journey + Answers) — ไว้แสดง Debug/
    * ยืนยันความถูกต้องที่หน้า /redeem ได้ ถ้าต้องการ */
   score?: number
+}
+
+/** [ใหม่] คะแนนของ 1 ฐานในรอบที่ระบุ — ดู server-gas/RewardService.gs::getRoundScoresBreakdown_
+ * point: แต้มฐาน (จากชีต Journey, การสแกน/เช็คอินผ่านฐาน)
+ * questionPoint: แต้มคำถาม (จากชีต Answers, การตอบคำถามประจำฐานถูก) — 0 เสมอถ้า
+ * ฐานนี้ยังไม่เคยมีการบันทึกคำถามจริงผ่าน submitAnswer() (เช่นระบบมินิเกม
+ * ดมกลิ่น/ตอบคำถามที่หน้า pages/station/[stationId].vue ปัจจุบันยังเป็น Mockup
+ * ฝั่งเครื่อง ไม่เขียน Answers เลย) */
+export interface RoundScoreStation {
+  stationId: string
+  stationName: string
+  point: number
+  questionPoint: number
+}
+
+/** ไฟล์ใหม่ (ระบบแลกของรางวัล) — response ของ action 'getRoundScores' คะแนนแยก
+ * รายฐานของรอบที่ระบุ (ไม่เขียนข้อมูล) — ใช้แสดงที่ pages/round-summary.vue +
+ * pages/reward-received.vue "แทน" การอ่านคะแนนจาก Snapshot ฝั่ง Client เดิม
+ * (composables/useRoundSummary.ts) เพื่อไม่ให้ Client เป็นคนคำนวณคะแนนของรอบเอง
+ * totalScore = totalPoint + totalQuestionPoint เสมอ (ตรงกับ computeRoundScore_
+ * ฝั่ง server-gas ที่ใช้ตัดสินสิทธิ์รางวัลจริง) */
+interface GetRoundScoresResponse {
+  success: boolean
+  roundId?: string
+  userId?: string
+  stations?: RoundScoreStation[]
+  totalPoint?: number
+  totalQuestionPoint?: number
+  totalScore?: number
+  error?: string
 }
 
 /** Payload ที่ส่งไปกับ action 'checkin' — 1 ฐานที่ผ่านสำเร็จ 1 ครั้ง
@@ -575,6 +624,14 @@ export function useMemberApi() {
     return callApi<GetRoundResponse>('getRound', { userId })
   }
 
+  /** [ใหม่] action 'confirmRound' — ผู้เล่นกด "OK" ที่หน้า pages/reward-received.vue
+   * ยืนยันว่าได้รับรางวัลจริงแล้ว (RewardStatus: Claimed -> Confirmed) idempotent
+   * ด้วย roundId (เรียกซ้ำตอน Confirmed ไปแล้ว -> คืน alreadyConfirmed: true เฉย ๆ
+   * ไม่เขียนทับซ้ำ) ใช้ roundId เป็นตัวอ้างอิงหลักเสมอ ไม่ใช้ userId ค้นหาอย่างเดียว */
+  function confirmRound(roundId: string, userId: string): Promise<ConfirmRoundResponse> {
+    return callApi<ConfirmRoundResponse>('confirmRound', { roundId, userId })
+  }
+
   /** action 'submitSurvey' — บันทึกแบบประเมินหลังจบเกม (ดู server-gas/SurveyService.gs)
    * เรียกจาก pages/scan.vue ตอนกดยืนยันแบบประเมิน ก่อนออกจาก Popup ฐานนม/ฐานสุดท้าย
    * roundId เดิมส่งมาซ้ำ (เช่น กดยืนยันซ้ำ/เน็ตหลุดแล้ว retry) -> backend อัปเดต
@@ -654,6 +711,15 @@ export function useMemberApi() {
     return callApi<RewardStatusResponse>('claimReward', { roundId, userId, displayName })
   }
 
+  /** ไฟล์ใหม่ (ระบบแลกของรางวัล) — action 'getRoundScores' คะแนนแยกรายฐานของ
+   * รอบที่ระบุ (ไม่เขียนข้อมูล) ใช้จากหน้าสรุปผล/หน้ารับรางวัลของผู้เล่นเอง (ดู
+   * pages/round-summary.vue, pages/reward-received.vue ผ่าน composables/useRoundScores.ts)
+   * แทนการอ่านคะแนนจาก Snapshot ฝั่ง Client — คะแนนคำนวณจาก Journey+Answers
+   * ฝั่ง server เอง (ดู server-gas/RewardService.gs::getRoundScoresBreakdown_) */
+  function getRoundScores(roundId: string, userId: string): Promise<GetRoundScoresResponse> {
+    return callApi<GetRoundScoresResponse>('getRoundScores', { roundId, userId })
+  }
+
   return {
     checkMember,
     registerMember,
@@ -668,6 +734,7 @@ export function useMemberApi() {
     roundStart,
     roundEnd,
     getRound,
+    confirmRound,
     submitSurvey,
     listStations,
     verifyStationQr,
@@ -679,5 +746,6 @@ export function useMemberApi() {
     getRoundAnswers,
     getRewardStatus,
     claimReward,
+    getRoundScores,
   }
 }

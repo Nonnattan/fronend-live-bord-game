@@ -150,6 +150,43 @@ function findExistingRewardClaim_(rows, roundId, userId) {
 }
 
 /**
+ * [ใหม่] อ่านแถวชีต "Round" (RoundService.gs) ตรง ๆ ด้วย RoundId — ใช้ RoundId
+ * เป็นตัวอ้างอิงหลักเสมอตามสเปก (ห้ามค้นหาด้วย UserId อย่างเดียว เพราะ User คน
+ * เดียวมีหลาย Round ได้) เรียกใช้ getRoundSheet_/findRoundRowIndexById_/
+ * rowToRoundEntry_ ของ RoundService.gs ตรง ๆ (ไฟล์เดียวกันในโปรเจกต์ Apps Script
+ * เห็น function ของกันและกันได้เสมอ ไม่ต้อง import) ไม่แก้ RoundService.gs
+ * เพิ่มเติมสำหรับจุดนี้เลยแม้แต่บรรทัดเดียว คืน null ถ้าไม่พบ/ไม่มี roundId ส่งมา
+ */
+function getRoundEntryById_(roundId) {
+  const rid = normalize_(roundId);
+  if (!rid) return null;
+  const sheet = getRoundSheet_();
+  const rowIndex = findRoundRowIndexById_(sheet, rid);
+  if (rowIndex === -1) return null;
+  const row = sheet.getRange(rowIndex, 1, 1, ROUND_HEADERS.length).getValues()[0];
+  return rowToRoundEntry_(row);
+}
+
+/**
+ * [ใหม่] ตั้ง Round.RewardStatus เป็น 'Claimed' — เรียกจาก actionClaimReward_
+ * ด้านล่างเท่านั้น (เจ้าหน้าที่ยืนยันรับรางวัลจริงที่หน้า pages/redeem.vue) ไม่
+ * เคย "ลด" สถานะกลับจาก 'Confirmed' เด็ดขาด (เผื่อกรณีเจ้าหน้าที่กดยืนยันซ้ำหลัง
+ * ผู้เล่นกด OK ที่หน้า reward-received ไปแล้ว) roundId ไม่พบแถวเลย -> เงียบไว้
+ * (เช่น Offline Mode ที่ไม่มี Round ฝั่ง Backend ตั้งแต่ต้น)
+ */
+function markRoundRewardClaimed_(roundId) {
+  const rid = normalize_(roundId);
+  if (!rid) return;
+  const sheet = getRoundSheet_();
+  const rowIndex = findRoundRowIndexById_(sheet, rid);
+  if (rowIndex === -1) return;
+  const row = sheet.getRange(rowIndex, 1, 1, ROUND_HEADERS.length).getValues()[0];
+  if (normalize_(row[6]) === 'Confirmed') return;
+  row[6] = 'Claimed';
+  sheet.getRange(rowIndex, 1, 1, ROUND_HEADERS.length).setValues([row]);
+}
+
+/**
  * [สำคัญ] คำนวณ "คะแนนรวมของรอบนี้" ใหม่ฝั่ง server เสมอ จากแหล่งข้อมูลจริง 2 ที่
  * — ไม่รับค่าคะแนนจาก client มาเชื่อตรง ๆ เด็ดขาด (กันเจ้าหน้าที่/ผู้เล่นปลอมตัวเลข
  * คะแนนเพื่อรับรางวัลเกินสิทธิ์ — หลักการเดียวกับ actionSubmitAnswer_ ใน
@@ -183,15 +220,82 @@ function computeRoundScore_(roundId, userId) {
   return total;
 }
 
+/**
+ * [ใหม่] คะแนนแยกรายฐานของรอบที่ระบุ — คนละรูปแบบผลลัพธ์กับ computeRoundScore_
+ * ด้านบน (ตัวเลขรวมตัวเดียว) แต่ใช้แหล่งข้อมูลจริงชุดเดียวกันทุกประการ (Journey
+ * สำหรับแต้มฐาน "Point" + Answers สำหรับแต้มคำถาม "QuestionPoint") กลุ่มตาม
+ * stationId — 1 ฐานอาจมีทั้ง 2 ก้อนพร้อมกัน (เช่นในอนาคตที่ระบบคำถามจริงต่อฐาน
+ * ผูกกับ backend แล้ว) หรือมีแค่ก้อนเดียว (ปัจจุบัน: มีแต่ Journey เพราะระบบภารกิจ
+ * มินิเกม/ดมกลิ่น-ตอบคำถาม ที่หน้า pages/station/[stationId].vue ยังเป็น Mockup
+ * ฝั่งเครื่องล้วน ๆ ไม่เคยเขียน Answers เลย — questionPoint จึงเป็น 0 เสมอไปก่อน
+ * จนกว่าจะย้ายเนื้อหามาผูกกับชีต "Questions" จริง)
+ *
+ * เรียงลำดับฐานตาม "ลำดับที่ปรากฏครั้งแรก" ใน Journey/Answers (ซึ่งเป็นลำดับที่
+ * บันทึกลงชีตจริง = ลำดับที่ผ่านฐานจริง) ไม่ใช้ลำดับ/ชื่อฐานจาก Stations sheet มา
+ * เรียงเอง เพื่อให้ตรงกับสิ่งที่ผู้เล่นทำจริงในรอบนี้เป๊ะ ๆ
+ */
+function getRoundScoresBreakdown_(roundId, userId) {
+  const rid = normalize_(roundId);
+  const uid = normalize_(userId);
+  if (!rid || !uid) return { stations: [], totalPoint: 0, totalQuestionPoint: 0, totalScore: 0 };
+
+  const byStation = {};
+  const order = [];
+
+  function ensureStation_(stationId, stationName) {
+    if (!byStation[stationId]) {
+      byStation[stationId] = { stationId: stationId, stationName: stationName || stationId, point: 0, questionPoint: 0 };
+      order.push(stationId);
+    } else if (stationName && !byStation[stationId].stationName) {
+      byStation[stationId].stationName = stationName;
+    }
+    return byStation[stationId];
+  }
+
+  const journeyRows = getAllJourneyRows_(getJourneySheet_());
+  for (let i = 0; i < journeyRows.length; i++) {
+    const entry = rowToJourneyEntry_(journeyRows[i]);
+    if (entry.roundId !== rid || entry.userId !== uid) continue;
+    const row = ensureStation_(entry.stationId, entry.stationName);
+    row.point += entry.point;
+  }
+
+  const answerRows = getAllAnswerRows_(getAnswersSheet_());
+  for (let i = 0; i < answerRows.length; i++) {
+    const answer = rowToAnswer_(answerRows[i]);
+    if (answer.roundId !== rid || answer.userId !== uid) continue;
+    const row = ensureStation_(answer.stationId, null);
+    row.questionPoint += answer.pointsEarned;
+  }
+
+  const stations = order.map(function (id) { return byStation[id]; });
+  const totalPoint = stations.reduce(function (sum, s) { return sum + s.point; }, 0);
+  const totalQuestionPoint = stations.reduce(function (sum, s) { return sum + s.questionPoint; }, 0);
+
+  return {
+    stations: stations,
+    totalPoint: totalPoint,
+    totalQuestionPoint: totalQuestionPoint,
+    totalScore: totalPoint + totalQuestionPoint,
+  };
+}
+
 /* ------------------------------- Actions --------------------------------- */
 
 /**
  * action 'getRewardStatus' — ตรวจสอบสิทธิ์รางวัลของรอบที่ระบุ (ไม่เขียนข้อมูล)
- * ใช้จากหน้าสรุปผลของผู้เล่นเอง (pages/round-summary.vue) เพื่อโชว์ว่ามีสิทธิ์
- * รางวัลอะไร + เจ้าหน้าที่ยืนยันให้แล้วหรือยัง — "ไม่มีปุ่มยืนยันในนี้"
+ * ใช้จากหน้าสรุปผลของผู้เล่นเอง (pages/round-summary.vue — Poll ทุก 10 วินาที)
+ * และหน้า pages/reward-received.vue เพื่อโชว์ว่ามีสิทธิ์รางวัลอะไร + สถานะ
+ * RewardStatus ของ Round ปัจจุบันอยู่ขั้นไหนแล้ว (Pending/Claimed/Confirmed) —
+ * "ไม่มีปุ่มยืนยันในนี้"
  *
  * ไม่รับ score จาก payload อีกต่อไป — คำนวณใหม่จาก Journey+Answers เสมอ (ดู
  * computeRoundScore_ ด้านบน) Payload: { action, roundId, userId }
+ *
+ * [ใหม่] เพิ่ม `round` ในผลลัพธ์ (roundId/userId/status/rewardStatus ฯลฯ จากชีต
+ * "Round" โดยตรง ผ่าน RoundId เป็นตัวอ้างอิงหลัก) — ใช้ตัดสิน Pending/Claimed/
+ * Confirmed ที่ frontend ต้อง Poll เช็ค ไม่ใช่ตัดสินจาก UserId อย่างเดียวอีก
+ * ต่อไป (User คนเดียวมีหลาย Round ได้) ไม่พบ roundId นี้ในชีต Round เลย -> null
  */
 function actionGetRewardStatus_(payload) {
   if (!payload || !payload.userId) {
@@ -209,6 +313,7 @@ function actionGetRewardStatus_(payload) {
 
   return {
     success: true,
+    round: getRoundEntryById_(roundId),
     reward: tier ? { id: tier.id, name: tier.name } : null,
     alreadyClaimed: !!existing,
     claimedAt: existing ? existing.claimedAt : null,
@@ -225,6 +330,11 @@ function actionGetRewardStatus_(payload) {
  * payload อีกต่อไป — ดู computeRoundScore_ ด้านบน) และไม่เชื่อ rewardId ใด ๆ ที่
  * client อาจส่งมาเอง (กันการปลอมค่าเพื่อรับรางวัลเกินสิทธิ์) เจ้าหน้าที่จึงกรอก
  * แค่ roundId + userId ที่อ่านจากหน้าจอผู้เล่นเท่านั้น
+ *
+ * [ใหม่] ทุก path ที่ตอบ success (ทั้งเคย Claim ไปแล้วและเพิ่ง Claim ใหม่) จะเรียก
+ * markRoundRewardClaimed_() ตั้ง Round.RewardStatus = 'Claimed' เสมอ (เว้นแต่
+ * เป็น 'Confirmed' ไปแล้ว — ไม่มีวันลดสถานะกลับ) เพื่อให้หน้า round-summary.vue ที่
+ * Poll อยู่ตรวจพบแล้ว redirect ไป /reward-received ได้ทันที
  *
  * Payload: { action, roundId, userId, displayName }
  */
@@ -246,6 +356,7 @@ function actionClaimReward_(payload) {
   const claimRows = getAllRewardClaimRows_(claimsSheet);
   const existing = findExistingRewardClaim_(claimRows, roundId, userId);
   if (existing) {
+    markRoundRewardClaimed_(roundId);
     return {
       success: true,
       alreadyClaimed: true,
@@ -272,6 +383,7 @@ function actionClaimReward_(payload) {
     score,
     now,
   ]);
+  markRoundRewardClaimed_(roundId);
 
   return {
     success: true,
@@ -286,4 +398,32 @@ function actionClaimReward_(payload) {
 function actionListRewards_() {
   const tiers = getAllRewardRows_(getRewardsSheet_()).map(rowToRewardTier_);
   return { success: true, rewards: tiers };
+}
+
+/**
+ * [ใหม่] action 'getRoundScores' — คะแนนแยกรายฐานของรอบที่ระบุ (ไม่เขียนข้อมูล)
+ * ใช้จากหน้าสรุปผล/หน้ารับรางวัลของผู้เล่นเอง (pages/round-summary.vue,
+ * pages/reward-received.vue) เพื่อแสดง "ฐานที่ผ่าน + คะแนนแต่ละฐาน" โดย Client
+ * ไม่ต้องคำนวณ/ปะติดปะต่อเอง (ดู getRoundScoresBreakdown_ ด้านบน) ตรงกับหลักการ
+ * เดียวกับ getRewardStatus/claimReward ด้านบน — คะแนนมาจาก server เสมอ
+ *
+ * Payload: { action, roundId, userId }
+ */
+function actionGetRoundScores_(payload) {
+  if (!payload || !normalize_(payload.roundId) || !normalize_(payload.userId)) {
+    return { success: false, error: "roundId และ userId จำเป็นต้องส่งมา" };
+  }
+  const roundId = normalize_(payload.roundId);
+  const userId = normalize_(payload.userId);
+  const breakdown = getRoundScoresBreakdown_(roundId, userId);
+
+  return {
+    success: true,
+    roundId: roundId,
+    userId: userId,
+    stations: breakdown.stations,
+    totalPoint: breakdown.totalPoint,
+    totalQuestionPoint: breakdown.totalQuestionPoint,
+    totalScore: breakdown.totalScore,
+  };
 }

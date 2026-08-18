@@ -196,7 +196,17 @@ export function useOfflineSync() {
       // ระบบ Login เดิม (useAuth.ts) ไม่ถูกแก้ไข — ที่นี่แค่ "เรียกใช้" ฟังก์ชันเดิม
       // เผื่อกรณีเซสชัน LINE หลุดระหว่างเล่นแบบออฟไลน์นาน ๆ (ปกติจะ login อยู่แล้ว
       // เพราะทุกหน้าเกมถูก guard ด้วย useRequireProfile() มาก่อนหน้านี้)
-      if (!hasAuth.value) {
+      //
+      // [Fix] เดิมเช็คแค่ !hasAuth.value (authData ใน useState — ตามสเปกของ
+      // useAuth.ts เอง "ไม่ restore" ให้ผู้เล่น Guest ตอน Hard Refresh กลางเกม
+      // เด็ดขาด มีแค่ LIFF session ของ LINE เท่านั้นที่ restore อัตโนมัติได้) เดิม
+      // ทำให้ผู้เล่นที่เลือก "เข้าใช้งานโดยไม่เชื่อม LINE" ตั้งแต่ต้น แล้ว Hard
+      // Refresh กลางเกม (เช่น มือถือ reload แท็บพื้นหลัง) พอฐานถูก Sync (ไม่ว่าจาก
+      // Timer 45 วินาที/ปุ่ม Sync เอง/ผ่านฐานสุดท้าย) จะโดน liff.login() redirect
+      // ทั้งหน้าออกไปที่ LINE ทันทีโดยไม่ได้ตั้งใจ — เช็คจาก profile.value.loginType
+      // (ค่าจาก UserProfile ที่ persist ข้าม Reload จริง คนละก้อนกับ authData) แทน
+      // บังคับ login LINE เฉพาะผู้เล่นที่เลือก login ด้วย LINE มาแต่แรกเท่านั้น
+      if (!hasAuth.value && profile.value?.loginType === 'line') {
         await loginWithLine()
       }
 

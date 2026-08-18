@@ -1,11 +1,23 @@
 /**
  * composables/useStationQuest.ts
  * ---------------------------------------------------------------------------
- * ระบบ "ปลดล็อคฐาน + ภารกิจ" เวอร์ชัน Mockup ล้วน ๆ (Frontend State only) —
- * แยกขาดจาก composables/useAdventure.ts (ระบบเช็คอินฐานจริงที่ผูกกับคะแนน/
- * Google Sheet) และ composables/useQuestion.ts (ระบบคำถามจริงต่อฐานที่ผูกกับ
- * submitAnswer() จริง) โดยตั้งใจ — ไฟล์นี้ "ห้ามเรียก" toggleStation/queueCheckin/
- * submitAnswer หรือ API ใด ๆ ที่ทำให้คะแนนจริงเปลี่ยนเด็ดขาด ตามสเปก Mockup
+ * ระบบ "ปลดล็อคฐาน + ภารกิจ" — UI/State ของภารกิจ "ดมกลิ่น"/"ตอบคำถาม"/"สแกน QR"
+ * ยังเป็น Mockup ฝั่งเครื่องล้วน ๆ เหมือนเดิม (mockScore ด้านล่างเป็นแค่คะแนน
+ * โชว์ผลระหว่างเล่น ยังไม่ผูกกับชีต "Questions"/"Answers" จริง — ดูเหตุผลที่
+ * services/stationMissionMockData.ts) แยกขาดจาก composables/useQuestion.ts
+ * (ระบบคำถามจริงต่อฐานที่ผูกกับ submitAnswer() จริง) ต่อไปตามเดิม
+ *
+ * [แก้ไข] ส่วน "แต้มฐาน" (คนละก้อนกับ mockScore ของมินิเกมด้านบน) ไม่ใช่ Mockup
+ * อีกต่อไป — เมื่อฐานหนึ่งทำภารกิจครบ 3/3 ครั้งแรกใน Round นี้ (ดู
+ * recordRealCheckinIfComplete() ท้ายไฟล์ เรียกจาก updateMissionState() เสมอ)
+ * จะยิง check-in จริงขึ้น Backend ทันที (ผ่าน useOfflineSync().queueCheckin() —
+ * Offline-First เหมือน Flow เดิมของระบบเช็คอินฐานทุกประการ ไม่ประดิษฐ์ Logic ใหม่)
+ * ด้วยคะแนนฐานจริงจาก useAdventure().stations (ชีต "Stations" ผ่าน Admin ไม่ใช่
+ * ค่า Mock) เพื่อให้ RoundId+UserId+StationId+StationName+Point ของฐานนี้ถูก
+ * บันทึกลงชีต "Journey" จริง (ให้ server-gas/RewardService.gs คำนวณสิทธิ์รางวัล
+ * ได้ถูกต้อง — ดู server-gas/RewardService.gs::computeRoundScore_) ยิงครั้งเดียว
+ * ต่อฐานต่อ Round เท่านั้น (checkinRecorded ด้านล่าง กันยิงซ้ำจาก lifecycle ฝั่ง
+ * Client — ตัวกันซ้ำจริงยังอยู่ที่ Backend เสมอ ดู hasVisitedStation_)
  *
  * [แก้ไข] กติกาการเข้าฐานใหม่ — "สิทธิ์เข้าฐานแบบใช้ครั้งเดียวจากการสแกนล่าสุด"
  * แทนที่ "ปลดล็อคแล้วค้างตลอดไป" เดิม:
@@ -27,7 +39,7 @@
  * กันฐาน/ภารกิจ/สิทธิ์เข้าฐานของรอบก่อนหน้าปนกับรอบใหม่
  */
 
-import type { StationType } from '~/composables/useAdventure'
+import { STATION_TYPE_META, type StationType } from '~/composables/useAdventure'
 import type {
   MissionAnswerResult,
   MissionKind,
@@ -57,6 +69,7 @@ function createEmptyProgress(roundKey: string): StationQuestProgress {
     mockScore: 0,
     selectedFavoriteStationId: null,
     gameCompleted: false,
+    checkinRecorded: {},
   }
 }
 
@@ -240,6 +253,44 @@ export function useStationQuest() {
       mockScore: progress.value.mockScore + scoreDelta,
     }
     persistProgress(progress.value)
+    recordRealCheckinIfComplete(stationId)
+  }
+
+  /**
+   * [ใหม่] เมื่อฐาน stationId ทำภารกิจครบ 3/3 "ครั้งแรก" ใน Round นี้ — ยิง
+   * check-in จริงขึ้น Backend ทันที (ผ่านคิว Offline-First เดิมของระบบเช็คอินฐาน
+   * — ดู composables/useOfflineSync.ts::queueCheckin()) ด้วยคะแนนฐานจริงจาก
+   * useAdventure().stations (ชีต "Stations" ไม่ใช่ค่า Mock) แล้วลองยิง Sync ทันที
+   * แบบ fire-and-forget (ไม่ await/ไม่บล็อก UI ของ Popup ภารกิจ — ถ้าออฟไลน์อยู่
+   * queueCheckin() เก็บลง LocalStorage ไว้ก่อนแล้ว Sync อัตโนมัติทีหลังตามกลไก
+   * เดิมของระบบอยู่แล้ว: ผ่านฐานนม/ปุ่ม Sync เอง/ทุก 45 วินาที)
+   *
+   * checkinRecorded กันเรียกซ้ำจาก lifecycle ฝั่ง Client เท่านั้น (เช่น component
+   * re-mount) — ตัวกันซ้ำจริงที่ป้องกันคะแนนซ้ำอยู่ที่ Backend เสมอ (RoundId+
+   * UserId+StationId — ดู server-gas/JourneyService.gs::hasVisitedStation_)
+   * queueCheckin() เองก็กันคิวซ้ำอีกชั้นด้วย (isQueued) เผื่อ Sync ยังไม่ทันวิ่ง
+   *
+   * ข้อมูลเก่าที่เคย persist ไว้ก่อนเพิ่ม field นี้จะไม่มี checkinRecorded เลย
+   * (undefined) — ใช้ ?? {} เสมอกันพังตอนอ่าน/เขียนทับ
+   */
+  function recordRealCheckinIfComplete(stationId: StationType): void {
+    if (missionProgressCount(stationId) !== MISSION_KINDS.length) return
+    if (progress.value.checkinRecorded?.[stationId]) return
+
+    progress.value = {
+      ...progress.value,
+      checkinRecorded: { ...(progress.value.checkinRecorded ?? {}), [stationId]: true },
+    }
+    persistProgress(progress.value)
+
+    const { stations } = useAdventure()
+    const station = stations.value.find((s) => s.id === stationId)
+    const stationName = station?.name ?? STATION_TYPE_META[stationId].label
+    const point = station?.points ?? 0
+
+    const { queueCheckin, syncNow } = useOfflineSync()
+    queueCheckin({ id: stationId, name: stationName }, point)
+    void syncNow()
   }
 
   /** ตอบภารกิจ "ดมกลิ่น"/"ตอบคำถาม" — ตอบได้ครั้งเดียว (เหมือนกติการะบบคำถามจริง)
