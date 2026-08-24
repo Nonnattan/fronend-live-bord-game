@@ -94,6 +94,45 @@ function persistProgress(progress: StationQuestProgress): void {
   }
 }
 
+/**
+ * [ใหม่] อ่านค่า mockScore ล่าสุดจาก LocalStorage โดยตรงแบบ Passive — ไม่ผ่าน
+ * initStationQuest()/ไม่เช็ค roundKey ใด ๆ ทั้งสิ้น (ต่างจาก mockScore (computed)
+ * ที่ useStationQuest() คืนให้ ซึ่งผูกกับรอบปัจจุบันและต้องเรียก initStationQuest()
+ * ก่อนเสมอ) ใช้เฉพาะหน้าที่แสดงคะแนน "ของรอบที่จบไปแล้ว" เช่น pages/round-summary.vue
+ * และ pages/reward-received.vue เท่านั้น — ห้ามเรียก initStationQuest() ที่ 2 หน้านี้
+ * เด็ดขาด เพราะ currentRoundId ถูกเคลียร์เป็น null ไปแล้วตั้งแต่ evaluation.vue ทำให้
+ * effectiveRoundKey กลายเป็น 'no-round' แล้วเข้าใจผิดว่าเปลี่ยนรอบใหม่ ล้าง mockScore
+ * ที่เพิ่งเล่นจบทิ้งไปทันที (ดู initStationQuest() ด้านล่าง) — ฟังก์ชันนี้จึงอ่านตรง ๆ
+ * เฉย ๆ ไม่แตะ State/ไม่มีผลข้างเคียงใด ๆ ทั้งสิ้น
+ */
+export function getMockScoreSnapshot(): number {
+  return readStoredProgress()?.mockScore ?? 0
+}
+
+/**
+ * [ใหม่] ล้าง Progress ของระบบภารกิจ+มอคสกอร์ทั้งหมดทิ้ง (LocalStorage + State ใน
+ * หน่วยความจำ) — ใช้เฉพาะ 2 กรณีเท่านั้น: (1) ผู้เล่นกดยืนยันรับรางวัลสำเร็จจริง
+ * ที่ pages/reward-received.vue::handleOk() (ฝั่ง Online) หรือกด "ติดต่อเจ้าหน้าที่
+ * แล้ว" ที่ pages/round-summary.vue::confirmAndGoHome() (ฝั่ง Offline) — จบเกม
+ * "สำเร็จ" ตาม Flow ครบแล้วเท่านั้น, (2) Session หมดอายุเกิน 24 ชม. (ดู
+ * composables/useSessionExpiry.ts) ไม่ใช่การ Reset ตามรอบปกติ (นั่นเป็นหน้าที่ของ
+ * resetForCurrentRound()/watch(effectiveRoundKey) ด้านบนอยู่แล้ว ซึ่งผูกกับ
+ * roundKey ปัจจุบันเสมอ) — ที่นี่ล้างทิ้งตรง ๆ ไม่สนใจ roundKey ปัจจุบันเลย
+ */
+export function clearStationQuestProgress(): void {
+  const progress = useState<StationQuestProgress>('station-quest-progress', () =>
+    createEmptyProgress('no-round'),
+  )
+  progress.value = createEmptyProgress('no-round')
+  if (import.meta.client) {
+    try {
+      localStorage.removeItem(STORAGE_KEY)
+    } catch {
+      // เพิกเฉย (ดูเหตุผลเดียวกับ persistProgress ด้านบน)
+    }
+  }
+}
+
 export function useStationQuest() {
   const progress = useState<StationQuestProgress>('station-quest-progress', () =>
     createEmptyProgress('no-round'),
@@ -171,8 +210,27 @@ export function useStationQuest() {
   // เผื่อกรณี currentRoundId/roundData เพิ่ง resolve เสร็จ "หลัง" initStationQuest()
   // ทำงานไปแล้ว (pattern เดียวกับที่ useAdventure.ts/useQuestion.ts ใช้กันปัญหา
   // roundId มาช้า) — เฝ้าดูกุญแจรอบ เปลี่ยนเมื่อไหร่ค่อย sync ให้ตรงเสมอ
+  //
+  // [แก้ไข — root cause ของ "mockScore หายไปก่อนถึงหน้าสรุปผล"] เดิม Branch นี้รีเซ็ต
+  // ทันทีที่ effectiveRoundKey เปลี่ยนไม่ว่าจะเปลี่ยนเป็นอะไรก็ตาม รวมถึงตอนกด "จบเกม"
+  // ที่ pages/evaluation.vue::handleSubmit() เรียก endCurrentRound() ซึ่งเคลียร์
+  // currentRoundId เป็น null ทันที (ทำให้ effectiveRoundKey กลายเป็น 'no-round') —
+  // Vue เห็นการเปลี่ยนนี้แล้วเรียก resetForCurrentRound() ขณะที่ evaluation.vue ยังอยู่
+  // บนจอ (ก่อน navigateTo('/round-summary') เสร็จเสียอีก) ล้าง mockScore ของรอบที่
+  // เพิ่งเล่นจบทิ้งไปก่อนที่ pages/round-summary.vue/pages/reward-received.vue จะทัน
+  // ได้อ่าน (ทั้ง 2 หน้าอ่าน stationQuestMock:progress ตรง ๆ แบบ Passive ไม่ผ่าน
+  // initStationQuest() — ดู getMockScoreSnapshot()) พิสูจน์แล้วจริงตอนทดสอบ (มา
+  // อ่านได้ mockScore: 0 ทั้งที่เพิ่งได้ 10 คะแนนมา) — แก้โดย "ไม่รีเซ็ต" เฉพาะตอน
+  // เปลี่ยนเป็น 'no-round' (แปลว่ารอบเพิ่งจบ ยังไม่มีรอบใหม่เริ่ม) ปล่อยให้ Progress
+  // ของรอบที่เพิ่งจบค้างอยู่ใน LocalStorage ต่อไปก่อน จนกว่าจะถึงตอนจบเกม "สำเร็จ
+  // จริง" (clearStationQuestProgress() ที่ pages/reward-received.vue::handleOk()/
+  // pages/round-summary.vue::confirmAndGoHome() เรียก) หรือ Session หมดอายุ 24 ชม.
+  // (composables/useSessionExpiry.ts) — ทิศทางตรงข้าม (เปลี่ยนจาก 'no-round' ไปเป็น
+  // กุญแจรอบจริง เช่นตอนรอบใหม่เริ่ม) ยังคงรีเซ็ตตามปกติทุกประการ ไม่กระทบ Fix 1-2
+  // ด้านบนเลย (คนละทิศทางของการเปลี่ยนกุญแจ)
   watch(effectiveRoundKey, (next) => {
     if (!initialized.value || progress.value.roundKey === next) return
+    if (next === 'no-round') return
     resetForCurrentRound()
   })
 

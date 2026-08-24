@@ -37,17 +37,29 @@
  *
  * Refresh หน้านี้กลางคัน: loadRoundSummary() อ่าน RoundId เดิมจาก LocalStorage
  * เสมอ (ไม่สร้าง Round ใหม่) แล้วเริ่ม Poll ใหม่จาก RoundId เดิมนั้นต่อทันที
+ *
+ * [แก้ไข] คะแนนรวมที่แสดง (mockScoreDisplay) อ่านจาก LocalStorage key
+ * "stationQuestMock:progress" (mockScore) โดยตรงผ่าน getMockScoreSnapshot() เท่านั้น
+ * — ไม่ใช้ getRoundScores()/Backend อีกต่อไป (Sync ช้ากว่าเสมอ เคยทำให้คะแนนที่เห็น
+ * ผิด/เป็น 0) ต้องตรงกับที่ pages/reward-received.vue แสดงเป๊ะ ๆ เสมอ
+ *
+ * [แก้ไข] confirmAndGoHome() (ปุ่ม Offline/empty-state) ตอนนี้ reset ข้อมูลเกมของ
+ * รอบนี้ให้ครบ (รวม stationQuestMock:progress) + ล้าง Profile/Auth แล้วพาไป "/"
+ * (หน้า Login) แทน "/home" เดิม — ดู doc comment ที่ตัวฟังก์ชันเองสำหรับเหตุผลเต็ม ๆ
  */
 
 definePageMeta({ layout: false });
 
-const { profile, initProfile, hasProfile } = useProfile();
+import { getMockScoreSnapshot, clearStationQuestProgress } from "~/composables/useStationQuest";
+
+const { profile, initProfile, hasProfile, resetProfile } = useProfile();
+const { resetAuth } = useAuth();
 const { roundSummary, loadRoundSummary, clearRoundSummary } = useRoundSummary();
 // [เดิม — คงไว้เฉพาะสำหรับปุ่ม "กลับสู่หน้าหลัก" ของ empty-state (ไม่พบข้อมูลสรุปผล
 // เลย) ด้านล่างเท่านั้น] ไม่ถูกเรียกจาก Flow หลักอีกต่อไป (ดู confirmAndGoHome())
 const { resetJourney } = useAdventure();
 const { resetAnswered } = useQuestion();
-const { isOfflineMode, startRound } = useOfflineMode();
+const { isOfflineMode, clearRoundData } = useOfflineMode();
 // [ใหม่] ระบบแลกของรางวัล — เช็คสถานะ (getRewardStatus) ทันที 1 ครั้ง + Poll ทุก
 // 10 วินาที (ดู pollRewardStatus() ด้านล่าง) ไม่มีปุ่มยืนยันรับในหน้านี้ (เจ้าหน้าที่
 // กดที่หน้า pages/redeem.vue, ผู้เล่นกด OK ที่หน้า pages/reward-received.vue)
@@ -57,23 +69,14 @@ const {
   checkRewardStatus,
 } = useReward();
 const { clearAllTimers } = useRoundTimer();
-// [ใหม่] คะแนนแยกรายฐานของรอบนี้ "จาก Backend เท่านั้น" (getRoundScores) — ห้ามใช้
-// roundSummary.stations/totalPoint (Snapshot ฝั่ง Client เดิม) เป็นคะแนนของรอบอีก
-// ต่อไปตามสเปก ใช้แสดงเฉพาะฝั่ง Online เท่านั้น (ดู loadScores() ด้านล่าง) — ฝั่ง
-// Offline ยังคงแสดงชื่อฐานจาก Snapshot เดิมต่อไป (ไม่มีคะแนนอยู่แล้วตามกติกาเดิม)
-const {
-  stations: roundScoreStations,
-  totalPoint: backendTotalPoint,
-  totalQuestionPoint: backendTotalQuestionPoint,
-  totalScore: backendTotalScore,
-  isLoading: isLoadingScores,
-  error: scoresError,
-  loaded: scoresLoaded,
-  fetchRoundScores,
-  resetRoundScores,
-} = useRoundScores();
 
 const isReady = ref(false);
+// [แก้ไข] คะแนนรวมของรอบนี้ "อ่านจาก LocalStorage โดยตรง" (stationQuestMock:progress
+// .mockScore ผ่าน getMockScoreSnapshot()) แทนการยิง getRoundScores ไปหา Backend เดิม
+// (Journey+Answers sheet Sync ช้ากว่าเสมอ — ทำให้คะแนนที่หน้านี้เคยแสดงผิด/เป็น 0
+// ทั้งที่เล่นจริงมาแล้ว) ค่านี้ต้องตรงกับที่ pages/reward-received.vue แสดงเป๊ะ ๆ
+// (อ่านจาก Key เดียวกัน) และต้องไม่ถูก Backend Sync มา Override เด็ดขาด
+const mockScoreDisplay = ref(0);
 
 /** ข้อความหัวเรื่อง — ปรับให้ตรงสาเหตุจริงที่จบรอบ (ตามที่ scan.vue บันทึกไว้ผ่าน
  * endedReason ดู composables/useForceEndRound.ts) ไม่ใช่ "จบการเล่น" เสมอไป */
@@ -98,31 +101,34 @@ function formatDateTime(value: string | null): string {
   });
 }
 
-/** ปุ่ม "กลับสู่หน้าหลัก" ของ empty-state เท่านั้น (ไม่พบข้อมูลสรุปผลของรอบนี้
- * เลย — ไม่มี Round ให้ Poll/รอรางวัลอะไรอยู่แล้ว) ไม่ได้ใช้จาก Flow หลักอีก
- * ต่อไป (ดู pollRewardStatus() ด้านล่าง ที่เป็นคนพาไป /reward-received แทน) */
+/**
+ * ปุ่ม "กลับสู่หน้าหลัก" ของ empty-state (ไม่พบข้อมูลสรุปผลของรอบนี้เลย — ไม่มี
+ * Round ให้ Poll/รอรางวัลอะไรอยู่แล้ว) และปุ่ม "ติดต่อเจ้าหน้าที่แล้ว / กลับสู่หน้า
+ * หลัก" ของฝั่ง Offline เท่านั้น (ฝั่ง Online จบเกมผ่าน pages/reward-received.vue
+ * ::handleOk() แทน — ดู pollRewardStatus() ด้านล่างที่เป็นคนพาไปหน้านั้นให้อัตโนมัติ)
+ *
+ * [แก้ไข] จบเกมแล้วต้องกลับหน้า Login ("/") ไม่ใช่ "/home" อีกต่อไป — reset ข้อมูล
+ * เกม/Session ของรอบนี้ให้ครบ (รวม stationQuestMock:progress ที่แต่ก่อนไม่เคยถูก
+ * ล้างเลยสักจุด แค่ถูกทับเงียบ ๆ ตอนรอบใหม่เริ่มเท่านั้น) แล้วล้าง Profile/Auth ที่
+ * จำเป็นสำหรับกลับเข้าใหม่ (กัน "/" เด้งกลับ "/home" ทันทีเพราะ hasProfile ยังเป็น
+ * true ค้างอยู่ — ดู pages/index.vue) ไม่เพิ่ม logout LINE จริง (logoutLine()) เพราะ
+ * ไม่ใช่สิ่งที่ Flow เดิมเคยทำ — มี LINE Session ค้างอยู่จริงจะ Auto-login กลับเข้า
+ * Home ตามพฤติกรรมเดิมของระบบ (ดู pages/index.vue) ซึ่งเป็นเรื่องที่ตั้งใจคงไว้
+ */
 async function confirmAndGoHome(): Promise<void> {
   confirmedLeave.value = true;
   resetJourney();
   resetAnswered();
   clearAllTimers();
-  resetRoundScores();
-  if (isOfflineMode.value && profile.value?.uid) {
-    startRound(profile.value.uid);
+  clearStationQuestProgress();
+  if (isOfflineMode.value) {
+    clearRoundData();
   }
   clearRoundSummary();
+  resetProfile();
+  resetAuth();
 
-  await navigateTo("/home");
-}
-
-/** [ใหม่] โหลด/ลองโหลดใหม่ (ปุ่ม "ลองอีกครั้ง") คะแนนแยกรายฐานของรอบนี้จาก
- * Backend — เฉพาะฝั่ง Online เท่านั้น (ต้องมี roundId จริง) */
-function loadScores(): void {
-  if (isOfflineMode.value) return;
-  void fetchRoundScores(
-    roundSummary.value?.roundId,
-    roundSummary.value?.userId,
-  );
+  await navigateTo("/");
 }
 
 /** ดักปุ่ม Back ของเบราว์เซอร์/มือถือ (กลับไปหน้า Scan เดิม) — เตือนก่อนออกเสมอ
@@ -208,6 +214,11 @@ onMounted(() => {
       return;
     }
     loadRoundSummary();
+    // [แก้ไข] อ่าน mockScore จาก LocalStorage โดยตรง (Passive, ไม่ผ่าน initStationQuest()
+    // — ดูเหตุผลเต็ม ๆ ที่ getMockScoreSnapshot()) แทนการยิง getRoundScores ไปหา
+    // Backend เดิม ทำงานได้ทันทีไม่ต้องรอเน็ต และยังอ่านค่าถูกต้องแม้หน้านี้ถูก
+    // Refresh กลางคัน (ค่านี้ไม่ถูกล้างจนกว่าจะถึง confirmAndGoHome()/handleOk() จริง)
+    mockScoreDisplay.value = getMockScoreSnapshot();
   } catch (err) {
     console.error("[round-summary] failed to load profile/summary", err);
   }
@@ -223,10 +234,6 @@ onMounted(() => {
       void pollRewardStatus();
     }, POLL_INTERVAL_MS);
   }
-
-  // [ใหม่] โหลดคะแนนแยกรายฐานจาก Backend ครั้งเดียว (ไม่ผูกกับ Poll ทุก 10 วินาที
-  // ด้านบน — คนละเรื่องกับสถานะรางวัล) เฉพาะฝั่ง Online เท่านั้น (ดู loadScores())
-  loadScores();
 });
 
 onBeforeUnmount(() => {
@@ -336,69 +343,35 @@ onBeforeUnmount(() => {
               </p> -->
             </div>
 
-            <!-- [ใหม่] Online: คะแนนต้อง "มาจาก Backend เท่านั้น" (getRoundScores)
-                 ห้ามใช้ Snapshot ฝั่ง Client คำนวณเอง — loading/error/retry ครบ -->
+            <!-- [แก้ไข] Online: คะแนนรวมต้องมาจาก mockScore (LocalStorage) เท่านั้น
+                 — ห้ามใช้ Backend (getRoundScores) มา Override เพราะ Sync ช้ากว่า
+                 เสมอ แสดงได้ทันทีไม่ต้องรอเน็ต/ไม่มี Loading ให้สับสนอีกต่อไป (ตรงกับ
+                 pages/reward-received.vue ทุกประการ — อ่านจาก Key เดียวกัน) -->
             <template v-else>
-              <div
-                v-if="isLoadingScores"
-                class="reward-card reward-card--loading"
-              >
-                <UIcon name="i-lucide-clock" class="reward-card__spinner-static" />
-                รอเจ้าหน้าที่ตรวจสอบคะแนน
-              </div>
-              <div v-else-if="scoresError" class="empty-state">
-                <p class="empty-state__desc">{{ scoresError }}</p>
-                <UButton
-                  block
-                  color="primary"
-                  variant="soft"
-                  @click="loadScores"
-                  >ลองอีกครั้ง</UButton
-                >
-              </div>
-              <template v-else-if="scoresLoaded">
-                <div class="info-card">
-                  <p class="info-card__list-title">ฐานที่ท่านเล่น</p>
-                  <ul v-if="roundScoreStations.length" class="station-list">
-                    <li
-                      v-for="(station, index) in roundScoreStations"
-                      :key="station.stationId"
-                      class="station-list__item"
-                    >
-                      <span class="station-list__index">{{ index + 1 }}</span>
-                      <span class="station-list__name">{{
-                        station.stationName
-                      }}</span>
-                      <span class="station-list__points"
-                        >+{{ station.point + station.questionPoint }}</span
-                      >
-                    </li>
-                  </ul>
-                  <p v-else class="empty-state__desc">
-                    ยังไม่ได้เข้าฐานใดเลยในรอบนี้
-                  </p>
-                </div>
-
-                <div class="total-card">
-                  <p class="total-card__label">คะแนนรวมของรอบนี้</p>
-                  <p class="total-card__value">
-                    <span class="total-card__value-num">{{
-                      backendTotalScore
-                    }}</span>
-                    <span class="total-card__unit">Point</span>
-                  </p>
-                  <!-- [ใหม่] แยกให้เห็นว่าคะแนนมาจาก 2 ทาง — สแกนฐาน + ตอบคำถามถูก
-                       (ตามกติกาที่ตกลงกันไว้ "ได้ทั้งสแกนและตอบถูก") -->
-                  <p
-                    v-if="backendTotalQuestionPoint"
-                    class="total-card__breakdown"
+              <div class="info-card">
+                <p class="info-card__list-title">ฐานที่ท่านเล่น</p>
+                <ul v-if="roundSummary.stations.length" class="station-list">
+                  <li
+                    v-for="(station, index) in roundSummary.stations"
+                    :key="`${station.name}-${index}`"
+                    class="station-list__item"
                   >
-                    (ฐาน {{ backendTotalPoint }} + ตอบคำถามถูก +{{
-                      backendTotalQuestionPoint
-                    }})
-                  </p>
-                </div>
-              </template>
+                    <span class="station-list__index">{{ index + 1 }}</span>
+                    <span class="station-list__name">{{ station.name }}</span>
+                  </li>
+                </ul>
+                <p v-else class="empty-state__desc">
+                  ยังไม่ได้เข้าฐานใดเลยในรอบนี้
+                </p>
+              </div>
+
+              <div class="total-card">
+                <p class="total-card__label">คะแนนรวมของรอบนี้</p>
+                <p class="total-card__value">
+                  <span class="total-card__value-num">{{ mockScoreDisplay }}</span>
+                  <span class="total-card__unit">Point</span>
+                </p>
+              </div>
             </template>
 
             <!-- [ใหม่] สถานะสิทธิ์รางวัล — แสดงอย่างเดียว ไม่มีปุ่มยืนยันในหน้านี้

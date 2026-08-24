@@ -23,11 +23,24 @@
  *
  * ไม่ใช้ useRequireProfile() เหมือน pages/round-summary.vue (เหตุผลเดียวกัน —
  * ไม่อยากให้ ensureRoundStarted() เปิดรอบใหม่ทันทีที่หน้านี้ mount)
+ *
+ * [แก้ไข] คะแนนรวมที่แสดง (mockScoreDisplay) อ่านจาก LocalStorage key
+ * "stationQuestMock:progress" (mockScore) โดยตรงผ่าน getMockScoreSnapshot() —
+ * ไม่ใช้ roundSummary.totalPoint + questionPoints เดิมอีกต่อไป (ต้องตรงกับที่
+ * pages/round-summary.vue แสดงเป๊ะ ๆ เสมอ อ่านจาก Key เดียวกัน)
+ *
+ * [แก้ไข] handleOk() สำเร็จแล้ว reset ข้อมูลเกมของรอบนี้ให้ครบ (เพิ่ม
+ * clearStationQuestProgress()) + ล้าง Profile/Auth แล้วพาไป "/" (หน้า Login) แทน
+ * "/home" เดิม — จบเกมแล้วต้องกลับไปเริ่มจาก Login เสมอ ไม่เปิด Round/คะแนนเดิม
+ * ค้างมาให้ผู้เล่นคนถัดไปเห็น (ดู doc comment ที่ handleOk() เองสำหรับเหตุผลเต็ม ๆ)
  */
 
 definePageMeta({ layout: false });
 
-const { profile, initProfile, hasProfile } = useProfile();
+import { getMockScoreSnapshot, clearStationQuestProgress } from "~/composables/useStationQuest";
+
+const { profile, initProfile, hasProfile, resetProfile } = useProfile();
+const { resetAuth } = useAuth();
 const { roundSummary, loadRoundSummary, clearRoundSummary } = useRoundSummary();
 const { status, isConfirming, error, checkRewardStatus, confirmRoundReceived } =
   useReward();
@@ -45,19 +58,13 @@ const hasValidRound = computed(
 );
 const rewardName = computed(() => status.value?.reward?.name ?? "-");
 
-// [แก้ไข] คะแนนของรอบนี้ "อ่านจาก LocalStorage โดยตรง" (roundSummary — สแนปช็อต
-// ที่บันทึกไว้ตอนจบเกม ดู composables/useRoundSummary.ts) แทนการยิง getRoundScores
-// ไปหา Backend เหมือนเดิม — เหตุผล: Backend คำนวณจาก Journey+Answers sheet ซึ่ง
-// sync ช้ากว่า/ไม่ครบ ทำให้คะแนนที่หน้านี้เคยแสดงเป็น 0 ทั้งที่ผู้เล่นทำภารกิจมาแล้ว
-// จริง ๆ ตอนนี้เป็นค่า sync (อ่านจาก useState/LocalStorage ได้ทันที ไม่ต้องรอ
-// เน็ต/ไม่มีสถานะ Loading ให้สับสนอีกต่อไป) ตรงกับคะแนนที่ผู้เล่นเห็นมาตั้งแต่หน้า
-// /round-summary ทุกประการ
-const localQuestionPoints = computed(
-  () => roundSummary.value?.questionPoints ?? 0,
-);
-const localTotalScore = computed(
-  () => (roundSummary.value?.totalPoint ?? 0) + localQuestionPoints.value,
-);
+// [แก้ไข] คะแนนรวมของรอบนี้ "อ่านจาก LocalStorage โดยตรง" (stationQuestMock:progress
+// .mockScore ผ่าน getMockScoreSnapshot() — ดู composables/useStationQuest.ts) แทนการ
+// อ่านจาก roundSummary.totalPoint + questionPoints เดิม — ค่าหลังนี้เป็นแค่สแนปช็อต
+// ที่คัดลอกผ่านมาอีกทอด (เสี่ยงไม่ตรง/ผูกกับ field คนละความหมาย) ต้องอ่าน mockScore
+// ตรง ๆ จาก Key เดียวกับที่ pages/round-summary.vue ใช้เท่านั้น ไม่บวกคะแนนฐาน/
+// Backend ซ้ำอีก เพราะ mockScore เป็นคะแนนรวมอยู่แล้ว
+const mockScoreDisplay = ref(0);
 const localStations = computed(() => roundSummary.value?.stations ?? []);
 
 onMounted(async () => {
@@ -69,6 +76,9 @@ onMounted(async () => {
       return;
     }
     loadRoundSummary();
+    // [แก้ไข] อ่าน mockScore จาก LocalStorage โดยตรง (Passive, ดู getMockScoreSnapshot())
+    // ทำงานได้ทันทีไม่ต้องรอเน็ต และยังอ่านค่าถูกต้องแม้หน้านี้ถูก Refresh ก่อนกด OK
+    mockScoreDisplay.value = getMockScoreSnapshot();
 
     if (hasValidRound.value) {
       const result = await checkRewardStatus(
@@ -92,8 +102,8 @@ onMounted(async () => {
         return;
       }
       // [ใหม่] มาถึงตรงนี้แปลว่ามี Round จริง + RewardStatus เป็น Claimed/Confirmed
-      // แล้วแน่นอน — คะแนนอ่านจาก LocalStorage (roundSummary) โดยตรงแล้ว (ดู
-      // localTotalScore ด้านบน) ไม่ต้องยิง API เพิ่มอีกจุดนึงแล้ว
+      // แล้วแน่นอน — คะแนนอ่านจาก LocalStorage (mockScoreDisplay ด้านบน) โดยตรง
+      // แล้ว ไม่ต้องยิง API เพิ่มอีกจุดนึงแล้ว
     }
   } catch (err) {
     console.error("[reward-received] failed to load", err);
@@ -124,9 +134,16 @@ function handleBeforeUnload(event: BeforeUnloadEvent): void {
  * ปุ่ม "OK" — เรียก confirmRoundReceived() ก่อนเสมอ (Backend validate เองว่า
  * Status=Ended + RewardStatus=Claimed จริง) รอผลสำเร็จ "ก่อน" เท่านั้นถึงจะ
  * reset State ของรอบปัจจุบัน (resetJourney/resetAnswered/clearAllTimers/
- * clearRoundSummary — ไม่ใช้ localStorage.clear() เด็ดขาด แตะเฉพาะ Key ของรอบ
- * ปัจจุบันเท่านั้น) แล้วพากลับ Home ไม่สำเร็จ -> แสดง error ค้างอยู่หน้านี้ต่อ
- * ไม่ reset อะไรทั้งสิ้น ผู้เล่นกดซ้ำได้ (Backend idempotent อยู่แล้ว)
+ * clearStationQuestProgress/clearRoundSummary — ไม่ใช้ localStorage.clear()
+ * เด็ดขาด แตะเฉพาะ Key ของรอบปัจจุบันเท่านั้น) ไม่สำเร็จ -> แสดง error ค้างอยู่
+ * หน้านี้ต่อ ไม่ reset อะไรทั้งสิ้น ผู้เล่นกดซ้ำได้ (Backend idempotent อยู่แล้ว)
+ *
+ * [แก้ไข] จบเกมแล้วต้องกลับหน้า Login ("/") ไม่ใช่ "/home" อีกต่อไป — ล้าง Profile/
+ * Auth ที่จำเป็นสำหรับกลับเข้าใหม่ด้วย (กัน "/" เด้งกลับ "/home" ทันทีเพราะ
+ * hasProfile ยังเป็น true ค้างอยู่ — ดู pages/index.vue) ไม่เพิ่ม logout LINE จริง
+ * (logoutLine()) เพราะไม่ใช่สิ่งที่ Flow เดิมเคยทำ — มี LINE Session ค้างอยู่จริงจะ
+ * Auto-login กลับเข้า Home ตามพฤติกรรมเดิมของระบบ (ดู pages/index.vue) ซึ่งเป็น
+ * เรื่องที่ตั้งใจคงไว้
  */
 async function handleOk(): Promise<void> {
   if (!hasValidRound.value || isConfirming.value) return;
@@ -140,17 +157,25 @@ async function handleOk(): Promise<void> {
   resetJourney();
   resetAnswered();
   clearAllTimers();
+  clearStationQuestProgress();
   clearRoundSummary();
-  await navigateTo("/home");
+  resetProfile();
+  resetAuth();
+  await navigateTo("/");
 }
 
 /** ปุ่ม "กลับสู่หน้าหลัก" ของ empty-state เท่านั้น (ไม่พบข้อมูลรางวัลของรอบนี้
  * เลย — ไม่มีอะไรให้ยืนยัน/reset) ต้องตั้ง confirmedLeave ก่อนเสมอเช่นกัน ไม่งั้น
  * onBeforeRouteLeave guard จะดักถามซ้ำโดยไม่จำเป็น (Guard นั้นมีไว้ป้องกันเคส
- * มีรางวัลจริงแต่ยังไม่กด OK เท่านั้น ไม่เกี่ยวกับเคสนี้เลย) */
+ * มีรางวัลจริงแต่ยังไม่กด OK เท่านั้น ไม่เกี่ยวกับเคสนี้เลย)
+ *
+ * [แก้ไข] เปลี่ยนปลายทางเป็น "/" แทน "/home" เพื่อไม่ให้มีจุดใดในหน้านี้พากลับ
+ * "/home" ตรง ๆ อีกเลย — ไม่มีรอบให้ยืนยัน/reset ในเคสนี้ (ไม่พบข้อมูลรางวัลเลย)
+ * จึงไม่แตะ Profile/Auth (ต่างจาก handleOk() ด้านบน) ปล่อยให้ Logic เดิมของ
+ * pages/index.vue ตัดสินใจต่อเอง */
 async function handleGoHomeFromEmptyState(): Promise<void> {
   confirmedLeave.value = true;
-  await navigateTo("/home");
+  await navigateTo("/");
 }
 </script>
 
@@ -208,10 +233,11 @@ async function handleGoHomeFromEmptyState(): Promise<void> {
             </div>
           </div>
 
-          <!-- [แก้ไข] คะแนนของรอบนี้ "อ่านจาก LocalStorage โดยตรง" (roundSummary)
-               แสดงได้ทันที ไม่ต้องรอเน็ต/ไม่มีสถานะ Loading ให้สับสนอีกต่อไป
-               (เดิมยิง getRoundScores ไปหา Backend ซึ่ง sync ช้ากว่า ทำให้บางครั้ง
-               ขึ้น 0 ทั้งที่เล่นจริง) -->
+          <!-- [แก้ไข] คะแนนรวมของรอบนี้ "อ่านจาก LocalStorage โดยตรง" (mockScore —
+               ดู getMockScoreSnapshot()) แสดงได้ทันที ไม่ต้องรอเน็ต/ไม่มีสถานะ
+               Loading ให้สับสนอีกต่อไป (เดิมยิง getRoundScores ไปหา Backend ซึ่ง
+               sync ช้ากว่า ทำให้บางครั้งขึ้น 0 ทั้งที่เล่นจริง) mockScore เป็น
+               คะแนนรวมอยู่แล้ว ไม่บวกคะแนนฐาน/Backend ซ้ำอีก -->
           <div class="info-card">
             <p class="info-card__list-title">คะแนนรวมของรอบนี้</p>
             <ul v-if="localStations.length" class="station-list">
@@ -225,13 +251,8 @@ async function handleGoHomeFromEmptyState(): Promise<void> {
               </li>
             </ul>
             <p class="score-card__total">
-              <span class="score-card__total-num">{{ localTotalScore }}</span>
+              <span class="score-card__total-num">{{ mockScoreDisplay }}</span>
               <span class="score-card__total-unit">Point</span>
-            </p>
-            <p v-if="localQuestionPoints" class="total-card__breakdown">
-              (ฐาน {{ roundSummary?.totalPoint ?? 0 }} + ตอบคำถามถูก +{{
-                localQuestionPoints
-              }})
             </p>
           </div>
 

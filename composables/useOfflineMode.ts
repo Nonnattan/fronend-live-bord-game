@@ -168,6 +168,18 @@ export function useOfflineMode() {
     persistRoundData({ ...roundData.value, endedAt: Date.now() })
   }
 
+  /** [ใหม่] ล้างข้อมูลรอบ Offline ทิ้ง (LocalStorage + State) โดยไม่สร้างรอบใหม่ให้
+   * ทันที — ใช้ตอน "จบเกมสำเร็จ" (pages/round-summary.vue::confirmAndGoHome()) แทน
+   * การเรียก startRound() เดิมที่เผื่อเตรียมรอบถัดไปไว้ล่วงหน้าทันที (ขัดกับสเปกใหม่
+   * "ห้ามเริ่ม Round ใหม่อัตโนมัติ" — รอบถัดไปจะถูกสร้างตอนกด GO ที่ pages/starting.vue
+   * ตามปกติอยู่แล้ว) และตอน Session หมดอายุเกิน 24 ชม. (ดู composables/useSessionExpiry.ts) */
+  function clearRoundData(): void {
+    if (import.meta.client) {
+      localStorage.removeItem(ROUND_DATA_KEY)
+    }
+    roundData.value = null
+  }
+
   return {
     isOfflineMode: readonly(isOfflineMode),
     offlineGatePending: readonly(offlineGatePending),
@@ -178,5 +190,6 @@ export function useOfflineMode() {
     startRound,
     logStationScan,
     endRound,
+    clearRoundData,
   }
 }

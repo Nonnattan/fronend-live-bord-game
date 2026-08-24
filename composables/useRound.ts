@@ -163,10 +163,25 @@ export function useRound() {
     }
   }
 
+  /**
+   * [ใหม่] ล้างสถานะ Round ฝั่ง Client ทิ้ง "โดยไม่ยิง roundEnd() ขึ้น Backend" —
+   * ใช้เฉพาะตอน Session หมดอายุเกิน 24 ชม. เท่านั้น (ดู composables/useSessionExpiry.ts)
+   * ต่างจาก endCurrentRound() ที่ปิด Round จริงฝั่ง Backend ด้วย — ที่นี่แค่ "เลิก
+   * อ้างอิง" Round เดิมในเครื่องนี้เท่านั้น (ฝั่ง Backend ยังเป็น Started ค้างไว้เหมือน
+   * ที่เคยเป็นอยู่แล้วถ้าผู้เล่นไม่กด "จบเกม" ให้ครบ Flow — ไม่ใช่ปัญหาใหม่ที่เกิดจาก
+   * ฟังก์ชันนี้ และไม่ใช่สิ่งที่ Requirement นี้ขอให้แก้)
+   */
+  function discardStaleRound(): void {
+    isRoundEnded.value = false
+    currentRoundId.value = null
+    clearStoredRound()
+  }
+
   return {
     currentRoundId: readonly(currentRoundId),
     isRoundEnded: readonly(isRoundEnded),
     ensureRoundStarted,
     endCurrentRound,
+    discardStaleRound,
   }
 }
