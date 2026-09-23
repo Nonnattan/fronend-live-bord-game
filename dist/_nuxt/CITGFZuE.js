@@ -1,0 +1,1 @@
+import{Ct as e,F as t,W as n,kt as r}from"./DCZYtM8c.js";import{u as i}from"./CgvQ4v-A.js";import{t as a}from"./CNs_Ozdc2.js";var o=n({__name:`station-quest`,setup(n){return a({layout:`app`}),e(()=>{i(`/stations`,{replace:!0})}),(e,n)=>(r(),t(`div`))}});export{o as default};

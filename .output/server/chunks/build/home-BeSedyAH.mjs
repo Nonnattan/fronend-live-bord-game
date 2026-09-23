@@ -1,0 +1,248 @@
+import { _ as _plugin_vue_export_helper_default, b as _sfc_main$7, d as _sfc_main$5, c as _sfc_main$2, n as navigateTo } from '../virtual/entry.mjs';
+import { u as useRoundTimer } from './useRoundTimer-Dx2_uv0V.mjs';
+import { u as useRequireProfile } from './useRequireProfile-DlhceP1F.mjs';
+import { u as useAdventure, g as getStationVisual, a as getStationPosition } from './useAdventure-OrKGgcht.mjs';
+import { u as useStationMissions } from './useStationMissions-CjHnM2MF.mjs';
+import { u as useStationQuest } from './useStationQuest-DdT4jEnZ.mjs';
+import { u as useForceEndRound } from './useForceEndRound-BKPtYIoi.mjs';
+import { _ as _virtual_public__2Fimages_2Fadventure_map_bg_default } from './_virtual_public-BGzBxMwg.mjs';
+import { defineComponent, computed, watch, mergeProps, unref, withCtx, createTextVNode, useSSRContext } from 'vue';
+import { ssrRenderAttrs, ssrRenderComponent, ssrInterpolate, ssrRenderList, ssrRenderClass, ssrRenderAttr, ssrRenderStyle } from 'vue/server-renderer';
+import 'nostics';
+import 'nostics/formatters/ansi';
+import '../_/nitro.mjs';
+import 'node:http';
+import 'node:https';
+import 'node:events';
+import 'node:buffer';
+import 'node:fs';
+import 'node:path';
+import 'node:crypto';
+import 'node:url';
+import '@iconify/utils';
+import 'consola';
+import 'vue-router';
+import 'unhead/utils';
+import '../routes/renderer.mjs';
+import 'unhead/server';
+import 'unhead/legacy';
+import 'unhead/plugins';
+import 'vue-bundle-renderer/runtime';
+import 'devalue';
+import '@iconify/vue';
+import 'tailwindcss/colors';
+import '@vueuse/core';
+import '@iconify/utils/lib/css/icon';
+import 'tailwind-variants';
+import './useProfile-Di4CdYil.mjs';
+import 'zod';
+import './useMemberApi-CZogIGln.mjs';
+import './useRound-Vyr0MdjD.mjs';
+import './useRoundSummary-C3F2b7Ya.mjs';
+import './useOfflineSync-D8-RD8DK.mjs';
+
+//#region components/map/MiniMap.vue?vue&type=script&setup=true&lang.ts
+var MiniMap_vue_vue_type_script_setup_true_lang_default = /*@__PURE__*/ defineComponent({
+	__name: "MiniMap",
+	__ssrInlineRender: true,
+	props: {
+		stations: {},
+		visitedIds: {}
+	},
+	emits: ["open"],
+	setup(__props, { emit: __emit }) {
+		/**
+		* components/map/MiniMap.vue
+		* ---------------------------------------------------------------------------
+		* Adventure Map แบบย่อสำหรับหน้า Home — สูงประมาณ 250px พื้นหลังเป็นภาพเกาะลอย
+		* ฟาร์มที่มีตึก/หมุด/ป้ายชื่อฐานทั้ง 4 วาดอยู่ในภาพเลย เดียวกับหน้า Map เต็ม
+		* (public/images/adventure-map-bg.jpg) ไม่ใช้ Leaflet/OpenStreetMap/GPS ใด ๆ
+		*
+		* เป็น "หน้าอ้างอิงตำแหน่งฐาน" ย่อ ๆ ที่รับ visitedIds จาก useAdventure()
+		* ผ่าน props เดียวกับ Main Map เพื่อแสดง ✓ ที่จุดเดียวกันโดยไม่สร้าง scanned state
+		* แยกเอง แล้ว emit "open" ออกไป
+		* ให้หน้า (page) เป็นผู้สั่ง navigateTo('/map') เอง
+		*
+		* [แก้ไข — ตามที่แก้ใน AdventureMap.vue] พื้นหลังภาพเดียวมีครบทั้งตึก/หมุด/
+		* ป้ายชื่อ/ไอคอนตกแต่งอยู่แล้ว ตัดการวาดหมุดทับ (บับเบิลกรอบแดง+เด้ง) ออกทั้งหมด
+		* เหลือไว้แค่ "ติ๊กถูกสีเขียว" ทับตำแหน่งฐานที่ผ่านแล้วเท่านั้น — ตำแหน่งคำนวณจาก
+		* ลำดับ (index หลังเรียง order) ผ่าน getStationPosition() ไม่ผูกกับ id ฐานตายตัว
+		* (ดู composables/useAdventure.ts::getStationPosition)
+		*/
+		const props = __props;
+		function isVisited(stationId) {
+			return props.visitedIds.includes(stationId);
+		}
+		return (_ctx, _push, _parent, _attrs) => {
+			const _component_UIcon = _sfc_main$7;
+			_push(`<div${ssrRenderAttrs(mergeProps({
+				class: "mini-map",
+				role: "button",
+				tabindex: "0",
+				"aria-label": "ดูแผนที่แบบเต็ม"
+			}, _attrs))} data-v-1e2afeeb><div class="mini-map__canvas" data-v-1e2afeeb><img class="mini-map__bg"${ssrRenderAttr("src", _virtual_public__2Fimages_2Fadventure_map_bg_default)} alt="แผนที่ฟาร์ม Adventure" draggable="false" data-v-1e2afeeb><!--[-->`);
+			ssrRenderList(props.stations, (station, index) => {
+				_push(`<span class="mini-map__check-slot" style="${ssrRenderStyle({
+					left: `${unref(getStationPosition)(index).x}%`,
+					top: `${unref(getStationPosition)(index).y}%`
+				})}" data-v-1e2afeeb>`);
+				if (isVisited(station.id)) {
+					_push(`<span class="mini-map__check"${ssrRenderAttr("aria-label", `${station.name}: ผ่านแล้ว`)} data-v-1e2afeeb>`);
+					_push(ssrRenderComponent(_component_UIcon, {
+						name: "i-lucide-check",
+						class: "mini-map__check-icon"
+					}, null, _parent));
+					_push(`</span>`);
+				} else _push(`<!---->`);
+				_push(`</span>`);
+			});
+			_push(`<!--]--></div><div class="mini-map__footer" data-v-1e2afeeb><div class="mini-map__footer-text" data-v-1e2afeeb><p class="mini-map__title" data-v-1e2afeeb>Adventure Map</p><p class="mini-map__desc" data-v-1e2afeeb>แตะเพื่อเปิดแผนที่เต็ม</p></div>`);
+			_push(ssrRenderComponent(_component_UIcon, {
+				name: "i-lucide-chevron-right",
+				class: "mini-map__chevron"
+			}, null, _parent));
+			_push(`</div></div>`);
+		};
+	}
+});
+//#endregion
+//#region components/map/MiniMap.vue
+var _sfc_setup$1 = MiniMap_vue_vue_type_script_setup_true_lang_default.setup;
+MiniMap_vue_vue_type_script_setup_true_lang_default.setup = (props, ctx) => {
+	const ssrContext = useSSRContext();
+	(ssrContext.modules || (ssrContext.modules = /* @__PURE__ */ new Set())).add("components/map/MiniMap.vue");
+	return _sfc_setup$1 ? _sfc_setup$1(props, ctx) : void 0;
+};
+var MiniMap_default = /*#__PURE__*/ Object.assign(_plugin_vue_export_helper_default(MiniMap_vue_vue_type_script_setup_true_lang_default, [["__scopeId", "data-v-1e2afeeb"]]), { __name: "MapMiniMap" });
+//#endregion
+//#region pages/home.vue?vue&type=script&setup=true&lang.ts
+var home_vue_vue_type_script_setup_true_lang_default = /*@__PURE__*/ defineComponent({
+	__name: "home",
+	__ssrInlineRender: true,
+	setup(__props) {
+		const { profile, isReady } = useRequireProfile();
+		const { stations, totalStations} = useAdventure();
+		const { getStationMissions, isStationMissionComplete, missionProgressCount, totalPointsEarned} = useStationMissions();
+		useStationQuest();
+		const { roundRemainingLabel, hasActiveRoundTimer, isRoundExpired } = useRoundTimer();
+		const { forceEndRoundDueToTimeout } = useForceEndRound();
+		/** จำนวนฐานที่ทำด่านย่อยครบทุกใบแล้ว (แทน visitedCount เดิมจาก useAdventure) —
+		* ใช้ station.id (real id จาก Backend) เสมอ ไม่ใช่ station.type (แค่ metadata
+		* ประกอบ ไม่บังคับต้องมีค่า) */
+		const completedStationCount = computed(() => stations.value.filter((s) => isStationMissionComplete(s.id)).length);
+		/** ให้ MiniMap ติ๊ก ✓ ตรงกับการ์ดฐานด้านล่างเป๊ะ ๆ (ที่มาเดียวกัน — ไม่ใช้
+		* visitedIds เดิมจาก useAdventure() ซึ่งเป็นระบบเช็คอินคนละอันที่ Flow นี้ไม่แตะ) */
+		const miniMapVisitedIds = computed(() => stations.value.filter((s) => isStationMissionComplete(s.id)).map((s) => s.id));
+		watch(isRoundExpired, (expired) => {
+			if (expired) forceEndRoundDueToTimeout("round");
+		});
+		/** ปุ่ม "GO" — [ใหม่] ตอนนี้ไม่เปิดรอบตรงนี้ในหน้า Home อีกต่อไป แค่พาไปหน้า
+		* /starting (หน้าโหลดเต็มจอแยกต่างหาก) ซึ่งเป็นจุดที่เรียก
+		* ensureRoundStarted()/startRound() + startRoundTimer() จริง แล้วค่อยพากลับมา
+		* หน้านี้เองเมื่อเสร็จ (ดู pages/starting.vue) — ทำให้ระหว่างรอ Network Call
+		* (อาจช้าบนเน็ตมือถือกลางแปลง) ผู้เล่นเห็นเป็นหน้าเต็มจอแยกจริง ๆ แทนการ์ดเล็ก ๆ
+		* ในหน้า Home เหมือนเดิม */
+		function pressGo() {
+			navigateTo("/starting");
+		}
+		function goToMapPage() {
+			navigateTo("/map");
+		}
+		return (_ctx, _push, _parent, _attrs) => {
+			const _component_UIcon = _sfc_main$7;
+			const _component_UAvatar = _sfc_main$5;
+			const _component_UButton = _sfc_main$2;
+			_push(`<div${ssrRenderAttrs(mergeProps({ class: "page" }, _attrs))} data-v-22bcb350>`);
+			if (!unref(isReady)) {
+				_push(`<div class="page__loading" data-v-22bcb350>`);
+				_push(ssrRenderComponent(_component_UIcon, {
+					name: "i-lucide-loader-2",
+					class: "page__spinner"
+				}, null, _parent));
+				_push(`</div>`);
+			} else {
+				_push(`<div class="home" data-v-22bcb350><div class="greeting" data-v-22bcb350>`);
+				if (unref(profile)?.pictureUrl) _push(ssrRenderComponent(_component_UAvatar, {
+					src: unref(profile).pictureUrl,
+					size: "md",
+					class: "greeting__avatar"
+				}, null, _parent));
+				else {
+					_push(`<div class="greeting__avatar-fallback" data-v-22bcb350>`);
+					_push(ssrRenderComponent(_component_UIcon, {
+						name: "i-lucide-user-round",
+						class: "greeting__avatar-icon"
+					}, null, _parent));
+					_push(`</div>`);
+				}
+				_push(`<div class="greeting__text" data-v-22bcb350><p class="greeting__hello" data-v-22bcb350>สวัสดี</p><p class="greeting__name" data-v-22bcb350>${ssrInterpolate(unref(profile)?.firstName)} ${ssrInterpolate(unref(profile)?.lastName)}</p></div>`);
+				if (unref(hasActiveRoundTimer)) {
+					_push(`<div class="greeting__timer" data-v-22bcb350>`);
+					_push(ssrRenderComponent(_component_UIcon, {
+						name: "i-lucide-timer",
+						class: "greeting__timer-icon"
+					}, null, _parent));
+					_push(` ${ssrInterpolate(unref(roundRemainingLabel))}</div>`);
+				} else _push(`<!---->`);
+				_push(`</div>`);
+				if (!unref(hasActiveRoundTimer)) {
+					_push(`<section class="go-gate" data-v-22bcb350>`);
+					_push(ssrRenderComponent(_component_UIcon, {
+						name: "i-lucide-flag-triangle-right",
+						class: "go-gate__icon"
+					}, null, _parent));
+					_push(`<p class="go-gate__title" data-v-22bcb350>พร้อมเริ่มผจญภัยหรือยัง?</p><p class="go-gate__desc" data-v-22bcb350> กดปุ่ม GO เพื่อเปิดรอบเล่น — มีเวลา 2 ชั่วโมงในการเก็บฐานให้ครบทุกเผ่า </p>`);
+					_push(ssrRenderComponent(_component_UButton, {
+						size: "xl",
+						color: "primary",
+						class: "go-gate__button",
+						onClick: pressGo
+					}, {
+						default: withCtx((_, _push, _parent, _scopeId) => {
+							if (_push) _push(` GO `);
+							else return [createTextVNode(" GO ")];
+						}),
+						_: 1
+					}, _parent));
+					_push(`</section>`);
+				} else {
+					_push(`<!--[--><section class="summary-card" data-v-22bcb350><div class="summary-card__top" data-v-22bcb350><div class="summary-card__stat" data-v-22bcb350><p class="summary-card__label" data-v-22bcb350>เข้าฐานแล้ว</p><p class="summary-card__value" data-v-22bcb350><span class="summary-card__value-num" data-v-22bcb350>${ssrInterpolate(unref(completedStationCount))}/${ssrInterpolate(unref(totalStations))}</span></p></div><div class="summary-card__divider" data-v-22bcb350></div><div class="summary-card__stat" data-v-22bcb350><p class="summary-card__label" data-v-22bcb350>คะแนน</p><p class="summary-card__value" data-v-22bcb350><span class="summary-card__value-num" data-v-22bcb350>${ssrInterpolate(unref(totalPointsEarned))}</span></p></div></div><div class="station-grid" data-v-22bcb350><!--[-->`);
+					ssrRenderList(unref(stations), (station, index) => {
+						_push(`<div class="${ssrRenderClass([{ "station-chip--visited": unref(isStationMissionComplete)(station.id) }, "station-chip"])}" data-v-22bcb350><span class="station-chip__icon-wrap" data-v-22bcb350>`);
+						if (unref(isStationMissionComplete)(station.id)) _push(ssrRenderComponent(_component_UIcon, {
+							name: "i-lucide-check",
+							class: "station-chip__icon"
+						}, null, _parent));
+						else if (station.imageUrl) _push(`<img${ssrRenderAttr("src", station.imageUrl)}${ssrRenderAttr("alt", station.name)} class="station-chip__image" data-v-22bcb350>`);
+						else _push(`<span class="station-chip__emoji" data-v-22bcb350>${ssrInterpolate(unref(getStationVisual)(index).icon)}</span>`);
+						_push(`</span><span class="station-chip__name" data-v-22bcb350>${ssrInterpolate(station.name)}</span>`);
+						if (!unref(isStationMissionComplete)(station.id) && unref(getStationMissions)(station.id).length > 0) _push(`<span class="station-chip__progress" data-v-22bcb350>${ssrInterpolate(unref(missionProgressCount)(station.id))}/${ssrInterpolate(unref(getStationMissions)(station.id).length)}</span>`);
+						else _push(`<!---->`);
+						_push(`</div>`);
+					});
+					_push(`<!--]--></div></section>`);
+					_push(ssrRenderComponent(MiniMap_default, {
+						stations: unref(stations),
+						"visited-ids": unref(miniMapVisitedIds),
+						onOpen: goToMapPage
+					}, null, _parent));
+					_push(`<!--]-->`);
+				}
+				_push(`</div>`);
+			}
+			_push(`</div>`);
+		};
+	}
+});
+//#endregion
+//#region pages/home.vue
+var _sfc_setup = home_vue_vue_type_script_setup_true_lang_default.setup;
+home_vue_vue_type_script_setup_true_lang_default.setup = (props, ctx) => {
+	const ssrContext = useSSRContext();
+	(ssrContext.modules || (ssrContext.modules = /* @__PURE__ */ new Set())).add("pages/home.vue");
+	return _sfc_setup ? _sfc_setup(props, ctx) : void 0;
+};
+var home_default = /*#__PURE__*/ _plugin_vue_export_helper_default(home_vue_vue_type_script_setup_true_lang_default, [["__scopeId", "data-v-22bcb350"]]);
+
+export { home_default as default };
+//# sourceMappingURL=home-BeSedyAH.mjs.map

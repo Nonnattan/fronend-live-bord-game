@@ -1,0 +1,183 @@
+import { c as navigateTo } from "./error-CeCQlnc5.js";
+import { D as _sfc_main, n as _plugin_vue_export_helper_default, r as _sfc_main$1, t as useOfflineMode } from "../server.mjs";
+import { t as PageHeader_default } from "./PageHeader-D2G5O0y5.js";
+import { t as definePageMeta } from "./pages-Cs7lFyjE.js";
+import { t as useMemberApi } from "./useMemberApi-DKl7a10r.js";
+import { t as useRequireProfile } from "./useRequireProfile-lZ7eJIgL.js";
+import { i as useAdventure, r as STATION_TYPE_META } from "./useAdventure-oyoryhV9.js";
+import { t as useRound } from "./useRound-BmAVHypg.js";
+import { t as useRoundSummary } from "./useRoundSummary-C3F2b7Ya.js";
+import { n as useStationMissions } from "./useStationMissions-DyKPx7bx.js";
+import { n as useStationQuest } from "./useStationQuest-Bji0iII9.js";
+import { computed, createTextVNode, defineComponent, mergeProps, ref, unref, useSSRContext, withCtx } from "vue";
+import { ssrInterpolate, ssrRenderAttrs, ssrRenderClass, ssrRenderComponent, ssrRenderList } from "vue/server-renderer";
+//#region pages/evaluation.vue?vue&type=script&setup=true&lang.ts
+var evaluation_vue_vue_type_script_setup_true_lang_default = /*@__PURE__*/ defineComponent({
+	__name: "evaluation",
+	__ssrInlineRender: true,
+	setup(__props) {
+		/**
+		* pages/evaluation.vue
+		* ---------------------------------------------------------------------------
+		* หน้าแบบประเมิน "ท่านชอบฐานใดมากที่สุด?" — เลือกได้ 1 จาก 4 ฐาน (แสดงชื่อจริง
+		* ไม่ใช้เลข) เข้ามาจากปุ่ม "จบเกม" ที่หน้า /station/milk (ดู
+		* pages/station/[stationId].vue::handleEndGame()) กด "ส่งแบบประเมิน" แล้วพาไป
+		* หน้าสรุปผล/รางวัลเดิมของโปรเจกต์ (pages/round-summary.vue — ดูเหตุผลที่ใช้หน้า
+		* นี้แทนที่จะสร้างหน้า Reward ใหม่ ในคอมเมนต์ handleSubmit ด้านล่าง)
+		*
+		* ใช้ submitSurvey() จริงของระบบเดิม (server-gas/SurveyService.gs) เฉพาะฝั่ง
+		* Online เท่านั้น (แปลงฐานที่เลือกเป็นค่า 1-4 ตาม mapping เดิมที่ระบบมีอยู่แล้ว —
+		* corn=1/soil=2/cow=3/milk=4) ไม่ได้สร้าง API ใหม่ใด ๆ ฝั่ง Offline ไม่มี Round
+		* ฝั่ง Backend ให้บันทึกอยู่แล้ว จึงเก็บแค่ในเครื่อง (เหมือนกติกาเดิมของแบบประเมิน
+		* ในปุ่มฐานนมเก่า) ไม่ Submit ไม่สำเร็จก็ไม่บล็อกผู้เล่น (รอบนี้เป็น Feedback
+		* เสริม ไม่ใช่เงื่อนไขบังคับแบบระบบเดิม)
+		*/
+		definePageMeta({ layout: "app" });
+		const { profile, isReady } = useRequireProfile();
+		const { stations } = useAdventure();
+		const { isOfflineMode, endRound } = useOfflineMode();
+		const { currentRoundId, endCurrentRound } = useRound();
+		const { submitSurvey } = useMemberApi();
+		const { saveRoundSummary } = useRoundSummary();
+		const { setFavoriteStation, initStationQuest } = useStationQuest();
+		const { isStationMissionComplete, initStationMissions } = useStationMissions();
+		const STATION_ORDER = [
+			"corn",
+			"cow",
+			"soil",
+			"milk"
+		];
+		/** Mapping เดิมของระบบ (ดู server-gas/SurveyService.gs ผ่าน submitSurvey()) —
+		* favoriteStationRating รับแค่ 1-5 เท่านั้น ใช้ mapping เดียวกับ Popup แบบประเมิน
+		* เดิมใน pages/scan.vue เพื่อให้ข้อมูลย้อนหลังตีความสอดคล้องกัน */
+		const RATING_BY_STATION = {
+			corn: 1,
+			soil: 2,
+			cow: 3,
+			milk: 4
+		};
+		const stationChoices = computed(() => STATION_ORDER.map((id) => ({
+			id,
+			name: stations.value.find((s) => s.id === id)?.name ?? STATION_TYPE_META[id].label,
+			icon: STATION_TYPE_META[id].icon
+		})));
+		const selectedFavoriteStationId = ref(null);
+		const submitting = ref(false);
+		/**
+		* กด "ส่งแบบประเมิน" — เก็บฐานที่เลือกไว้ในเครื่องเสมอ (setFavoriteStation) แล้ว
+		* ปิด Round ตามช่องทางเดิมของระบบ (Online: submitSurvey() + endCurrentRound() /
+		* Offline: endRound()) ก่อนเก็บสรุปผล "รอบนี้" ด้วยข้อมูล Mock (ฐานที่ทำครบ 3/3
+		* + mockScore) ผ่าน useRoundSummary เดิม แล้วพาไป /round-summary
+		*
+		* [Fix — root cause ของ "หน้าสรุปผลขึ้น 0 คะแนน/ไม่มีฐานที่เล่นเลย ทั้งที่เพิ่งเล่น
+		* ครบ 4 ฐาน"] เดิมอ่าน completedStations/mockScore "หลัง" เรียก endCurrentRound()
+		* ไปแล้ว — endCurrentRound() เคลียร์ currentRoundId เป็น null ใน finally ของมันเอง
+		* เสมอ ซึ่งเปลี่ยน effectiveRoundKey ใน useStationQuest.ts ทันที (จาก
+		* "online:<roundId>" เป็น "no-round") ไป Trigger watch(effectiveRoundKey) ที่นั่น
+		* ให้เข้าใจว่า "เปลี่ยนรอบใหม่แล้ว" แล้วล้าง Progress/mockScore ทั้งหมดทิ้งทันที
+		* ก่อนที่โค้ดด้านล่างจะทันได้อ่านค่าจริงเสียอีก (อ่านได้ค่าว่างเปล่าเสมอ) แก้โดย
+		* จับค่าสรุปผลทั้งหมด (completedStations/correctCount/mockScore) ไว้ "ก่อน" เรียก
+		* endCurrentRound()/submitSurvey()/endRound() เสมอ — เหมือนที่ต้องจับ roundId ไว้
+		* ก่อนด้วยเหตุผลเดียวกัน (ดู pages/scan.vue เดิม)
+		*/
+		async function handleSubmit() {
+			if (!selectedFavoriteStationId.value || submitting.value) return;
+			submitting.value = true;
+			try {
+				setFavoriteStation(selectedFavoriteStationId.value);
+				const roundIdForSummary = currentRoundId.value;
+				const userIdForSummary = profile.value?.memberId || profile.value?.uid || null;
+				let startTimeIso = null;
+				let endTimeIso = (/* @__PURE__ */ new Date()).toISOString();
+				const completedStations = STATION_ORDER.filter((id) => isStationMissionComplete(id)).map((id) => ({
+					name: stationChoices.value.find((s) => s.id === id)?.name ?? id,
+					points: 0
+				}));
+				if (isOfflineMode.value) endRound();
+				else if (profile.value?.memberId && roundIdForSummary) {
+					try {
+						await submitSurvey({
+							roundId: roundIdForSummary,
+							userId: profile.value.memberId,
+							firstName: profile.value.firstName,
+							favoriteStationRating: RATING_BY_STATION[selectedFavoriteStationId.value]
+						});
+					} catch (err) {
+						console.error("[evaluation] submitSurvey failed", err);
+					}
+					const ended = await endCurrentRound(profile.value.memberId);
+					if (ended) {
+						startTimeIso = ended.startTime || null;
+						endTimeIso = ended.endTime || endTimeIso;
+					}
+				}
+				saveRoundSummary({
+					mode: isOfflineMode.value ? "offline" : "online",
+					startTime: startTimeIso,
+					endTime: endTimeIso,
+					stations: completedStations,
+					totalPoint: null,
+					roundId: isOfflineMode.value ? null : roundIdForSummary,
+					userId: userIdForSummary,
+					endedReason: "manual"
+				});
+			} finally {
+				submitting.value = false;
+			}
+			await navigateTo("/round-summary");
+		}
+		return (_ctx, _push, _parent, _attrs) => {
+			const _component_PageHeader = PageHeader_default;
+			const _component_UIcon = _sfc_main;
+			const _component_UButton = _sfc_main$1;
+			_push(`<div${ssrRenderAttrs(mergeProps({ class: "page" }, _attrs))} data-v-d5180d09>`);
+			_push(ssrRenderComponent(_component_PageHeader, {
+				title: "แบบประเมิน",
+				"back-to": "/stations"
+			}, null, _parent));
+			if (!unref(isReady)) {
+				_push(`<div class="page__loading" data-v-d5180d09>`);
+				_push(ssrRenderComponent(_component_UIcon, {
+					name: "i-lucide-loader-2",
+					class: "page__spinner"
+				}, null, _parent));
+				_push(`</div>`);
+			} else {
+				_push(`<div class="page__content" data-v-d5180d09><p class="page__question" data-v-d5180d09>ท่านชอบฐานใดมากที่สุด?</p><div class="choice-list" data-v-d5180d09><!--[-->`);
+				ssrRenderList(unref(stationChoices), (choice) => {
+					_push(`<button type="button" class="${ssrRenderClass([{ "choice--selected": unref(selectedFavoriteStationId) === choice.id }, "choice"])}" data-v-d5180d09><span class="choice__icon" data-v-d5180d09>${ssrInterpolate(choice.icon)}</span><span class="choice__name" data-v-d5180d09>${ssrInterpolate(choice.name)}</span></button>`);
+				});
+				_push(`<!--]--></div>`);
+				_push(ssrRenderComponent(_component_UButton, {
+					block: "",
+					size: "xl",
+					color: "primary",
+					loading: unref(submitting),
+					disabled: !unref(selectedFavoriteStationId) || unref(submitting),
+					onClick: handleSubmit
+				}, {
+					default: withCtx((_, _push, _parent, _scopeId) => {
+						if (_push) _push(` ส่งแบบประเมิน `);
+						else return [createTextVNode(" ส่งแบบประเมิน ")];
+					}),
+					_: 1
+				}, _parent));
+				_push(`</div>`);
+			}
+			_push(`</div>`);
+		};
+	}
+});
+//#endregion
+//#region pages/evaluation.vue
+var _sfc_setup = evaluation_vue_vue_type_script_setup_true_lang_default.setup;
+evaluation_vue_vue_type_script_setup_true_lang_default.setup = (props, ctx) => {
+	const ssrContext = useSSRContext();
+	(ssrContext.modules || (ssrContext.modules = /* @__PURE__ */ new Set())).add("pages/evaluation.vue");
+	return _sfc_setup ? _sfc_setup(props, ctx) : void 0;
+};
+var evaluation_default = /*#__PURE__*/ _plugin_vue_export_helper_default(evaluation_vue_vue_type_script_setup_true_lang_default, [["__scopeId", "data-v-d5180d09"]]);
+//#endregion
+export { evaluation_default as default };
+
+//# sourceMappingURL=evaluation-BRgal1qV.js.map

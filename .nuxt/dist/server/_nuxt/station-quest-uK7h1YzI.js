@@ -1,0 +1,41 @@
+import "./error-CeCQlnc5.js";
+import { t as definePageMeta } from "./pages-Cs7lFyjE.js";
+import { defineComponent, useSSRContext } from "vue";
+import { ssrRenderAttrs } from "vue/server-renderer";
+//#region pages/station-quest.vue?vue&type=script&setup=true&lang.ts
+var station_quest_vue_vue_type_script_setup_true_lang_default = /*@__PURE__*/ defineComponent({
+	__name: "station-quest",
+	__ssrInlineRender: true,
+	setup(__props) {
+		/**
+		* pages/station-quest.vue
+		* ---------------------------------------------------------------------------
+		* [แก้ไข] เดิมเป็นหน้าทดลอง UI ต้นแบบของ Flow "ปลดล็อคฐาน + ภารกิจ" (Mockup
+		* ล้วน ๆ ก่อนจะย้ายมาเป็นหน้าเต็มจริงที่ pages/stations.vue +
+		* pages/station/[stationId].vue) — nuxt.config.ts (nitro.prerender.routes)
+		* บันทึกไว้แล้วว่าไฟล์นี้ "ถูกลบทิ้งแล้ว" ตั้งแต่ตอนย้าย Flow จริงเข้า /scan
+		* (ดูคอมเมนต์ที่นั่น) แต่ไฟล์จริงยังไม่เคยถูกลบออกจากดิสก์ — ไม่มีที่ไหนใน
+		* แอปลิงก์มาหน้านี้แล้ว (ตรวจสอบแล้ว) และยังอ้างอิง Mock Type/Composable API
+		* รุ่นเก่าที่ถูกแทนที่ไปหมดแล้ว (types/stationMission.ts,
+		* composables/useStationQuest.ts) จึงคงไว้แค่เป็นทางเผื่อ URL/Bookmark เก่าที่
+		* อาจหลงเหลืออยู่ — พาไปหน้า "เลือกฐาน" จริงให้ทันที ไม่แสดง UI ต้นแบบเดิมอีก
+		*/
+		definePageMeta({ layout: "app" });
+		return (_ctx, _push, _parent, _attrs) => {
+			_push(`<div${ssrRenderAttrs(_attrs)}></div>`);
+		};
+	}
+});
+//#endregion
+//#region pages/station-quest.vue
+var _sfc_setup = station_quest_vue_vue_type_script_setup_true_lang_default.setup;
+station_quest_vue_vue_type_script_setup_true_lang_default.setup = (props, ctx) => {
+	const ssrContext = useSSRContext();
+	(ssrContext.modules || (ssrContext.modules = /* @__PURE__ */ new Set())).add("pages/station-quest.vue");
+	return _sfc_setup ? _sfc_setup(props, ctx) : void 0;
+};
+var station_quest_default = station_quest_vue_vue_type_script_setup_true_lang_default;
+//#endregion
+export { station_quest_default as default };
+
+//# sourceMappingURL=station-quest-uK7h1YzI.js.map

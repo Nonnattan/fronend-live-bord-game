@@ -1,0 +1,40 @@
+# public/_headers
+# ---------------------------------------------------------------------------
+# ไฟล์นี้ถูกก็อปจาก public/ ไปที่ root ของ .output/public/ ตรงๆ ตอน build เสมอ
+# (Nuxt คัดลอกทุกไฟล์ใน public/ แบบ static ไปที่ output — ตรวจสอบแล้วด้วย
+# build จริง) Cloudflare Pages อ่านไฟล์ชื่อ "_headers" จาก root ของโฟลเดอร์ที่
+# deploy โดยอัตโนมัติเสมอ (เอกสาร Cloudflare Pages) ไม่ว่าจะ deploy แบบ Static
+# ล้วน (เอา .output/public ไป deploy ตรงๆ) หรือผ่าน nitro preset
+# 'cloudflare-pages' (ที่จะ generate dist/_headers ให้เองอีกไฟล์ — นิโทรรวม
+# กฎจากไฟล์นี้เข้ากับกฎที่ auto-generate ให้อัตโนมัติ ไม่ทับกัน) ใช้ได้ทั้ง 2 วิธี
+#
+# สาเหตุที่ต้องมีไฟล์นี้ (PWA Icon Fix):
+# เว็บเซิร์ฟเวอร์ส่วนใหญ่ (รวม Cloudflare Pages ในบางเคส ขึ้นกับ mime-db เวอร์ชัน
+# ที่ใช้ ณ ขณะนั้น) ไม่รู้จักนามสกุล ".webmanifest" ว่าควรตอบ Content-Type อะไร
+# ถ้าตอบเป็น "application/octet-stream" (ไฟล์ทั่วไป) แทนที่จะเป็น
+# "application/manifest+json" ตามสเปก Chrome/Edge/Android จะ "ปฏิเสธไม่ใช้"
+# ไฟล์ manifest นั้นเงียบๆ (ไม่ error ให้เห็น) ทำให้ตอนกด "Add to Home Screen"/
+# ติดตั้งเป็น PWA ไอคอนที่กำหนดไว้ใน icons[] จะไม่ถูกใช้เลย และตกไปใช้ไอคอน
+# เริ่มต้นของ Browser แทน — ตรงกับอาการที่รายงานมาพอดี (โดยเฉพาะบน Production/
+# Cloudflare Pages ซึ่งอาจต่าง mime-db จากตอน dev บนเครื่อง)
+# บังคับ Content-Type ให้ถูกต้องตรงนี้ กันปัญหานี้แน่นอนไม่ว่า Host จะรู้จัก
+# นามสกุลนี้เองหรือไม่ก็ตาม
+
+/manifest.webmanifest
+  Content-Type: application/manifest+json
+
+# Cache ไอคอน/Favicon ไว้นานๆ ได้เลย (แทบไม่เปลี่ยน ถ้าเปลี่ยนค่อยเปลี่ยนชื่อไฟล์)
+/pwa-192x192.png
+  Cache-Control: public, max-age=31536000, immutable
+/pwa-512x512.png
+  Cache-Control: public, max-age=31536000, immutable
+/pwa-maskable-192x192.png
+  Cache-Control: public, max-age=31536000, immutable
+/pwa-maskable-512x512.png
+  Cache-Control: public, max-age=31536000, immutable
+/apple-touch-icon.png
+  Cache-Control: public, max-age=31536000, immutable
+/favicon.ico
+  Cache-Control: public, max-age=31536000, immutable
+/favicon-64x64.png
+  Cache-Control: public, max-age=31536000, immutable

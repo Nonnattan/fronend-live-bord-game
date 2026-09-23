@@ -1,0 +1,6 @@
+//#region components/photo-quest/ResultFeedback.vue?vue&type=style&index=0&scoped=5c567f9f&inline&used&lang.css
+var ResultFeedback_vue_vue_type_style_index_0_scoped_5c567f9f_inline_used_lang_default = ".result-feedback[data-v-5c567f9f]{text-align:center;border-radius:1rem;flex-direction:column;align-items:center;gap:.5rem;padding:1.5rem 1rem;display:flex}.result-feedback--pass[data-v-5c567f9f]{background:var(--farm-cream-dark);border:2px solid var(--farm-accent-dark)}.result-feedback--fail[data-v-5c567f9f]{background:var(--farm-cream);border:2px solid var(--farm-wood)}.result-feedback__icon[data-v-5c567f9f]{width:2.5rem;height:2.5rem;color:var(--farm-accent-dark)}.result-feedback--fail .result-feedback__icon[data-v-5c567f9f]{color:var(--farm-wood-dark)}.result-feedback__title[data-v-5c567f9f]{color:var(--farm-text-dark);margin:0;font-size:1.1rem;font-weight:800}.result-feedback__points[data-v-5c567f9f]{color:var(--farm-accent-dark);margin:0;font-weight:700}.result-feedback__reason[data-v-5c567f9f]{color:var(--farm-text-muted);margin:0;font-size:.85rem}";
+//#endregion
+export { ResultFeedback_vue_vue_type_style_index_0_scoped_5c567f9f_inline_used_lang_default as default };
+
+//# sourceMappingURL=_id_-styles-2.mjs-BS8aGrJd.js.map
