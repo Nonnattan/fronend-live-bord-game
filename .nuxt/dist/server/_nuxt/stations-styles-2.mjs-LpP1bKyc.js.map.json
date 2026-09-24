@@ -1,1 +1,0 @@
-{"file":"stations-styles-2.mjs-LpP1bKyc.js","mappings":"","names":[],"sources":["../../../../components/station/StationSelectionGrid.vue?vue&type=style&index=0&scoped=ac3fe301&inline&used&lang.css"],"sourcesContent":["\r\n.station-grid {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 0.85rem;\r\n}\r\n"],"version":3}

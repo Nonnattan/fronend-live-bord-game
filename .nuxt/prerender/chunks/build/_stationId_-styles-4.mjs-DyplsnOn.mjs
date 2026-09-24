@@ -1,4 +1,0 @@
-var StationMissionQr_vue_vue_type_style_index_0_scoped_db194a17_inline_used_lang_default = ".mission-qr[data-v-db194a17]{text-align:center;flex-direction:column;align-items:center;gap:.6rem;padding:.5rem 0 .25rem;display:flex}.mission-qr__icon[data-v-db194a17]{width:3rem;height:3rem;color:var(--farm-accent-dark)}.mission-qr__text[data-v-db194a17]{color:var(--farm-text-dark);margin:0;font-size:.92rem;font-weight:600}.mission-qr__hint[data-v-db194a17]{color:var(--farm-text-muted);margin:0;font-size:.85rem}.mission-qr__camera[data-v-db194a17]{background:#000;border-radius:.85rem;width:100%;min-height:240px;overflow:hidden}.mission-qr__status[data-v-db194a17]{color:var(--farm-text-muted);margin:0;font-size:.8rem}.mission-qr__status--error[data-v-db194a17]{color:var(--farm-wood-dark);font-weight:700}";
-
-export { StationMissionQr_vue_vue_type_style_index_0_scoped_db194a17_inline_used_lang_default as S };
-//# sourceMappingURL=_stationId_-styles-4.mjs-DyplsnOn.mjs.map

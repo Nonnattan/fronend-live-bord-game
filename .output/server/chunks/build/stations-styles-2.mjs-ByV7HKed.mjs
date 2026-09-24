@@ -1,5 +1,0 @@
-//#region components/station/StationSelectionGrid.vue?vue&type=style&index=0&scoped=519c10e3&inline&used&lang.css
-var StationSelectionGrid_vue_vue_type_style_index_0_scoped_519c10e3_inline_used_lang_default = ".station-grid[data-v-519c10e3]{grid-template-columns:repeat(2,minmax(0,1fr));gap:.85rem;display:grid}";
-
-export { StationSelectionGrid_vue_vue_type_style_index_0_scoped_519c10e3_inline_used_lang_default as S };
-//# sourceMappingURL=stations-styles-2.mjs-ByV7HKed.mjs.map
